@@ -1,0 +1,42 @@
+/*
+ * Default theme: dark gruvbox yellow.
+ * Apply with <html data-theme="gruvbox-yellow"> (set in main.js).
+ */
+
+[data-theme="gruvbox-yellow"] {
+  --color-bg: #1d2021;
+  --color-bg-raised: #282828;
+  --color-bg-muted: #3c3836;
+  --color-bg-hover: #504945;
+
+  --color-fg: #ebdbb2;
+  --color-fg-muted: #a89984;
+  --color-fg-subtle: #928374;
+
+  --color-accent: #fabd2f;
+  --color-accent-dim: #d79921;
+  --color-accent-fg: #1d2021;
+
+  --color-border: #504945;
+  --color-border-strong: #665c54;
+  --color-success: #b8bb26;
+  --color-warning: #fe8019;
+  --color-danger: #fb4934;
+  --color-info: #8ec07c;
+
+  --color-status-active: var(--color-accent);
+  --color-status-delayed: var(--color-warning);
+  --color-status-completed: var(--color-success);
+  --color-status-failed: var(--color-danger);
+  --color-status-archived: var(--color-fg-subtle);
+
+  --font-display: "Literata", "Iowan Old Style", Palatino, serif;
+  --font-body: "Source Serif 4", Georgia, serif;
+  --font-ui: "IBM Plex Sans", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+
+  --radius-sm: 2px;
+  --radius-md: 3px;
+
+  color-scheme: dark;
+}

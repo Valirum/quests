@@ -1,0 +1,80 @@
+# Quests — MVP TODO
+
+Стек: Python · FastAPI · SQLite · Svelte (Vite) · GTK4 + gtk4-layer-shell  
+Окружение: CachyOS · niri (Wayland)
+
+## Точки входа
+- API + SPA (dist): `./scripts/run-server.sh` → http://127.0.0.1:8765
+- Фронт с HMR: `./scripts/run-frontend.sh` → http://127.0.0.1:5173 (нужен API)
+- Сборка SPA: `./scripts/build-frontend.sh`
+- Оверлей: `./scripts/run-overlay-smoke.sh` / `python -m overlay`
+- HUD input: `python -m overlay toggle` · монитор: `python -m overlay monitor`
+
+---
+
+## 0. Smoke / инфра
+- [x] Системные зависимости (`gtk4`, `gtk4-layer-shell`, `python-gobject`)
+- [x] `pyproject.toml` + uv + `scripts/bootstrap.sh`
+- [x] Минимальный layer-shell smoke → `overlay/smoke.py`
+- [x] Проверено на niri
+
+## 1. Ядро API
+- [x] Модель: Quest + QuestStep, `pinned`, статусы вкл. `delayed`, `deadline_at` / `duration_seconds`
+- [x] SQLite + seed
+- [x] CRUD `/api/quests` (+ `?pinned=`, `?status=`), health
+- [x] PATCH шага `/api/quests/{id}/steps/{step_id}`
+- [x] Автостатус: все шаги done → `completed`; откат шага → `active`
+- [x] Live: WebSocket `/ws` + `/api/sync` + `/api/events` (kinds, toast/sound)
+- [x] UI-фокус квеста: `POST /api/ui/focus-quest` (+ `pending_focus` для новых вкладок)
+- [x] Миграции Alembic (`alembic/`, `./scripts/migrate.sh` / `uv run quests-migrate`, auto-upgrade в `init_db`; новые: `uv run alembic revision --autogenerate -m "…"`)
+
+## 2. Веб-журнал (SPA)
+- [x] Vite + Svelte; layout список / детали; gruvbox-yellow токены
+- [x] Модалки create/edit; удаление из модалки и из шапки детали
+- [x] Быстрые действия: Выполнено/Активно, `+`/`−` по шагам (без модалки)
+- [x] Live-обновление по WS; `?quest=` + HUD → выбор квеста
+- [x] FastAPI отдаёт `frontend/dist` (после `build-frontend.sh`)
+- [x] Dev: Vite на `:5173`, proxy `/api` + `/ws`, `host: 127.0.0.1`
+- [x] Разделы списка: избранные, близкие к завершению, фильтры побогаче
+- [x] Веб: поиск (раскладка + fuzzy≥4) вместо фильтра; булавки Carbon; кнопки Выполнено/Активно
+
+## 3. Оверлей
+- [x] HUD: избранное + срочные (окно дедлайна); таймер слева (green/orange/red); толстый разделитель
+- [x] Веб: срок/длительность (local ↔ UTC в БД/API с `Z`); таймер в карточке и детали (`осталось / длительность`); скрытие после истечения
+- [x] Авто-провал: `active` + истёкший `deadline_at` → `failed` (delayed вручную)
+- [x] Passthrough: текст + chip-фон; interactive: панель + drag-ручка + кликабельные тайтлы
+- [x] Input region sync (Wayland); IPC toggle / monitor / status
+- [x] Мультимонитор: кнопка цикла + drag HUD в пределах монитора (без выезда за край)
+- [x] Interactive keys: Esc→passthrough, Space→монитор, arrows/hjkl→сдвиг
+- [x] Клик по тайтлу → фокус вкладки журнала или `xdg-open ?quest=`
+- [x] Major (центр) + minor (угол); fantasy pack; JetBrains Mono; major VO (`paplay`)
+- [x] Toggle show/hide всего оверлея (CLI / хоткей niri)
+- [x] HUD collapse: ─ / Backspace → только «Задачи» (+ выход из interactive); interactive → auto-expand
+- [ ] `quest_appeared` без major-тоста на ручной create (отдельный kind для inbound)
+- [x] Cyberpunk style pack (CP2077 ref: red headers / yellow objectives / hard edges); fantasy остаётся default
+- [ ] Другие style packs / hot-reload CSS без рестарта оверлея
+- [ ] Namespace / `layer-rule` в niri
+
+## 4. Периодика (дейлики / RRULE-подобное)
+Решение TBD:
+- [ ] **Шаблон + инстансы** (предпочтение)
+- [ ] **Один rolling-квест** + streak
+- [ ] **Лог выполнений** без клонирования карточек
+
+## 5. Награды / штрафы / метрики
+- [ ] Сущности-метрики (`xp`, свои шкалы)
+- [ ] Правила reward/penalty на complete / fail / delay
+- [ ] Опциональный текстовый флавор поверх числа
+
+## 6. CLI + хуки
+- [ ] CLI (`quests list|show|add|pin|step …`) — Typer/argparse
+- [ ] Хуки: on_complete / on_step / on_status_change → скрипт / webhook / socket
+- [ ] Машиночитаемый вывод CLI (JSON)
+
+## 7. Статистика
+- [ ] Агрегации, стрики периодики, completed/failed/delayed
+- [ ] Экран / `/api/stats`
+
+## 8. Потом
+- [ ] Плагин noctalia
+- [ ] Категории / типы квестов (сюжет, быт, привычка…)

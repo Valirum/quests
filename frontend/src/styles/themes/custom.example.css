@@ -1,0 +1,32 @@
+/*
+ * Copy this file to themes/<your-theme>.css, rename the selector,
+ * override only what you need, then:
+ *   1. import it from main.js
+ *   2. set document.documentElement.dataset.theme = "<your-theme>"
+ *
+ * Example: [data-theme="my-parchment"] { --color-bg: #…; }
+ */
+
+[data-theme="custom-example"] {
+  --color-bg: #0f1419;
+  --color-bg-raised: #151b22;
+  --color-bg-muted: #1c2430;
+  --color-bg-hover: #243040;
+
+  --color-fg: #e6edf3;
+  --color-fg-muted: #8b9bab;
+  --color-fg-subtle: #5c6b7a;
+
+  --color-accent: #e3b341;
+  --color-accent-dim: #b0892a;
+  --color-accent-fg: #0f1419;
+
+  --color-border: #2a3544;
+  --color-border-strong: #3d4d60;
+  --color-success: #3fb950;
+  --color-warning: #d29922;
+  --color-danger: #f85149;
+  --color-info: #39c5cf;
+
+  color-scheme: dark;
+}

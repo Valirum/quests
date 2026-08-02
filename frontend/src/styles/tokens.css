@@ -1,0 +1,67 @@
+/*
+ * Semantic design tokens.
+ * Themes override these via [data-theme="…"] { … }.
+ * Components must use var(--token, fallback) — never raw brand colors.
+ */
+
+:root {
+  /* Surfaces */
+  --color-bg: #121212;
+  --color-bg-raised: #1a1a1a;
+  --color-bg-muted: #242424;
+  --color-bg-hover: #2a2a2a;
+
+  /* Ink */
+  --color-fg: #e8e8e8;
+  --color-fg-muted: #9a9a9a;
+  --color-fg-subtle: #6e6e6e;
+
+  /* Brand / accent */
+  --color-accent: #c9a227;
+  --color-accent-dim: #9a7b1a;
+  --color-accent-fg: #121212;
+
+  /* Lines & feedback */
+  --color-border: #333333;
+  --color-border-strong: #4a4a4a;
+  --color-success: #7a9e3a;
+  --color-warning: #c47a20;
+  --color-danger: #b54a3a;
+  --color-info: #5a8a7a;
+
+  /* Status tints (optional overlays) */
+  --color-status-active: var(--color-accent);
+  --color-status-delayed: var(--color-warning);
+  --color-status-completed: var(--color-success);
+  --color-status-failed: var(--color-danger);
+  --color-status-archived: var(--color-fg-subtle);
+
+  /* Type */
+  --font-display: "Literata", "Iowan Old Style", "Palatino Linotype", serif;
+  --font-body: "Source Serif 4", "Literata", Georgia, serif;
+  --font-ui: "IBM Plex Sans", "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+
+  --text-xs: 0.75rem;
+  --text-sm: 0.875rem;
+  --text-md: 1rem;
+  --text-lg: 1.25rem;
+  --text-xl: 1.6rem;
+
+  /* Space & chrome */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2rem;
+
+  --radius-sm: 2px;
+  --radius-md: 4px;
+  --sidebar-width: 20rem;
+  --header-height: 3.25rem;
+
+  --shadow-soft: 0 1px 0 color-mix(in srgb, var(--color-fg) 6%, transparent);
+
+  color-scheme: dark;
+}

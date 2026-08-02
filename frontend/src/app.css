@@ -1,0 +1,48 @@
+@import "./styles/tokens.css";
+@import "./styles/themes/gruvbox-yellow.css";
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--color-bg, #121212);
+  color: var(--color-fg, #e8e8e8);
+  font-family: var(--font-body, Georgia, serif);
+  font-size: var(--text-md, 1rem);
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+}
+
+#app {
+  height: 100%;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+a {
+  color: var(--color-accent, #c9a227);
+}
+
+::selection {
+  background: color-mix(in srgb, var(--color-accent, #c9a227) 35%, transparent);
+  color: var(--color-fg, #e8e8e8);
+}
