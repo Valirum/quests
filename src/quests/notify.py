@@ -1,10 +1,24 @@
 from __future__ import annotations
 
-from quests.models import QuestRead, QuestStatus
+from quests.models import QuestRead, QuestStatus, SIGNIFICANCE_LABEL_RU
 
 
 def _step_key(step) -> tuple:
     return (step.sort_order, step.title)
+
+
+def significance_value(quest: QuestRead | None) -> str:
+    if quest is None:
+        return "common"
+    sig = quest.significance
+    if hasattr(sig, "value"):
+        return str(sig.value)
+    return str(sig or "common")
+
+
+def _with_sig(event: dict, quest: QuestRead) -> dict:
+    event["significance"] = significance_value(quest)
+    return event
 
 
 def quest_change_events(before: QuestRead, after: QuestRead) -> list[dict]:
@@ -15,45 +29,57 @@ def quest_change_events(before: QuestRead, after: QuestRead) -> list[dict]:
     if before.status != after.status:
         if after.status == QuestStatus.completed:
             events.append(
-                {
-                    "kind": "quest_completed",
-                    "title": after.title,
-                    "description": desc,
-                    "detail": after.progress_label,
-                    "sound": "quest_completed",
-                    "toast": True,
-                }
+                _with_sig(
+                    {
+                        "kind": "quest_completed",
+                        "title": after.title,
+                        "description": desc,
+                        "detail": after.progress_label,
+                        "sound": "quest_completed",
+                        "toast": True,
+                    },
+                    after,
+                )
             )
         elif after.status == QuestStatus.failed:
             events.append(
-                {
-                    "kind": "quest_failed",
-                    "title": after.title,
-                    "description": desc,
-                    "detail": after.progress_label,
-                    "sound": "quest_failed",
-                    "toast": True,
-                }
+                _with_sig(
+                    {
+                        "kind": "quest_failed",
+                        "title": after.title,
+                        "description": desc,
+                        "detail": after.progress_label,
+                        "sound": "quest_failed",
+                        "toast": True,
+                    },
+                    after,
+                )
             )
         elif after.status == QuestStatus.delayed:
             events.append(
-                {
-                    "kind": "quest_delayed",
-                    "title": after.title,
-                    "detail": f"{before.status.value if hasattr(before.status,'value') else before.status} → delayed",
-                    "sound": "quest_delayed",
-                    "toast": True,
-                }
+                _with_sig(
+                    {
+                        "kind": "quest_delayed",
+                        "title": after.title,
+                        "detail": f"{before.status.value if hasattr(before.status,'value') else before.status} → delayed",
+                        "sound": "quest_delayed",
+                        "toast": True,
+                    },
+                    after,
+                )
             )
         else:
             events.append(
-                {
-                    "kind": "status_changed",
-                    "title": after.title,
-                    "detail": f"{before.status} → {after.status}",
-                    "sound": "status_changed",
-                    "toast": True,
-                }
+                _with_sig(
+                    {
+                        "kind": "status_changed",
+                        "title": after.title,
+                        "detail": f"{before.status} → {after.status}",
+                        "sound": "status_changed",
+                        "toast": True,
+                    },
+                    after,
+                )
             )
 
     before_map = {_step_key(s): s for s in before.steps}
@@ -65,47 +91,64 @@ def quest_change_events(before: QuestRead, after: QuestRead) -> list[dict]:
         progressed = step.progress_current > old.progress_current
         if became_done:
             events.append(
-                {
-                    "kind": "step_completed",
-                    "title": after.title,
-                    "detail": f"{step.title} ({step.progress_current}/{step.progress_total})",
-                    "sound": "step_completed",
-                    "step_title": step.title,
-                    "toast": True,
-                }
+                _with_sig(
+                    {
+                        "kind": "step_completed",
+                        "title": after.title,
+                        "detail": f"{step.title} ({step.progress_current}/{step.progress_total})",
+                        "sound": "step_completed",
+                        "step_title": step.title,
+                        "toast": True,
+                    },
+                    after,
+                )
             )
         elif progressed:
             events.append(
-                {
-                    "kind": "step_progress",
-                    "title": after.title,
-                    "detail": f"{step.title}: {step.progress_current}/{step.progress_total}",
-                    "sound": "step_progress",
-                    "step_title": step.title,
-                    "toast": False,
-                }
+                _with_sig(
+                    {
+                        "kind": "step_progress",
+                        "title": after.title,
+                        "detail": f"{step.title}: {step.progress_current}/{step.progress_total}",
+                        "sound": "step_progress",
+                        "step_title": step.title,
+                        "toast": False,
+                    },
+                    after,
+                )
             )
 
     if before.pinned != after.pinned:
         events.append(
-            {
-                "kind": "pin_changed",
-                "title": after.title,
-                "detail": "Pinned" if after.pinned else "Unpinned",
-                "sound": "pin_changed",
-                "toast": False,
-            }
+            _with_sig(
+                {
+                    "kind": "pin_changed",
+                    "title": after.title,
+                    "detail": "Pinned" if after.pinned else "Unpinned",
+                    "sound": "pin_changed",
+                    "toast": False,
+                },
+                after,
+            )
         )
 
     if not events:
         events.append(
-            {
-                "kind": "quest_updated",
-                "title": after.title,
-                "detail": after.progress_label,
-                "sound": "quest_updated",
-                "toast": False,
-            }
+            _with_sig(
+                {
+                    "kind": "quest_updated",
+                    "title": after.title,
+                    "detail": after.progress_label,
+                    "sound": "quest_updated",
+                    "toast": False,
+                },
+                after,
+            )
         )
 
     return events
+
+
+def significance_label_ru(significance: str | None) -> str:
+    key = (significance or "common").strip() or "common"
+    return SIGNIFICANCE_LABEL_RU.get(key, SIGNIFICANCE_LABEL_RU["common"])

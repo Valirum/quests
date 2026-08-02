@@ -31,7 +31,9 @@ sudo pacman -S gtk4 gtk4-layer-shell python-gobject
 | Фронт (HMR) | `./scripts/run-frontend.sh` | http://127.0.0.1:5173 (нужен запущенный API) |
 | Сборка SPA | `./scripts/build-frontend.sh` | в `frontend/dist` |
 | Миграции | `./scripts/migrate.sh` | или `uv run quests-migrate` |
+| CLI | `uv run quests --help` | квесты + хуки; см. [`docs/cli.md`](docs/cli.md) |
 | Оверлей | `./scripts/run-overlay-smoke.sh` | или `python -m overlay` |
+| Шаблоны | UI «Шаблоны» / `/api/templates` | daily/weekly → инстансы-квесты |
 
 Оверлей (IPC):
 
@@ -41,10 +43,22 @@ python -m overlay monitor   # следующий монитор
 python -m overlay status
 ```
 
-Тема оверлея: `QUESTS_STYLE_PACK=fantasy|cyberpunk` (по умолчанию `fantasy`).
+Тема / позиция HUD сохраняются в `data/overlay.json` (`style_pack`, `monitor_connector`, `margins`). Переключение стиля — в interactive-режиме (dropdown). Env `QUESTS_STYLE_PACK` перекрывает конфиг на старте.
 
 ```bash
 QUESTS_STYLE_PACK=cyberpunk ./scripts/run-overlay-smoke.sh
 ```
 
+Layer-shell namespaces (для `niri msg layers` / `layer-rule`): `quests-overlay` (HUD), `quests-major`, `quests-minor`.
+
+```kdl
+// ~/.config/niri/config.kdl — пример
+layer-rule {
+    match namespace="^quests-"
+    // block-out-from "screencast"
+}
+```
+
 SQLite: `data/quests.db`.
+
+User systemd units (не автозапуск из репо): [`deploy/systemd/`](deploy/systemd/).

@@ -1,6 +1,6 @@
 <script>
   import { onMount } from 'svelte'
-  import { deleteQuest, listQuests, updateQuest, updateQuestStep } from './lib/api.js'
+  import { deleteQuest, listQuests, updateQuest, updateQuestStep, QUEST_SIGNIFICANCES } from './lib/api.js'
   import { subscribeQuestEvents } from './lib/live.js'
   import { applyTheme, loadSavedTheme } from './lib/theme.js'
   import {
@@ -11,6 +11,8 @@
     timerTone,
   } from './lib/time.js'
   import QuestModal from './lib/QuestModal.svelte'
+  import TemplatesModal from './lib/TemplatesModal.svelte'
+  import ConfirmModal from './lib/ConfirmModal.svelte'
   import Icon from './lib/Icon.svelte'
   import { questMatchesQuery } from './lib/search.js'
 
@@ -23,21 +25,37 @@
 
   let modalOpen = $state(false)
   let modalMode = $state(/** @type {'create' | 'edit'} */ ('create'))
+  let templatesOpen = $state(false)
   let deleting = $state(false)
+  let deleteConfirmOpen = $state(false)
   let statusBusy = $state(false)
   let pinBusyId = $state(/** @type {number | null} */ (null))
   let stepBusyId = $state(/** @type {number | null} */ (null))
   /** Prefer this id across in-flight load() (URL / HUD focus). */
   let pendingSelectId = $state(/** @type {number | null} */ (null))
+  /** Open quests group (active / delayed). */
+  let openQuestsOpen = $state(true)
+  /** Closed quests group (completed / failed / archived). */
+  let closedQuestsOpen = $state(false)
+
+  const OPEN_STATUSES = new Set(['active', 'delayed'])
+  const CLOSED_STATUSES = new Set(['completed', 'failed', 'archived'])
 
   let visibleQuests = $derived(
     quests.filter((q) => questMatchesQuery(q, searchQuery)),
+  )
+  let openQuests = $derived(
+    visibleQuests.filter((q) => OPEN_STATUSES.has(q.status)),
+  )
+  let closedQuests = $derived(
+    visibleQuests.filter((q) => CLOSED_STATUSES.has(q.status)),
   )
   let selected = $derived(quests.find((q) => q.id === selectedId) ?? null)
   let nowMs = $state(Date.now())
 
   function questTimer(q) {
     if (!q?.deadline_at) return null
+    if (q.status === 'completed' || q.status === 'failed') return null
     const rem = remainingFromDeadline(q.deadline_at, nowMs)
     if (rem == null || rem <= 0) return null
     const tone = q.timer_tone || timerTone(rem, q.duration_seconds) || 'red'
@@ -94,20 +112,43 @@
     modalOpen = true
   }
 
-  function openEdit() {
-    if (!selected) return
+  function openTemplates() {
+    templatesOpen = true
+  }
+
+  function openEdit(quest = selected) {
+    // `onclick={openEdit}` would pass MouseEvent as the first arg.
+    const q = quest instanceof Event ? selected : quest || selected
+    if (!q?.id) return
+    selectedId = q.id
     modalMode = 'edit'
     modalOpen = true
   }
 
-  async function deleteSelected() {
+  function periodBadge(q) {
+    if (!q?.template_id) return null
+    const key = q.period_key || ''
+    return key || 'цикл'
+  }
+
+  function significanceLabel(q) {
+    const id = q?.significance || 'common'
+    return QUEST_SIGNIFICANCES.find((s) => s.id === id)?.label || 'обычное'
+  }
+
+  function requestDeleteSelected() {
     if (!selected || deleting) return
-    if (!confirm(`Удалить квест «${selected.title}»?`)) return
+    deleteConfirmOpen = true
+  }
+
+  async function confirmDeleteSelected() {
+    if (!selected || deleting) return
     deleting = true
     error = ''
     try {
       const id = selected.id
       await deleteQuest(id)
+      deleteConfirmOpen = false
       onDeleted(id)
     } catch (e) {
       error = e.message || String(e)
@@ -270,6 +311,10 @@
         bind:value={searchQuery}
         aria-label="Поиск по названию, описанию, шагам, статусу"
       />
+      <button type="button" class="btn" onclick={openTemplates} aria-label="Шаблоны периодики">
+        <Icon name="renew" />
+        <span class="btn__text">Шаблоны</span>
+      </button>
       <button type="button" class="btn btn--accent" onclick={openCreate} aria-label="Новый квест">
         <Icon name="add" />
         <span class="btn__text">Новый квест</span>
@@ -291,7 +336,7 @@
         {:else if visibleQuests.length === 0}
           <p class="empty">Ничего не найдено</p>
         {:else}
-          {#each visibleQuests as q (q.id)}
+          {#snippet questRow(q)}
             {@const rowTimer = questTimer(q)}
             <button
               type="button"
@@ -299,6 +344,10 @@
               class:quest-row--active={q.id === selectedId}
               class:quest-row--pinned={q.pinned}
               onclick={() => (selectedId = q.id)}
+              oncontextmenu={(e) => {
+                e.preventDefault()
+                openEdit(q)
+              }}
             >
               <span class="quest-row__top">
                 <span class="quest-row__title">{q.title}</span>
@@ -317,9 +366,17 @@
                   <Icon name={q.pinned ? 'pin-filled' : 'pin'} size={14} />
                 </span>
               </span>
+              {#if q.significance && q.significance !== 'common'}
+                <span class="quest-row__sig">
+                  <span class="sig-badge" data-sig={q.significance}>{significanceLabel(q)}</span>
+                </span>
+              {/if}
               <span class="quest-row__meta">
                 <span class="quest-row__meta-left">
                   <span class="status" style:color={statusColor(q.status)}>{q.status}</span>
+                  {#if periodBadge(q)}
+                    <span class="period-badge" title="Периодический инстанс">{periodBadge(q)}</span>
+                  {/if}
                   {#if rowTimer}
                     <span class="row-timer" data-tone={rowTimer.tone}>{rowTimer.label}</span>
                   {/if}
@@ -327,7 +384,59 @@
                 <span class="progress">{q.progress_label}</span>
               </span>
             </button>
-          {/each}
+          {/snippet}
+
+          {#if openQuests.length > 0}
+            <div class="quest-group">
+              <button
+                type="button"
+                class="quest-group__toggle"
+                aria-expanded={openQuestsOpen}
+                onclick={() => (openQuestsOpen = !openQuestsOpen)}
+              >
+                <span class="quest-group__label">Активные</span>
+                <span class="quest-group__hint">{openQuests.length}</span>
+                <span class="quest-group__chevron" aria-hidden="true">
+                  <Icon name={openQuestsOpen ? 'chevron-down' : 'chevron-right'} size={14} />
+                </span>
+              </button>
+              {#if openQuestsOpen}
+                <div class="quest-group__body">
+                  {#each openQuests as q (q.id)}
+                    {@render questRow(q)}
+                  {/each}
+                </div>
+              {/if}
+            </div>
+          {/if}
+
+          {#if closedQuests.length > 0}
+            <div class="quest-group">
+              <button
+                type="button"
+                class="quest-group__toggle"
+                aria-expanded={closedQuestsOpen}
+                onclick={() => (closedQuestsOpen = !closedQuestsOpen)}
+              >
+                <span class="quest-group__label">Завершённые</span>
+                <span class="quest-group__hint">{closedQuests.length}</span>
+                <span class="quest-group__chevron" aria-hidden="true">
+                  <Icon name={closedQuestsOpen ? 'chevron-down' : 'chevron-right'} size={14} />
+                </span>
+              </button>
+              {#if closedQuestsOpen}
+                <div class="quest-group__body">
+                  {#each closedQuests as q (q.id)}
+                    {@render questRow(q)}
+                  {/each}
+                </div>
+              {/if}
+            </div>
+          {/if}
+
+          {#if openQuests.length === 0 && closedQuests.length === 0}
+            <p class="empty">Ничего не найдено</p>
+          {/if}
         {/if}
       </div>
     </aside>
@@ -346,6 +455,14 @@
               >
               {#if selected.pinned}
                 <span class="pinned-label">PINNED</span>
+              {/if}
+              {#if selected.significance}
+                <span class="sig-badge" data-sig={selected.significance}
+                  >{significanceLabel(selected)}</span
+                >
+              {/if}
+              {#if periodBadge(selected)}
+                <span class="period-badge" title="Период">{periodBadge(selected)}</span>
               {/if}
               <span class="progress">{selected.progress_label}</span>
             </p>
@@ -375,7 +492,7 @@
               <button
                 type="button"
                 class="btn btn--accent"
-                onclick={openEdit}
+                onclick={() => openEdit()}
                 aria-label="Править"
               >
                 <Icon name="edit" />
@@ -384,7 +501,7 @@
               <button
                 type="button"
                 class="btn btn--danger"
-                onclick={deleteSelected}
+                onclick={requestDeleteSelected}
                 disabled={deleting}
                 aria-label={deleting ? 'Удаление…' : 'Удалить'}
               >
@@ -415,7 +532,14 @@
               {#each selected.steps as step (step.id)}
                 <li class="step" class:step--done={step.done}>
                   <span class="step__mark">{step.done ? '✓' : '○'}</span>
-                  <span class="step__title">{step.title}</span>
+                  <span class="step__main">
+                    <span class="step__title">{step.title}</span>
+                    {#if step.check_command}
+                      <span class="step__auto" title={step.check_command}
+                        >auto {step.check_interval_seconds || '?'}s</span
+                      >
+                    {/if}
+                  </span>
                   <div class="step__controls">
                     <button
                       type="button"
@@ -487,6 +611,23 @@
   onClose={() => (modalOpen = false)}
   onSaved={onSaved}
   onDeleted={onDeleted}
+/>
+
+<TemplatesModal
+  open={templatesOpen}
+  onClose={() => (templatesOpen = false)}
+  onChanged={() => load({ silent: true })}
+/>
+
+<ConfirmModal
+  open={deleteConfirmOpen}
+  title="Удалить квест?"
+  message={selected ? `Удалить квест «${selected.title}»?` : ''}
+  busy={deleting}
+  onCancel={() => {
+    if (!deleting) deleteConfirmOpen = false
+  }}
+  onConfirm={confirmDeleteSelected}
 />
 
 <style>
@@ -693,6 +834,58 @@
     background: color-mix(in srgb, var(--color-accent, #c9a227) 28%, var(--color-bg-muted, #242424));
   }
 
+  .quest-group {
+    border-bottom: 1px solid var(--color-border, #333);
+  }
+
+  .quest-group + .quest-group {
+    border-top: 0;
+  }
+
+  .quest-group__toggle {
+    display: grid;
+    grid-template-columns: 1fr auto auto;
+    align-items: center;
+    gap: var(--space-2, 0.5rem);
+    width: 100%;
+    margin: 0;
+    padding: var(--space-2, 0.5rem) var(--space-3, 0.75rem);
+    border: 0;
+    background: var(--color-bg-muted, #242424);
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .quest-group__toggle:hover {
+    background: var(--color-bg-hover, #2a2a2a);
+  }
+
+  .quest-group__label {
+    font-family: var(--font-mono, monospace);
+    font-size: var(--text-xs, 0.75rem);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--color-fg-muted, #9a9a9a);
+  }
+
+  .quest-group__hint {
+    font-family: var(--font-mono, monospace);
+    font-size: var(--text-xs, 0.75rem);
+    font-variant-numeric: tabular-nums;
+    color: var(--color-fg-subtle, #6e6e6e);
+  }
+
+  .quest-group__chevron {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.25rem;
+    height: 1.25rem;
+    color: var(--color-fg-muted, #9a9a9a);
+  }
+
   .quest-row {
     display: grid;
     gap: var(--space-1, 0.25rem);
@@ -729,6 +922,10 @@
     font-weight: 600;
     color: var(--color-fg, #e8e8e8);
     min-width: 0;
+  }
+
+  .quest-row__sig {
+    display: block;
   }
 
   .quest-row__meta {
@@ -797,6 +994,40 @@
     letter-spacing: 0.08em;
     text-transform: uppercase;
     color: var(--color-accent, #c9a227);
+  }
+
+  .period-badge {
+    font-family: var(--font-mono, monospace);
+    font-size: 0.65rem;
+    letter-spacing: 0.04em;
+    font-variant-numeric: tabular-nums;
+    color: var(--color-fg-muted, #9a9a9a);
+    border: 1px solid var(--color-border, #333);
+    border-radius: 2px;
+    padding: 0.05rem 0.35rem;
+  }
+
+  .sig-badge {
+    font-family: var(--font-mono, monospace);
+    font-size: 0.65rem;
+    letter-spacing: 0.06em;
+    text-transform: lowercase;
+    border: 1px solid currentColor;
+    border-radius: 2px;
+    padding: 0.05rem 0.35rem;
+  }
+
+  .sig-badge[data-sig='common'] {
+    color: #9a9a9a;
+  }
+  .sig-badge[data-sig='uncommon'] {
+    color: #8ec07c;
+  }
+  .sig-badge[data-sig='epic'] {
+    color: #d3869b;
+  }
+  .sig-badge[data-sig='legendary'] {
+    color: #fe8019;
   }
 
   .progress {
@@ -925,8 +1156,27 @@
     font-family: var(--font-mono, monospace);
   }
 
+  .step__main {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.35rem 0.5rem;
+    min-width: 0;
+  }
+
   .step__title {
     font-weight: 600;
+  }
+
+  .step__auto {
+    flex-shrink: 0;
+    font-family: var(--font-mono, monospace);
+    font-size: 0.65rem;
+    letter-spacing: 0.04em;
+    color: var(--color-fg-muted, #9a9a9a);
+    border: 1px solid var(--color-border, #333);
+    border-radius: 2px;
+    padding: 0.05rem 0.3rem;
   }
 
   .step__controls {

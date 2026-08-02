@@ -52,6 +52,7 @@ async def _expire(session: AsyncSession) -> list[int]:
                 sound=ev.get("sound"),
                 toast=ev.get("toast", True),
                 step_title=ev.get("step_title"),
+                significance=ev.get("significance"),
             )
     return failed_ids
 

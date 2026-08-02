@@ -8,11 +8,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from quests.api import events, health, quests
+from quests.api import events, health, quests, templates
+from quests.checks import run_due_step_checks
 from quests.config import HOST, PORT, ROOT
 from quests.db import init_db
 from quests.events import hub
 from quests.expire import expire_overdue_quests
+from quests.periodic import materialize_due
 
 FRONTEND_DIST = ROOT / "frontend" / "dist"
 EXPIRE_POLL_S = 15
@@ -23,15 +25,23 @@ async def lifespan(_app: FastAPI):
     await init_db(seed=True)
     await hub.publish("startup", title="Quests", detail="server ready", toast=False, sound="")
 
-    async def expire_loop() -> None:
+    async def maintenance_loop() -> None:
         while True:
             try:
                 await expire_overdue_quests()
             except Exception:
                 pass
+            try:
+                await materialize_due()
+            except Exception:
+                pass
+            try:
+                await run_due_step_checks()
+            except Exception:
+                pass
             await asyncio.sleep(EXPIRE_POLL_S)
 
-    task = asyncio.create_task(expire_loop())
+    task = asyncio.create_task(maintenance_loop())
     try:
         yield
     finally:
@@ -55,6 +65,7 @@ app.add_middleware(
 app.include_router(health.router)
 app.include_router(events.router)
 app.include_router(quests.router)
+app.include_router(templates.router)
 
 
 def _mount_spa() -> None:

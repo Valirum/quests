@@ -18,6 +18,9 @@ def step_to_read(step: QuestStep) -> QuestStepRead:
         progress_current=step.progress_current,
         progress_total=step.progress_total,
         sort_order=step.sort_order,
+        check_command=step.check_command,
+        check_interval_seconds=step.check_interval_seconds,
+        check_last_run_at=ensure_utc(step.check_last_run_at),
         done=step.done,
     )
 
@@ -63,6 +66,7 @@ def quest_to_read(quest: Quest) -> QuestRead:
         title=quest.title,
         description=quest.description,
         status=quest.status,
+        significance=quest.significance,
         pinned=quest.pinned,
         sort_order=quest.sort_order,
         deadline_at=deadline,
@@ -70,6 +74,8 @@ def quest_to_read(quest: Quest) -> QuestRead:
         created_at=ensure_utc(quest.created_at),  # type: ignore[arg-type]
         updated_at=ensure_utc(quest.updated_at),  # type: ignore[arg-type]
         completed_at=ensure_utc(quest.completed_at),
+        template_id=quest.template_id,
+        period_key=quest.period_key,
         steps=[step_to_read(s) for s in sorted(steps, key=lambda s: (s.sort_order, s.id or 0))],
         steps_done=steps_done,
         steps_total=steps_total,

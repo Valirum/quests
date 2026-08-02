@@ -1,0 +1,18 @@
+[Unit]
+Description=Quests API + SPA (:8765)
+Documentation=file://%h/Documents/projects/Quests/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/Documents/projects/Quests
+Environment=PYTHONUNBUFFERED=1
+# uv often lives in ~/.local/bin
+Environment=PATH=%h/.local/bin:%h/.cargo/bin:/usr/local/bin:/usr/bin
+ExecStart=%h/Documents/projects/Quests/scripts/run-server.sh
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=default.target

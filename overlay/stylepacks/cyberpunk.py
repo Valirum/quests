@@ -18,6 +18,9 @@ FONT_BODY = (
     '"Rajdhani", "Noto Sans", "DejaVu Sans", sans-serif'
 )
 
+PASSTHROUGH_BG_RGB = (12, 12, 14)
+PASSTHROUGH_RADIUS = 0
+
 # Slightly snappier than fantasy — UI feels more "digital".
 MAJOR_FADE_IN_MS = 280
 MAJOR_FADE_OUT_MS = 4200
@@ -231,6 +234,37 @@ box.hud.hud--interactive {{
   letter-spacing: 0;
 }}
 
+.hud-style-menu {{
+  background-color: rgba(10, 10, 12, 0.96);
+}}
+
+.hud-settings-label {{
+  color: {CYAN};
+  font-family: {FONT_BODY};
+  font-size: 9pt;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}}
+
+.hud-settings-hint {{
+  font-size: 8pt;
+  opacity: 0.7;
+}}
+
+.hud-style-option--active {{
+  border-color: {CYAN};
+  color: {CYAN};
+  background-color: rgba(5, 195, 221, 0.12);
+}}
+
+popover.hud-style-popover contents {{
+  background-color: rgba(10, 10, 12, 0.96);
+  border: 1px solid rgba(252, 238, 10, 0.45);
+  border-radius: 0;
+  padding: 0;
+}}
+
 button.hud-drag {{
   color: rgba(224, 49, 49, 0.85);
   font-family: {FONT_BODY};
@@ -315,18 +349,42 @@ button.hud-drag:selected {{
   letter-spacing: 0.22em;
   text-transform: uppercase;
   color: {RED};
-  margin-bottom: 10px;
+  margin-bottom: 0;
   text-shadow:
     0 1px 0 rgba(0, 0, 0, 0.9),
     0 0 12px rgba(255, 0, 60, 0.4);
 }}
 
-.major--quest_completed .major__eyebrow {{
+.major__eyebrow-row {{
+  margin-bottom: 10px;
+}}
+
+.major__significance--common {{
+  color: #a8a8a8;
+  text-shadow: 0 0 8px rgba(168, 168, 168, 0.25);
+}}
+
+.major__significance--uncommon {{
+  color: #3dff9a;
+  text-shadow: 0 0 12px rgba(61, 255, 154, 0.45);
+}}
+
+.major__significance--epic {{
+  color: #c77dff;
+  text-shadow: 0 0 12px rgba(199, 125, 255, 0.45);
+}}
+
+.major__significance--legendary {{
+  color: #ff8a1f;
+  text-shadow: 0 0 14px rgba(255, 138, 31, 0.5);
+}}
+
+.major--quest_completed .major__eyebrow:not(.major__significance) {{
   color: #3dff9a;
   text-shadow: 0 0 12px rgba(61, 255, 154, 0.4);
 }}
 
-.major--quest_failed .major__eyebrow {{
+.major--quest_failed .major__eyebrow:not(.major__significance) {{
   color: {RED_HOT};
 }}
 

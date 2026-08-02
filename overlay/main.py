@@ -6,10 +6,11 @@ Optional: paplay/mpv for VO
 
 Input mode (HUD):
   default = click-through (text chips only)
-  interactive = panel + drag + monitor btn + titles; keys:
+  interactive = panel + drag + monitor/style/фон btns + titles; keys:
     Esc → passthrough · Space → monitor · arrows/hjkl → nudge
     Backspace / ─ → collapse (also exits interactive)
   toggle  = python -m overlay toggle
+  Settings: data/overlay.json (style, monitor, margins, passthrough bg)
 """
 
 from __future__ import annotations
@@ -30,17 +31,36 @@ from gi.repository import Gdk, GLib, Gtk, Gtk4LayerShell as LayerShell
 
 from .api_client import fetch_events, fetch_quests
 from .browser import focus_quest
+from . import config as overlay_config
 from .drag import NUDGE_STEP, attach_drag_handle, nudge_hud
-from .hud import MOCK_FAVORITES, MOCK_URGENT, build_hud, split_hud_quests
+from .hud import (
+    MOCK_FAVORITES,
+    MOCK_URGENT,
+    apply_timer_bindings,
+    build_hud,
+    split_hud_quests,
+)
 from .input_mode import apply_hud_input_mode
 from .ipc import send_command, start_server, stop_server
-from .monitors import apply_monitor, cycle_index, list_monitors, monitor_label
-from .stylepacks import build_css
+from .monitors import (
+    apply_monitor,
+    cycle_index,
+    list_monitors,
+    monitor_connector,
+    monitor_label,
+    resolve_monitor_index,
+)
+from .stylepacks import apply_style_pack, build_css, build_passthrough_css, list_packs
 from .toast import NoticeRouter
 
 APP_ID = "dev.quests.overlay"
 NAMESPACE_HUD = "quests-overlay"
-POLL_MS = 1200
+# Live event poll (no HUD rebuild unless revision changes).
+EVENT_POLL_MS = 2500
+# Countdown chips update in place.
+TIMER_TICK_MS = 1000
+# Soft full re-fetch for missed events / urgent window shifts.
+DATA_SYNC_MS = 15000
 
 
 def _cli(argv: list[str]) -> int:
@@ -52,6 +72,10 @@ def _cli(argv: list[str]) -> int:
         return 0
     if cmd in {"monitor", "next-monitor", "cycle-monitor"}:
         print(send_command("monitor"))
+        return 0
+    if cmd == "style":
+        arg = argv[1] if len(argv) > 1 else "status"
+        print(send_command("style" if arg in {"status", "list"} else f"style {arg}"))
         return 0
     if cmd in {"interactive", "input"}:
         mode = argv[1] if len(argv) > 1 else "status"
@@ -66,12 +90,15 @@ def _cli(argv: list[str]) -> int:
             "  python -m overlay              # start overlay daemon\n"
             "  python -m overlay toggle       # click-through ↔ interactive\n"
             "  python -m overlay monitor      # cycle output monitor\n"
+            "  python -m overlay style [name] # show / set style pack\n"
             "  python -m overlay status\n"
             "  python -m overlay interactive on|off|toggle|status\n"
             "\n"
             "Interactive keys:\n"
             "  Esc  passthrough · Space  monitor · arrows/hjkl  move\n"
             "  Backspace  collapse HUD (passthrough)\n"
+            "\n"
+            "Settings: data/overlay.json (style, monitor, margins, passthrough bg)\n"
             "\n"
             "niri example:\n"
             '  Mod+Space { spawn-sh "python -m overlay toggle"; }\n'
@@ -83,12 +110,20 @@ def _cli(argv: list[str]) -> int:
 
 
 def on_activate(app: Gtk.Application) -> None:
+    saved = overlay_config.load()
+
     display = Gdk.Display.get_default()
+    css_provider = Gtk.CssProvider()
+    passthrough_css = Gtk.CssProvider()
+    pack_id = apply_style_pack(str(saved.get("style_pack") or "fantasy"), reload=False)
     if display is not None:
-        css = Gtk.CssProvider()
-        css.load_from_string(build_css())
+        css_provider.load_from_string(build_css())
         Gtk.StyleContext.add_provider_for_display(
-            display, css, Gtk.STYLE_PROVIDER_PRIORITY_USER
+            display, css_provider, Gtk.STYLE_PROVIDER_PRIORITY_USER
+        )
+        # After pack CSS so passthrough look overrides chip/panel defaults.
+        Gtk.StyleContext.add_provider_for_display(
+            display, passthrough_css, Gtk.STYLE_PROVIDER_PRIORITY_USER
         )
 
     hud = Gtk.ApplicationWindow(application=app, title="Quests Overlay")
@@ -100,8 +135,8 @@ def on_activate(app: Gtk.Application) -> None:
     LayerShell.set_layer(hud, LayerShell.Layer.TOP)
     LayerShell.set_anchor(hud, LayerShell.Edge.TOP, True)
     LayerShell.set_anchor(hud, LayerShell.Edge.RIGHT, True)
-    LayerShell.set_margin(hud, LayerShell.Edge.TOP, 24)
-    LayerShell.set_margin(hud, LayerShell.Edge.RIGHT, 24)
+    LayerShell.set_margin(hud, LayerShell.Edge.TOP, int(saved.get("margin_top", 24)))
+    LayerShell.set_margin(hud, LayerShell.Edge.RIGHT, int(saved.get("margin_right", 24)))
     LayerShell.set_keyboard_mode(hud, LayerShell.KeyboardMode.NONE)
 
     notices = NoticeRouter(app)
@@ -111,12 +146,74 @@ def on_activate(app: Gtk.Application) -> None:
         "fingerprint": None,
         "interactive": False,
         "collapsed": False,
-        "monitor_index": 0,
+        "monitor_index": int(saved.get("monitor_index") or 0),
+        "monitor_connector": str(saved.get("monitor_connector") or ""),
+        "style_pack": pack_id,
+        "passthrough_bg_mode": str(saved.get("passthrough_bg_mode") or "chips"),
+        "passthrough_bg_alpha": float(saved.get("passthrough_bg_alpha", 0.6)),
         "input_gen": 0,
         "dragging": False,
-        "margin_top": 24,
-        "margin_right": 24,
+        "margin_top": int(saved.get("margin_top", 24)),
+        "margin_right": int(saved.get("margin_right", 24)),
+        "timer_bindings": [],
+        "style_btn": None,
+        "settings_btn": None,
+        "pending_refresh": False,
+        "sync_ticks": 0,
     }
+
+    def _menu_button_open(btn) -> bool:
+        if btn is None:
+            return False
+        try:
+            if hasattr(btn, "get_active") and btn.get_active():
+                return True
+            pop = btn.get_popover() if hasattr(btn, "get_popover") else None
+            if pop is not None and pop.get_visible():
+                return True
+        except Exception:
+            return False
+        return False
+
+    def hud_menu_open() -> bool:
+        return _menu_button_open(state.get("style_btn")) or _menu_button_open(
+            state.get("settings_btn")
+        )
+
+    def persist() -> None:
+        mons = list_monitors(display)
+        idx = state["monitor_index"] % len(mons) if mons else 0
+        mon = mons[idx] if mons else None
+        conn = monitor_connector(mon) or str(state.get("monitor_connector") or "")
+        overlay_config.save(
+            {
+                "style_pack": state["style_pack"],
+                "monitor_index": idx,
+                "monitor_connector": conn,
+                "margin_top": int(state["margin_top"]),
+                "margin_right": int(state["margin_right"]),
+                "passthrough_bg_mode": state["passthrough_bg_mode"],
+                "passthrough_bg_alpha": state["passthrough_bg_alpha"],
+            }
+        )
+
+    def apply_passthrough_look() -> None:
+        alpha_raw = state.get("passthrough_bg_alpha", 0.6)
+        try:
+            alpha = max(0.0, min(1.0, float(alpha_raw)))
+        except (TypeError, ValueError):
+            alpha = 0.6
+        passthrough_css.load_from_string(
+            build_passthrough_css(
+                mode=str(state.get("passthrough_bg_mode") or "chips"),
+                alpha=alpha,
+                name=str(state.get("style_pack") or pack_id),
+            )
+        )
+
+    def reload_css() -> None:
+        css_provider.load_from_string(build_css())
+        apply_passthrough_look()
 
     def apply_stored_margins() -> None:
         LayerShell.set_margin(hud, LayerShell.Edge.TOP, int(state["margin_top"]))
@@ -127,6 +224,7 @@ def on_activate(app: Gtk.Application) -> None:
     def remember_margins() -> None:
         state["margin_top"] = LayerShell.get_margin(hud, LayerShell.Edge.TOP)
         state["margin_right"] = LayerShell.get_margin(hud, LayerShell.Edge.RIGHT)
+        persist()
 
     def sync_monitor() -> str:
         mons = list_monitors(display)
@@ -135,9 +233,14 @@ def on_activate(app: Gtk.Application) -> None:
             apply_monitor(hud, None)
             notices.set_monitor(None)
             return "monitor: none"
-        idx = state["monitor_index"] % total
+        idx = resolve_monitor_index(
+            mons,
+            connector=str(state.get("monitor_connector") or ""),
+            index=int(state.get("monitor_index") or 0),
+        )
         state["monitor_index"] = idx
         mon = mons[idx]
+        state["monitor_connector"] = monitor_connector(mon)
         apply_monitor(hud, mon)
         notices.set_monitor(mon)
         return f"monitor: {monitor_label(mon, idx, total)} ({idx + 1}/{total})"
@@ -167,6 +270,9 @@ def on_activate(app: Gtk.Application) -> None:
     def refresh_hud(*, force: bool = False) -> None:
         if state.get("dragging") and not force:
             return
+        if not force and hud_menu_open():
+            state["pending_refresh"] = True
+            return
         try:
             items = fetch_quests()
             favorites, urgent = split_hud_quests(items)
@@ -174,12 +280,13 @@ def on_activate(app: Gtk.Application) -> None:
             favorites, urgent = MOCK_FAVORITES, MOCK_URGENT
 
         def _fp(block):
+            # Timers tick in place — exclude live countdown text from rebuild key.
             return tuple(
                 (
                     q.quest_id,
                     q.title,
-                    q.timer_label,
-                    q.timer_tone,
+                    q.deadline_at,
+                    q.duration_seconds,
                     tuple((s.title, s.progress) for s in q.steps),
                 )
                 for q in block
@@ -191,10 +298,12 @@ def on_activate(app: Gtk.Application) -> None:
             state["interactive"],
             state["collapsed"],
             state["monitor_index"],
+            state["style_pack"],
         )
         if not force and fingerprint == state["fingerprint"]:
             return
         state["fingerprint"] = fingerprint
+        state["pending_refresh"] = False
 
         def open_quest(quest_id: int) -> None:
             try:
@@ -219,22 +328,37 @@ def on_activate(app: Gtk.Application) -> None:
         idx = state["monitor_index"] % total if total else 0
         mon = mons[idx] if total else None
         label = monitor_label(mon, idx, total)
+        packs = [(p["id"], p["label"]) for p in list_packs()]
 
-        child, _hotspot = build_hud(
+        child, _hotspot, timers, style_btn, settings_btn = build_hud(
             favorites,
             urgent,
             interactive=state["interactive"],
             collapsed=state["collapsed"],
             monitor_label=label,
+            style_pack_id=str(state["style_pack"]),
+            style_packs=packs,
+            passthrough_bg_mode=str(state["passthrough_bg_mode"]),
+            passthrough_bg_alpha=float(state["passthrough_bg_alpha"]),
             on_cycle_monitor=cycle_monitor if state["interactive"] else None,
+            on_select_style=set_style_pack if state["interactive"] else None,
+            on_passthrough_settings=set_passthrough_settings
+            if state["interactive"]
+            else None,
             on_toggle_collapsed=toggle_collapsed,
             on_prepare_drag_handle=prepare_drag if state["interactive"] else None,
             on_open_quest=open_quest,
         )
+        state["timer_bindings"] = timers
+        state["style_btn"] = style_btn
+        state["settings_btn"] = settings_btn
+
         if state["interactive"]:
             hud.add_css_class("hud-window--interactive")
+            hud.remove_css_class("hud-window--passthrough")
         else:
             hud.remove_css_class("hud-window--interactive")
+            hud.add_css_class("hud-window--passthrough")
         if state["collapsed"]:
             hud.add_css_class("hud-window--collapsed")
         else:
@@ -273,11 +397,36 @@ def on_activate(app: Gtk.Application) -> None:
 
     def cycle_monitor() -> str:
         mons = list_monitors(display)
+        # Explicit cycle: ignore connector preference for this step.
+        state["monitor_connector"] = ""
         state["monitor_index"] = cycle_index(state["monitor_index"], len(mons))
         result = sync_monitor()
         apply_stored_margins()
+        persist()
         refresh_hud(force=True)
         return result
+
+    def set_style_pack(name: str) -> str:
+        pack = apply_style_pack(name, reload=True)
+        state["style_pack"] = pack
+        reload_css()
+        persist()
+        refresh_hud(force=True)
+        return f"style: {pack}"
+
+    def set_passthrough_settings(mode: str, alpha: float) -> None:
+        mode_key = "full" if str(mode).strip().lower() in {"full", "panel", "solid"} else "chips"
+        try:
+            a = max(0.0, min(1.0, float(alpha)))
+        except (TypeError, ValueError):
+            try:
+                a = max(0.0, min(1.0, float(state.get("passthrough_bg_alpha", 0.6))))
+            except (TypeError, ValueError):
+                a = 0.6
+        state["passthrough_bg_mode"] = mode_key
+        state["passthrough_bg_alpha"] = a
+        apply_passthrough_look()
+        persist()
 
     def on_key(
         _controller: Gtk.EventControllerKey,
@@ -339,6 +488,12 @@ def on_activate(app: Gtk.Application) -> None:
             return set_interactive(False)
         if c in {"monitor", "next-monitor", "cycle-monitor"}:
             return cycle_monitor()
+        if c.startswith("style"):
+            parts = c.split(maxsplit=1)
+            if len(parts) == 1 or parts[1] in {"", "list", "status"}:
+                packs = ", ".join(p["id"] for p in list_packs())
+                return f"style: {state['style_pack']} [{packs}]"
+            return set_style_pack(parts[1].strip())
         if c in {"status", ""}:
             mons = list_monitors(display)
             total = len(mons)
@@ -347,7 +502,7 @@ def on_activate(app: Gtk.Application) -> None:
             mode = "interactive" if state["interactive"] else "passthrough"
             fold = "collapsed" if state["collapsed"] else "expanded"
             return (
-                f"{mode}; {fold}; "
+                f"{mode}; {fold}; style={state['style_pack']}; "
                 f"{monitor_label(mon, idx, total)} ({idx + 1}/{total})"
             )
         return f"error: unknown command '{cmd}'"
@@ -359,11 +514,22 @@ def on_activate(app: Gtk.Application) -> None:
         for ev in events:
             notices.enqueue(ev)
 
-    def poll() -> bool:
+    def tick_timers() -> bool:
+        if apply_timer_bindings(state.get("timer_bindings") or []):
+            refresh_hud(force=True)
+        elif state.get("pending_refresh") and not hud_menu_open():
+            refresh_hud(force=True)
+        state["sync_ticks"] = int(state.get("sync_ticks") or 0) + 1
+        # Soft data sync ~every DATA_SYNC_MS without waiting for events.
+        every = max(1, DATA_SYNC_MS // TIMER_TICK_MS)
+        if state["sync_ticks"] % every == 0:
+            refresh_hud(force=False)
+        return True
+
+    def poll_events() -> bool:
         try:
             revision, events = fetch_events(state["revision"])
         except (urllib.error.URLError, TimeoutError, ValueError, TypeError, KeyError):
-            refresh_hud(force=False)
             return True
 
         if revision != state["revision"]:
@@ -373,9 +539,6 @@ def on_activate(app: Gtk.Application) -> None:
                 handle_events(new_events)
             else:
                 refresh_hud(force=True)
-        else:
-            # Tick countdown labels even when no quest events arrived.
-            refresh_hud(force=False)
         return True
 
     def on_realize(_w) -> None:
@@ -391,6 +554,7 @@ def on_activate(app: Gtk.Application) -> None:
     hud.connect("map", lambda _w: schedule_input_sync())
 
     sync_monitor()
+    apply_passthrough_look()
     refresh_hud(force=True)
     try:
         revision, _ = fetch_events(0)
@@ -401,11 +565,13 @@ def on_activate(app: Gtk.Application) -> None:
     ipc_sock = start_server(ipc_handler)
 
     def on_shutdown(_app) -> None:
+        persist()
         stop_server(ipc_sock)
 
     app.connect("shutdown", on_shutdown)
 
-    GLib.timeout_add(POLL_MS, poll)
+    GLib.timeout_add(TIMER_TICK_MS, tick_timers)
+    GLib.timeout_add(EVENT_POLL_MS, poll_events)
     hud.present()
     schedule_input_sync()
 

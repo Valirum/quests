@@ -1,6 +1,8 @@
 <script>
   import add from '../assets/icons/add.svg?raw'
   import checkmark from '../assets/icons/checkmark.svg?raw'
+  import chevronDown from '../assets/icons/chevron-down.svg?raw'
+  import chevronRight from '../assets/icons/chevron-right.svg?raw'
   import close from '../assets/icons/close.svg?raw'
   import deleteIcon from '../assets/icons/delete.svg?raw'
   import document from '../assets/icons/document.svg?raw'
@@ -14,6 +16,8 @@
   const ICONS = {
     add,
     checkmark,
+    'chevron-down': chevronDown,
+    'chevron-right': chevronRight,
     close,
     delete: deleteIcon,
     document,

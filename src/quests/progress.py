@@ -25,7 +25,11 @@ def sync_status_from_steps(quest: Quest) -> None:
         return
 
     all_done = steps_all_done(quest)
-    if all_done and quest.status in {QuestStatus.active, QuestStatus.delayed}:
+    if all_done and quest.status in {
+        QuestStatus.active,
+        QuestStatus.delayed,
+        QuestStatus.failed,
+    }:
         quest.status = QuestStatus.completed
     elif not all_done and quest.status == QuestStatus.completed:
         quest.status = QuestStatus.active

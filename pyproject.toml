@@ -13,6 +13,7 @@ dependencies = [
 ]
 
 [project.scripts]
+quests = "quests.cli:main"
 quests-server = "quests.main:run"
 quests-migrate = "quests.migrate:main"
 
@@ -32,5 +33,6 @@ package = true
 [dependency-groups]
 dev = [
     "httpx>=0.28",
+    "pytest>=8.0",
     "ruff>=0.8",
 ]

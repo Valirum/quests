@@ -9,6 +9,7 @@ import subprocess
 import urllib.error
 import urllib.request
 import webbrowser
+from typing import Any
 
 from .api_client import API_BASE
 
@@ -52,8 +53,98 @@ def _open_url(url: str) -> None:
     webbrowser.open(url, new=2, autoraise=True)
 
 
+def _niri_windows() -> list[dict[str, Any]]:
+    niri = shutil.which("niri")
+    if not niri:
+        return []
+    try:
+        proc = subprocess.run(
+            [niri, "msg", "-j", "windows"],
+            capture_output=True,
+            text=True,
+            timeout=1.0,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return []
+    if proc.returncode != 0 or not proc.stdout.strip():
+        return []
+    try:
+        data = json.loads(proc.stdout)
+    except json.JSONDecodeError:
+        return []
+    if isinstance(data, list):
+        return [w for w in data if isinstance(w, dict)]
+    return []
+
+
+def _title_looks_like_journal(title: str) -> bool:
+    t = title.casefold()
+    if not t:
+        return False
+    # Prefer the real SPA title; avoid matching arbitrary "localhost" pages alone.
+    if "quests" in t and "задачи" in t:
+        return True
+    if ":5173" in t or ":8765" in t:
+        return True
+    if "127.0.0.1" in t and ("quests" in t or "задачи" in t):
+        return True
+    return False
+
+
+def _match_journal_window(windows: list[dict[str, Any]]) -> int | None:
+    """Return niri window id for the journal's active tab, if found."""
+    scored: list[tuple[int, int]] = []
+    for win in windows:
+        raw_id = win.get("id")
+        try:
+            wid = int(raw_id)
+        except (TypeError, ValueError):
+            continue
+        title = str(win.get("title") or "")
+        if not _title_looks_like_journal(title):
+            continue
+        # Prefer already-focused matches, then exact SPA title.
+        t = title.casefold()
+        score = 0
+        if win.get("is_focused"):
+            score += 10
+        if "quests" in t and "задачи" in t:
+            score += 5
+        if ":5173" in t or ":8765" in t:
+            score += 3
+        scored.append((score, wid))
+    if not scored:
+        return None
+    scored.sort(key=lambda x: x[0], reverse=True)
+    return scored[0][1]
+
+
+def _raise_via_niri() -> int | None:
+    """Focus journal window via niri. Returns window id or None."""
+    wid = _match_journal_window(_niri_windows())
+    if wid is None:
+        return None
+    niri = shutil.which("niri")
+    if not niri:
+        return None
+    try:
+        proc = subprocess.run(
+            [niri, "msg", "action", "focus-window", "--id", str(wid)],
+            capture_output=True,
+            text=True,
+            timeout=1.0,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if proc.returncode != 0:
+        return None
+    return wid
+
+
 def focus_quest(quest_id: int) -> str:
-    """Notify live journal tabs; open a browser tab only if nobody received it."""
+    """Notify live journal tabs, then raise the browser window (niri) or open URL."""
     qid = int(quest_id)
     clients = 0
     try:
@@ -70,7 +161,18 @@ def focus_quest(quest_id: int) -> str:
         clients = 0
 
     if clients > 0:
-        return f"focused existing tab (delivered={clients}) quest={qid}"
+        raised = _raise_via_niri()
+        if raised is not None:
+            return (
+                f"focused existing tab (delivered={clients}) "
+                f"+ raised niri id={raised} quest={qid}"
+            )
+        url = quest_url(qid)
+        _open_url(url)
+        return (
+            f"focused existing tab (delivered={clients}) "
+            f"+ opened {url}"
+        )
 
     url = quest_url(qid)
     _open_url(url)

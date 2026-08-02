@@ -9,6 +9,10 @@ PACK_LABEL = "Fantasy Journal"
 FONT_DISPLAY = '"JetBrainsMono Nerd Font", "JetBrains Mono", "JetBrainsMono NF", monospace'
 FONT_BODY = FONT_DISPLAY
 
+# Passthrough background tint (RGB); alpha comes from overlay settings.
+PASSTHROUGH_BG_RGB = (26, 21, 16)
+PASSTHROUGH_RADIUS = 8
+
 # Timing (ms) — presentation contract; hosts should honor these.
 MAJOR_FADE_IN_MS = 500
 MAJOR_FADE_OUT_MS = 5000
@@ -54,7 +58,7 @@ box.hud.hud--interactive {{
 .hud-chip {{
   background-color: rgba(26, 21, 16, 0.6);
   border: none;
-  border-radius: 3px;
+  border-radius: 0;
   padding: 2px 6px;
   text-shadow:
     0 0 3px rgba(0, 0, 0, 0.9),
@@ -183,6 +187,35 @@ box.hud.hud--interactive {{
   letter-spacing: 0;
 }}
 
+.hud-style-menu {{
+  background-color: rgba(26, 21, 16, 0.96);
+}}
+
+.hud-settings-label {{
+  color: #c4a574;
+  font-family: {FONT_BODY};
+  font-size: 9pt;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}}
+
+.hud-settings-hint {{
+  font-size: 8pt;
+  opacity: 0.75;
+}}
+
+.hud-style-option--active {{
+  border-color: rgba(196, 165, 116, 0.85);
+  color: #fff1d0;
+}}
+
+popover.hud-style-popover contents {{
+  background-color: rgba(26, 21, 16, 0.96);
+  border: 1px solid rgba(196, 165, 116, 0.45);
+  border-radius: 4px;
+  padding: 0;
+}}
+
 button.hud-drag {{
   color: #c4a574;
   font-family: {FONT_BODY};
@@ -259,14 +292,34 @@ button.hud-drag:selected {{
   letter-spacing: 0.18em;
   text-transform: uppercase;
   color: rgba(250, 189, 47, 0.95);
+  margin-bottom: 0;
+}}
+
+.major__eyebrow-row {{
   margin-bottom: 12px;
 }}
 
-.major--quest_completed .major__eyebrow {{
+.major__significance--common {{
+  color: rgba(168, 168, 168, 0.95);
+}}
+
+.major__significance--uncommon {{
+  color: rgba(142, 192, 124, 0.98);
+}}
+
+.major__significance--epic {{
+  color: rgba(211, 134, 155, 0.98);
+}}
+
+.major__significance--legendary {{
+  color: rgba(254, 128, 25, 0.98);
+}}
+
+.major--quest_completed .major__eyebrow:not(.major__significance) {{
   color: rgba(184, 187, 38, 0.95);
 }}
 
-.major--quest_failed .major__eyebrow {{
+.major--quest_failed .major__eyebrow:not(.major__significance) {{
   color: rgba(251, 73, 52, 0.95);
 }}
 

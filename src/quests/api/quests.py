@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from quests.checks import normalize_check_fields
 from quests.db import get_session, quest_load_options
 from quests.events import hub
 from quests.models import (
@@ -18,6 +19,7 @@ from quests.models import (
 )
 from quests.expire import expire_overdue_quests
 from quests.notify import quest_change_events
+from quests.periodic import materialize_due
 from quests.progress import clamp_step_progress, sync_status_from_steps
 from quests.serializers import quest_to_read
 from quests.timeutil import auto_duration_seconds, ensure_utc, to_db_utc
@@ -61,6 +63,7 @@ async def list_quests(
     session: AsyncSession = Depends(get_session),
 ) -> list[QuestRead]:
     await expire_overdue_quests(session)
+    await materialize_due(session)
     stmt = select(Quest).options(quest_load_options()).order_by(Quest.sort_order, Quest.id)
     if status_filter is not None:
         stmt = stmt.where(Quest.status == status_filter)
@@ -76,6 +79,7 @@ async def get_quest(
     session: AsyncSession = Depends(get_session),
 ) -> QuestRead:
     await expire_overdue_quests(session)
+    await materialize_due(session)
     return quest_to_read(await _get_quest_or_404(session, quest_id))
 
 
@@ -98,6 +102,7 @@ async def create_quest(
             if step_payload.get("sort_order") is None:
                 step_payload["sort_order"] = i
             quest.steps.append(QuestStep(**step_payload))
+            normalize_check_fields(quest.steps[-1])
     else:
         quest.steps.append(
             QuestStep(title=quest.title, progress_current=0, progress_total=1, sort_order=0)
@@ -117,6 +122,11 @@ async def create_quest(
             detail=read.progress_label,
             sound="quest_created",
             toast=True,
+            significance=(
+                read.significance.value
+                if hasattr(read.significance, "value")
+                else str(read.significance or "common")
+            ),
         )
     return read
 
@@ -150,6 +160,7 @@ async def update_quest(
                 step_payload["sort_order"] = i
             step = QuestStep(**step_payload)
             clamp_step_progress(step)
+            normalize_check_fields(step)
             quest.steps.append(step)
 
     if steps_touched and not status_explicit:
@@ -203,6 +214,7 @@ async def update_quest_step(
     for key, value in data.items():
         setattr(step, key, value)
     clamp_step_progress(step)
+    normalize_check_fields(step)
     sync_status_from_steps(quest)
 
     quest.updated_at = utcnow()
@@ -224,6 +236,7 @@ async def _publish_changes(before: QuestRead, read: QuestRead) -> None:
             sound=ev.get("sound"),
             toast=ev.get("toast", True),
             step_title=ev.get("step_title"),
+            significance=ev.get("significance"),
         )
 
 

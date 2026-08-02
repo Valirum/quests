@@ -23,6 +23,32 @@ def _half_screen_width(window: Gtk.Window) -> int:
 
 MAJOR_KINDS = frozenset({"quest_created", "quest_completed", "quest_failed"})
 
+SIGNIFICANCE_LABEL_RU = {
+    "common": "обычное",
+    "uncommon": "необычное",
+    "epic": "эпическое",
+    "legendary": "легендарное",
+}
+
+
+def _significance_key(event: dict) -> str:
+    raw = event.get("significance") or "common"
+    key = str(raw).strip().lower()
+    return key if key in SIGNIFICANCE_LABEL_RU else "common"
+
+
+def major_eyebrow_parts(kind: str, significance: str) -> tuple[str, str, str]:
+    """Prefix, colored significance word, suffix for major eyebrow."""
+    word = SIGNIFICANCE_LABEL_RU.get(significance, SIGNIFICANCE_LABEL_RU["common"])
+    if kind == "quest_created":
+        return "Получено ", word, " задание"
+    if kind == "quest_completed":
+        return "Завершено ", word, " задание"
+    if kind == "quest_failed":
+        return "Провалено ", word, " задание"
+    return "", MAJOR_EYEBROW.get(kind, kind), ""
+
+
 MAJOR_EYEBROW = {
     "quest_created": "Получено задание",
     "quest_completed": "Задание завершено",
@@ -37,6 +63,7 @@ MINOR_CHANGE = {
     "step_progress": "Прогресс",
     "pin_changed": "Закрепление",
     "quest_updated": "Обновлено",
+    "quest_appeared": "Периодика",
 }
 
 
@@ -152,6 +179,8 @@ class MajorHost:
         card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         card.add_css_class("major")
         card.add_css_class(f"major--{kind}")
+        sig = _significance_key(event)
+        card.add_css_class(f"major--sig-{sig}")
         card.set_halign(Gtk.Align.CENTER)
         card.set_opacity(0.0)
         half_w = _half_screen_width(self._window)
@@ -166,7 +195,23 @@ class MajorHost:
                 lbl.set_size_request(half_w, -1)
             return lbl
 
-        card.append(major_label(MAJOR_EYEBROW.get(kind, kind), "major__eyebrow"))
+        prefix, sig_word, suffix = major_eyebrow_parts(kind, sig)
+        if prefix or suffix:
+            brow = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
+            brow.set_halign(Gtk.Align.CENTER)
+            brow.add_css_class("major__eyebrow-row")
+            if prefix:
+                brow.append(major_label(prefix, "major__eyebrow"))
+            sig_lbl = major_label(sig_word, "major__eyebrow")
+            sig_lbl.add_css_class("major__significance")
+            sig_lbl.add_css_class(f"major__significance--{sig}")
+            brow.append(sig_lbl)
+            if suffix:
+                brow.append(major_label(suffix, "major__eyebrow"))
+            card.append(brow)
+        else:
+            card.append(major_label(sig_word or kind, "major__eyebrow"))
+
         card.append(major_label(event.get("title") or "—", "major__title", wrap=True))
 
         description = (event.get("description") or "").strip()

@@ -1,5 +1,5 @@
 <script>
-  import { QUEST_STATUSES, createQuest, updateQuest, deleteQuest } from '../lib/api.js'
+  import { QUEST_SIGNIFICANCES, QUEST_STATUSES, createQuest, updateQuest, deleteQuest } from '../lib/api.js'
   import {
     defaultLocalDeadlineParts,
     localInputToUtcIso,
@@ -7,6 +7,7 @@
     toLocalInputValue,
   } from '../lib/time.js'
   import Icon from './Icon.svelte'
+  import ConfirmModal from './ConfirmModal.svelte'
 
   /** @type {{ open: boolean, mode: 'create' | 'edit', quest?: any, onClose: () => void, onSaved: (q: any) => void, onDeleted?: (id: number) => void }} */
   let {
@@ -21,6 +22,7 @@
   let title = $state('')
   let description = $state('')
   let status = $state('active')
+  let significance = $state('common')
   let pinned = $state(false)
   let sortOrder = $state(0)
   /** Local date YYYY-MM-DD + 24h clock (no native time picker — it follows OS 12h). */
@@ -30,10 +32,13 @@
   /** duration as hours + minutes (optional) */
   let durationHours = $state('')
   let durationMinutes = $state('')
+  /** Collapsed = no deadline; expanded shows date/time/duration. */
+  let deadlineOpen = $state(false)
   /** @type {{ key: string, title: string, progress_current: number, progress_total: number }[]} */
   let steps = $state([])
   let saving = $state(false)
   let deleting = $state(false)
+  let deleteConfirmOpen = $state(false)
   let formError = $state('')
 
   const HOURS_24 = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0'))
@@ -50,6 +55,8 @@
       title: '',
       progress_current: 0,
       progress_total: 1,
+      check_command: '',
+      check_interval_seconds: '',
     }
   }
 
@@ -60,33 +67,52 @@
     deadlineMinute = parts.minute
   }
 
+  function clearDeadline() {
+    deadlineDate = ''
+    durationHours = ''
+    durationMinutes = ''
+  }
+
+  function toggleDeadline() {
+    if (deadlineOpen) {
+      deadlineOpen = false
+      clearDeadline()
+      return
+    }
+    deadlineOpen = true
+    if (!deadlineDate) applyDefaultDeadline()
+  }
+
   function resetFromQuest(q) {
     if (!q) {
       title = ''
       description = ''
       status = 'active'
+      significance = 'common'
       pinned = false
       sortOrder = 0
-      applyDefaultDeadline()
-      durationHours = ''
-      durationMinutes = ''
+      deadlineOpen = false
+      clearDeadline()
       steps = [blankStep()]
       return
     }
     title = q.title ?? ''
     description = q.description ?? ''
     status = q.status ?? 'active'
+    significance = q.significance ?? 'common'
     pinned = Boolean(q.pinned)
     sortOrder = q.sort_order ?? 0
     const local = toLocalInputValue(q.deadline_at)
     if (local && local.includes('T')) {
+      deadlineOpen = true
       const [d, t] = local.split('T')
       deadlineDate = d || ''
       const [hh = '12', mm = '00'] = (t || '').slice(0, 5).split(':')
       deadlineHour = String(Math.min(23, Math.max(0, Number(hh) || 0))).padStart(2, '0')
       deadlineMinute = String(Math.min(59, Math.max(0, Number(mm) || 0))).padStart(2, '0')
     } else {
-      applyDefaultDeadline()
+      deadlineOpen = false
+      clearDeadline()
     }
     const dur = Number(q.duration_seconds) || 0
     if (dur > 0) {
@@ -103,6 +129,9 @@
             title: s.title ?? '',
             progress_current: s.progress_current ?? 0,
             progress_total: s.progress_total ?? 1,
+            check_command: s.check_command ?? '',
+            check_interval_seconds:
+              s.check_interval_seconds != null ? String(s.check_interval_seconds) : '',
           }))
         : [blankStep()]
   }
@@ -112,6 +141,7 @@
       formError = ''
       saving = false
       deleting = false
+      deleteConfirmOpen = false
       resetFromQuest(mode === 'edit' ? quest : null)
     }
   })
@@ -142,13 +172,20 @@
 
   function buildStepsPayload() {
     return steps
-      .map((s, i) => ({
-        title: s.title.trim(),
-        description: '',
-        progress_current: Math.max(0, Number(s.progress_current) || 0),
-        progress_total: Math.max(1, Number(s.progress_total) || 1),
-        sort_order: i,
-      }))
+      .map((s, i) => {
+        const cmd = String(s.check_command || '').trim()
+        const intervalRaw = String(s.check_interval_seconds ?? '').trim()
+        const interval = intervalRaw === '' ? null : Math.max(15, Number(intervalRaw) || 15)
+        return {
+          title: s.title.trim(),
+          description: '',
+          progress_current: Math.max(0, Number(s.progress_current) || 0),
+          progress_total: Math.max(1, Number(s.progress_total) || 1),
+          sort_order: i,
+          check_command: cmd || null,
+          check_interval_seconds: cmd ? interval : null,
+        }
+      })
       .filter((s) => s.title)
   }
 
@@ -162,7 +199,7 @@
     saving = true
     formError = ''
     try {
-      const deadline_at = localInputToUtcIso(deadlineLocal)
+      const deadline_at = deadlineOpen ? localInputToUtcIso(deadlineLocal) : null
       const h = Number(durationHours)
       const m = Number(durationMinutes)
       let duration_seconds = null
@@ -176,14 +213,15 @@
         title: title.trim(),
         description: description.trim(),
         status,
+        significance,
         pinned,
         sort_order: Number(sortOrder) || 0,
         deadline_at,
         ...(deadline_at && duration_seconds != null ? { duration_seconds } : {}),
         steps: stepsPayload,
       }
-      // Clear duration when clearing deadline (edit).
-      if (mode === 'edit' && !deadline_at) {
+      // Clear duration when clearing deadline.
+      if (!deadline_at) {
         payload.duration_seconds = null
       }
       const saved =
@@ -197,13 +235,18 @@
     }
   }
 
-  async function onDelete() {
+  function requestDelete() {
+    if (!quest?.id || deleting || saving) return
+    deleteConfirmOpen = true
+  }
+
+  async function confirmDelete() {
     if (!quest?.id) return
-    if (!confirm(`Удалить квест «${quest.title}»?`)) return
     deleting = true
     formError = ''
     try {
       await deleteQuest(quest.id)
+      deleteConfirmOpen = false
       onDeleted?.(quest.id)
       onClose()
     } catch (e) {
@@ -254,19 +297,41 @@
           <textarea rows="3" bind:value={description}></textarea>
         </label>
 
-        <div class="grid-2">
-          <label class="field">
-            <span class="label">Status</span>
-            <select bind:value={status}>
-              {#each QUEST_STATUSES as s}
-                <option value={s}>{s}</option>
-              {/each}
-            </select>
-          </label>
-          <label class="field">
-            <span class="label">Sort order</span>
-            <input type="number" bind:value={sortOrder} />
-          </label>
+        <div class="field">
+          <span class="label">Status</span>
+          <div class="opt-slider" role="radiogroup" aria-label="Status">
+            {#each QUEST_STATUSES as s}
+              <button
+                type="button"
+                class="opt-slider__opt"
+                class:opt-slider__opt--on={status === s}
+                role="radio"
+                aria-checked={status === s}
+                onclick={() => (status = s)}
+              >
+                {s}
+              </button>
+            {/each}
+          </div>
+        </div>
+
+        <div class="field">
+          <span class="label">Значимость</span>
+          <div class="opt-slider" role="radiogroup" aria-label="Значимость">
+            {#each QUEST_SIGNIFICANCES as s}
+              <button
+                type="button"
+                class="opt-slider__opt opt-slider__opt--sig"
+                class:opt-slider__opt--on={significance === s.id}
+                data-sig={s.id}
+                role="radio"
+                aria-checked={significance === s.id}
+                onclick={() => (significance = s.id)}
+              >
+                {s.label}
+              </button>
+            {/each}
+          </div>
         </div>
 
         <label class="check">
@@ -275,55 +340,63 @@
         </label>
 
         <div class="deadline-block">
-          <div class="deadline-row">
-            <label class="field field--deadline">
-              <span class="label">Срок ({localTimeZone()}, 24ч)</span>
-              <div class="deadline-inputs">
-                <input type="date" lang="ru-RU" bind:value={deadlineDate} />
-                <div class="time-24" title="Часы:минуты (0–23)">
-                  <select bind:value={deadlineHour} aria-label="Часы (0–23)" disabled={!deadlineDate}>
-                    {#each HOURS_24 as h}
-                      <option value={h}>{h}</option>
-                    {/each}
-                  </select>
-                  <span class="time-24__sep">:</span>
-                  <select
-                    bind:value={deadlineMinute}
-                    aria-label="Минуты"
-                    disabled={!deadlineDate}
-                  >
-                    {#each MINUTES_60 as m}
-                      <option value={m}>{m}</option>
-                    {/each}
-                  </select>
+          <button
+            type="button"
+            class="deadline-toggle"
+            aria-expanded={deadlineOpen}
+            onclick={toggleDeadline}
+          >
+            <span class="deadline-toggle__label">Срок ({localTimeZone()}, 24ч)</span>
+            <span class="deadline-toggle__hint">
+              {deadlineOpen ? 'задан' : 'не задан'}
+            </span>
+            <span class="deadline-toggle__chevron" aria-hidden="true">
+              <Icon name={deadlineOpen ? 'chevron-down' : 'chevron-right'} size={14} />
+            </span>
+          </button>
+          {#if deadlineOpen}
+            <div class="deadline-body">
+              <div class="deadline-row">
+                <label class="field field--deadline">
+                  <span class="label">Дата и время</span>
+                  <div class="deadline-inputs">
+                    <input type="date" lang="ru-RU" bind:value={deadlineDate} required />
+                    <div class="time-24" title="Часы:минуты (0–23)">
+                      <select bind:value={deadlineHour} aria-label="Часы (0–23)">
+                        {#each HOURS_24 as h}
+                          <option value={h}>{h}</option>
+                        {/each}
+                      </select>
+                      <span class="time-24__sep">:</span>
+                      <select bind:value={deadlineMinute} aria-label="Минуты">
+                        {#each MINUTES_60 as m}
+                          <option value={m}>{m}</option>
+                        {/each}
+                      </select>
+                    </div>
+                  </div>
+                </label>
+                <div class="field field--duration">
+                  <span class="label">Длительность окна</span>
+                  <div class="duration-row">
+                    <input type="number" min="0" placeholder="ч" bind:value={durationHours} />
+                    <span class="duration-row__sep">:</span>
+                    <input
+                      type="number"
+                      min="0"
+                      max="59"
+                      placeholder="мин"
+                      bind:value={durationMinutes}
+                    />
+                  </div>
                 </div>
               </div>
-            </label>
-            <div class="field field--duration">
-              <span class="label">Длительность окна</span>
-              <div class="duration-row">
-                <input
-                  type="number"
-                  min="0"
-                  placeholder="ч"
-                  bind:value={durationHours}
-                  disabled={!deadlineLocal}
-                />
-                <span class="duration-row__sep">:</span>
-                <input
-                  type="number"
-                  min="0"
-                  max="59"
-                  placeholder="мин"
-                  bind:value={durationMinutes}
-                  disabled={!deadlineLocal}
-                />
-              </div>
+              <p class="hint">
+                Длительность пусто = от создания/изменения до срока. Окно срочности = срок −
+                длительность. Свернуть строку «Срок» = убрать дедлайн.
+              </p>
             </div>
-          </div>
-          <p class="hint">
-            Пусто = от создания/изменения до срока. Окно срочности = срок − длительность.
-          </p>
+          {/if}
         </div>
 
         <div class="steps-block">
@@ -336,38 +409,62 @@
           </div>
           {#each steps as step (step.key)}
             <div class="step-edit">
-              <input
-                type="text"
-                class="step-edit__title"
-                placeholder="Название шага"
-                bind:value={step.title}
-              />
-              <input
-                type="number"
-                class="step-edit__num"
-                min="0"
-                title="current"
-                bind:value={step.progress_current}
-              />
-              <span class="step-edit__slash">/</span>
-              <input
-                type="number"
-                class="step-edit__num"
-                min="1"
-                title="total"
-                bind:value={step.progress_total}
-              />
-              <button
-                type="button"
-                class="btn btn--ghost btn--icon"
-                onclick={() => removeStep(step.key)}
-                aria-label="Удалить шаг"
-              >
-                <Icon name="subtract" size={16} />
-              </button>
+              <div class="step-edit__row">
+                <input
+                  type="text"
+                  class="step-edit__title"
+                  placeholder="Название шага"
+                  bind:value={step.title}
+                />
+                <input
+                  type="number"
+                  class="step-edit__num"
+                  min="0"
+                  title="current"
+                  bind:value={step.progress_current}
+                />
+                <span class="step-edit__slash">/</span>
+                <input
+                  type="number"
+                  class="step-edit__num"
+                  min="1"
+                  title="total"
+                  bind:value={step.progress_total}
+                />
+                <button
+                  type="button"
+                  class="btn btn--ghost btn--icon"
+                  onclick={() => removeStep(step.key)}
+                  aria-label="Удалить шаг"
+                >
+                  <Icon name="subtract" size={16} />
+                </button>
+              </div>
+              <div class="step-edit__check">
+                <input
+                  type="text"
+                  class="step-edit__cmd"
+                  placeholder="check-команда (stdout → число), напр. find ~/docs -type f | wc -l"
+                  bind:value={step.check_command}
+                  spellcheck="false"
+                />
+                <input
+                  type="number"
+                  class="step-edit__interval"
+                  min="15"
+                  step="15"
+                  placeholder="сек"
+                  title="Интервал проверки (сек, мин. 15)"
+                  bind:value={step.check_interval_seconds}
+                  disabled={!String(step.check_command || '').trim()}
+                />
+              </div>
             </div>
           {/each}
-          <p class="hint">Пустые шаги отбрасываются. Без шагов создастся один из title.</p>
+          <p class="hint">
+            Пустые шаги отбрасываются. Check-команда опциональна: сервер раз в N сек читает число из
+            stdout и пишет в current.
+          </p>
         </div>
 
         <footer class="modal__foot">
@@ -375,7 +472,7 @@
             <button
               type="button"
               class="btn btn--danger"
-              onclick={onDelete}
+              onclick={requestDelete}
               disabled={saving || deleting}
               aria-label={deleting ? 'Удаление…' : 'Удалить'}
             >
@@ -418,6 +515,17 @@
     </div>
   </div>
 {/if}
+
+<ConfirmModal
+  open={deleteConfirmOpen}
+  title="Удалить квест?"
+  message={quest ? `Удалить квест «${quest.title}»?` : ''}
+  busy={deleting}
+  onCancel={() => {
+    if (!deleting) deleteConfirmOpen = false
+  }}
+  onConfirm={confirmDelete}
+/>
 
 <style>
   .backdrop {
@@ -487,6 +595,77 @@
     color: var(--color-fg-muted, #9a9a9a);
   }
 
+  .deadline-block {
+    display: grid;
+    border: 1px solid var(--color-border, #333);
+    border-radius: var(--radius-sm, 2px);
+    background: var(--color-bg-muted, #242424);
+    overflow: hidden;
+  }
+
+  .deadline-toggle {
+    display: grid;
+    grid-template-columns: 1fr auto auto;
+    align-items: center;
+    gap: var(--space-2, 0.5rem);
+    width: 100%;
+    margin: 0;
+    padding: var(--space-2, 0.5rem) var(--space-3, 0.75rem);
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .deadline-toggle:hover {
+    background: color-mix(in srgb, var(--color-bg-hover, #2a2a2a) 70%, transparent);
+  }
+
+  .deadline-toggle__label {
+    font-size: var(--text-xs, 0.75rem);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--color-fg-muted, #9a9a9a);
+  }
+
+  .deadline-toggle__hint {
+    font-size: var(--text-xs, 0.75rem);
+    color: var(--color-fg-subtle, #6e6e6e);
+  }
+
+  .deadline-toggle__chevron {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    justify-self: end;
+    width: 1.25rem;
+    height: 1.25rem;
+    color: var(--color-fg-muted, #9a9a9a);
+  }
+
+  .deadline-body {
+    display: grid;
+    gap: var(--space-2, 0.5rem);
+    padding: 0 var(--space-3, 0.75rem) var(--space-3, 0.75rem);
+  }
+
+  .deadline-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+    gap: var(--space-3, 0.75rem);
+    align-items: end;
+  }
+
+  .deadline-inputs {
+    display: grid;
+    grid-template-columns: 1.15fr auto;
+    gap: var(--space-2, 0.5rem);
+    align-items: center;
+  }
+
   input[type='text'],
   input[type='number'],
   input[type='date'],
@@ -509,29 +688,76 @@
     outline-offset: 1px;
   }
 
-  .grid-2 {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: var(--space-3, 0.75rem);
+  .opt-slider {
+    display: flex;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    gap: 2px;
+    padding: 3px;
+    border: 1px solid var(--color-border, #333);
+    border-radius: var(--radius-sm, 2px);
+    background: var(--color-bg-muted, #242424);
+    overflow-x: auto;
   }
 
-  .deadline-block {
-    display: grid;
-    gap: var(--space-2, 0.5rem);
+  .opt-slider__opt {
+    flex: 1 1 0;
+    margin: 0;
+    padding: 0.45rem 0.5rem;
+    border: 0;
+    border-radius: 2px;
+    background: transparent;
+    color: var(--color-fg-muted, #9a9a9a);
+    font: inherit;
+    font-size: var(--text-xs, 0.75rem);
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+    cursor: pointer;
   }
 
-  .deadline-row {
-    display: grid;
-    grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
-    gap: var(--space-3, 0.75rem);
-    align-items: end;
+  .opt-slider__opt:hover {
+    color: var(--color-fg, #e8e8e8);
+    background: color-mix(in srgb, var(--color-bg-hover, #2a2a2a) 80%, transparent);
   }
 
-  .deadline-inputs {
-    display: grid;
-    grid-template-columns: 1.15fr auto;
-    gap: var(--space-2, 0.5rem);
-    align-items: center;
+  .opt-slider__opt--on {
+    background: color-mix(in srgb, var(--color-accent, #c9a227) 22%, var(--color-bg, #121212));
+    color: var(--color-accent, #c9a227);
+    font-weight: 600;
+  }
+
+  .opt-slider__opt--sig[data-sig='common'] {
+    color: #a89984;
+    background: color-mix(in srgb, #a89984 12%, transparent);
+  }
+  .opt-slider__opt--sig[data-sig='uncommon'] {
+    color: #8ec07c;
+    background: color-mix(in srgb, #8ec07c 12%, transparent);
+  }
+  .opt-slider__opt--sig[data-sig='epic'] {
+    color: #d3869b;
+    background: color-mix(in srgb, #d3869b 12%, transparent);
+  }
+  .opt-slider__opt--sig[data-sig='legendary'] {
+    color: #fe8019;
+    background: color-mix(in srgb, #fe8019 12%, transparent);
+  }
+
+  .opt-slider__opt--sig.opt-slider__opt--on[data-sig='common'] {
+    color: #ebdbb2;
+    background: color-mix(in srgb, #a89984 32%, var(--color-bg, #121212));
+  }
+  .opt-slider__opt--sig.opt-slider__opt--on[data-sig='uncommon'] {
+    color: #b8bb26;
+    background: color-mix(in srgb, #8ec07c 32%, var(--color-bg, #121212));
+  }
+  .opt-slider__opt--sig.opt-slider__opt--on[data-sig='epic'] {
+    color: #e9b4c7;
+    background: color-mix(in srgb, #d3869b 34%, var(--color-bg, #121212));
+  }
+  .opt-slider__opt--sig.opt-slider__opt--on[data-sig='legendary'] {
+    color: #ffb86c;
+    background: color-mix(in srgb, #fe8019 34%, var(--color-bg, #121212));
   }
 
   .time-24 {
@@ -590,9 +816,30 @@
 
   .step-edit {
     display: grid;
+    gap: var(--space-2, 0.5rem);
+  }
+
+  .step-edit__row {
+    display: grid;
     grid-template-columns: 1fr 3.2rem auto 3.2rem auto;
     gap: var(--space-2, 0.5rem);
     align-items: center;
+  }
+
+  .step-edit__check {
+    display: grid;
+    grid-template-columns: 1fr 4.5rem;
+    gap: var(--space-2, 0.5rem);
+    align-items: center;
+  }
+
+  .step-edit__cmd {
+    font-family: var(--font-mono, monospace);
+    font-size: var(--text-xs, 0.75rem);
+  }
+
+  .step-edit__interval {
+    width: 100%;
   }
 
   .step-edit__slash {
@@ -671,7 +918,6 @@
   }
 
   @media (max-width: 520px) {
-    .grid-2,
     .deadline-row,
     .deadline-inputs,
     .step-edit {
@@ -680,6 +926,17 @@
   }
 
   @media (orientation: portrait) {
+    .opt-slider {
+      flex-direction: column;
+      overflow-x: visible;
+    }
+
+    .opt-slider__opt {
+      flex: 0 0 auto;
+      width: 100%;
+      text-align: left;
+    }
+
     .btn__text {
       position: absolute;
       width: 1px;

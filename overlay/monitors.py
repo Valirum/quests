@@ -29,6 +29,31 @@ def apply_monitor(window: Gtk.Window, monitor: Gdk.Monitor | None) -> None:
     LayerShell.set_monitor(window, monitor)
 
 
+def monitor_connector(monitor: Gdk.Monitor | None) -> str:
+    if monitor is None:
+        return ""
+    if hasattr(monitor, "get_connector"):
+        return (monitor.get_connector() or "").strip()
+    return ""
+
+
+def resolve_monitor_index(
+    mons: list[Gdk.Monitor],
+    *,
+    connector: str = "",
+    index: int = 0,
+) -> int:
+    """Prefer connector match; else clamp index."""
+    if not mons:
+        return 0
+    want = (connector or "").strip()
+    if want:
+        for i, mon in enumerate(mons):
+            if monitor_connector(mon) == want:
+                return i
+    return int(index) % len(mons)
+
+
 def cycle_index(current: int, total: int) -> int:
     if total <= 0:
         return 0

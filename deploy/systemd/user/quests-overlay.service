@@ -1,0 +1,20 @@
+[Unit]
+Description=Quests Wayland overlay (HUD + notices)
+Documentation=file://%h/Documents/projects/Quests/README.md
+PartOf=graphical-session.target
+After=graphical-session.target quests-server.service
+Wants=quests-server.service
+
+[Service]
+Type=simple
+WorkingDirectory=%h/Documents/projects/Quests
+Environment=PYTHONUNBUFFERED=1
+Environment=PATH=%h/.local/bin:%h/.cargo/bin:/usr/local/bin:/usr/bin
+# WAYLAND_DISPLAY / XDG_RUNTIME_DIR / NIRI_SOCKET: import into user manager
+# (see deploy/systemd/README.md).
+ExecStart=%h/Documents/projects/Quests/scripts/run-overlay-smoke.sh
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=graphical-session.target

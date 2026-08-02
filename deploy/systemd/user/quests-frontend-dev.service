@@ -1,0 +1,16 @@
+[Unit]
+Description=Quests frontend Vite HMR (:5173)
+Documentation=file://%h/Documents/projects/Quests/README.md
+After=network-online.target quests-server.service
+Wants=network-online.target quests-server.service
+
+[Service]
+Type=simple
+WorkingDirectory=%h/Documents/projects/Quests/frontend
+Environment=PATH=%h/.local/bin:%h/.cargo/bin:/usr/local/bin:/usr/bin
+ExecStart=%h/Documents/projects/Quests/scripts/run-frontend.sh
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=default.target
