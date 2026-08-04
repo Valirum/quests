@@ -1,4 +1,4 @@
-/** Client-side quest search: layout remap + fuzzy from 4 chars. */
+/** Client-side quest search: layout remap + light fuzzy from 6 chars. */
 
 /** QWERTY key → same physical key on ЙЦУКЕН (ghbdtn → привет). */
 const EN_TO_RU = {
@@ -41,6 +41,11 @@ const RU_TO_EN = Object.fromEntries(
   Object.entries(EN_TO_RU).map(([en, ru]) => [ru, en]),
 )
 
+/** Fuzzy kicks in only for longer queries; span must stay close to the needle. */
+const FUZZY_MIN_LEN = 6
+const FUZZY_SPAN_FACTOR = 1.35
+const FUZZY_SPAN_PAD = 2
+
 function mapChars(text, table) {
   let out = ''
   for (const ch of text) {
@@ -70,18 +75,28 @@ function normalize(text) {
     .trim()
 }
 
-/** Substring always; from 4 chars also subsequence fuzzy. */
+/** Substring always; longer queries also get a tight subsequence fuzzy. */
 export function textMatches(haystack, needle) {
   const h = normalize(haystack)
   const n = normalize(needle)
   if (!n) return true
   if (!h) return false
   if (h.includes(n)) return true
-  if (n.length < 4) return false
+  if (n.length < FUZZY_MIN_LEN) return false
+
+  const maxSpan = Math.ceil(n.length * FUZZY_SPAN_FACTOR) + FUZZY_SPAN_PAD
   let i = 0
-  for (const ch of h) {
-    if (ch === n[i]) i += 1
-    if (i >= n.length) return true
+  let start = -1
+  for (let j = 0; j < h.length; j += 1) {
+    if (h[j] !== n[i]) continue
+    if (i === 0) start = j
+    i += 1
+    if (i < n.length) continue
+    if (j - start + 1 <= maxSpan) return true
+    // Match was too sparse — restart after the first hit.
+    j = start
+    i = 0
+    start = -1
   }
   return false
 }
@@ -95,6 +110,9 @@ export function questSearchBlob(quest) {
     quest.description,
     quest.status,
     quest.progress_label,
+    quest.category_label,
+    quest.category_slug,
+    quest.questline_title,
     steps,
   ]
     .filter(Boolean)

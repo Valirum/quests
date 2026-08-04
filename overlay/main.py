@@ -9,9 +9,10 @@ Input mode (HUD):
   interactive = panel + drag + gear settings + titles; keys:
     Esc → passthrough · Space → monitor · arrows/hjkl → nudge
     Backspace / − → collapse (also exits interactive)
-  gear → settings panel (monitors / style / bg / alpha); list icon → quests
+    z / x → cycle HUD category lane (by keycode; works on RU layout)
+  gear → settings panel (monitors / style / category / bg / alpha); list icon → quests
   toggle  = python -m overlay toggle
-  Settings: data/overlay.json (style, monitor, margins, passthrough bg)
+  Settings: data/overlay.json (style, monitor, margins, passthrough bg, category)
 """
 
 from __future__ import annotations
@@ -30,20 +31,24 @@ gi.require_version("Gtk4LayerShell", "1.0")
 
 from gi.repository import Gdk, GLib, Gtk, Gtk4LayerShell as LayerShell
 
-from .api_client import fetch_events, fetch_quests
+from .api_client import fetch_categories, fetch_events, fetch_quests
 from .browser import focus_quest
 from . import config as overlay_config
 from .drag import NUDGE_STEP, attach_drag_handle, nudge_hud
 from .hud import (
     apply_timer_bindings,
     build_hud,
+    cycle_hud_category,
+    resolve_hud_category,
     split_hud_quests,
 )
+from .idle_notify import get_idle_monitor
 from .input_mode import apply_hud_input_mode
 from .ipc import send_command, start_server, stop_server
 from .monitors import (
     apply_monitor,
     cycle_index,
+    focus_niri_output,
     list_monitors,
     monitor_connector,
     monitor_label,
@@ -101,6 +106,7 @@ def _cli(argv: list[str]) -> int:
             "\n"
             "niri example:\n"
             '  Mod+Space { spawn-sh "python -m overlay toggle"; }\n'
+            "  (toggle focuses the HUD's current output via niri; no hardcode)\n"
             "  (run from Quests root or set PATH/PYTHONPATH)\n"
         )
         return 0
@@ -152,6 +158,7 @@ def on_activate(app: Gtk.Application) -> None:
         "passthrough_bg_alpha": float(saved.get("passthrough_bg_alpha", 0.6)),
         "toasts_major": bool(saved.get("toasts_major", True)),
         "toasts_minor": bool(saved.get("toasts_minor", True)),
+        "hud_category": str(saved.get("hud_category") or ""),
         "input_gen": 0,
         "dragging": False,
         "margin_top": int(saved.get("margin_top", 24)),
@@ -178,6 +185,7 @@ def on_activate(app: Gtk.Application) -> None:
                 "passthrough_bg_alpha": state["passthrough_bg_alpha"],
                 "toasts_major": bool(state["toasts_major"]),
                 "toasts_minor": bool(state["toasts_minor"]),
+                "hud_category": str(state.get("hud_category") or ""),
             }
         )
 
@@ -254,11 +262,29 @@ def on_activate(app: Gtk.Application) -> None:
     def refresh_hud(*, force: bool = False) -> None:
         if state.get("dragging") and not force:
             return
+        categories_raw: list[dict] = []
         try:
             items = fetch_quests()
-            favorites, urgent = split_hud_quests(items)
+            try:
+                categories_raw = fetch_categories()
+            except (urllib.error.URLError, TimeoutError, ValueError, TypeError, KeyError):
+                categories_raw = []
+            cat_slug, cat_label, cat_opts = resolve_hud_category(
+                categories_raw, str(state.get("hud_category") or "")
+            )
+            prev_cat = str(state.get("hud_category") or "")
+            if cat_slug != prev_cat:
+                state["hud_category"] = cat_slug
+                if cat_slug:
+                    persist()
+            favorites, urgent, category = split_hud_quests(
+                items, category_slug=cat_slug or None
+            )
         except (urllib.error.URLError, TimeoutError, ValueError, TypeError, KeyError):
-            favorites, urgent = [], []
+            favorites, urgent, category = [], [], []
+            cat_slug, cat_label, cat_opts = resolve_hud_category(
+                [], str(state.get("hud_category") or "")
+            )
 
         def _fp(block):
             # Timers tick in place — exclude live countdown text from rebuild key.
@@ -268,6 +294,7 @@ def on_activate(app: Gtk.Application) -> None:
                     q.title,
                     q.deadline_at,
                     q.duration_seconds,
+                    q.overdue,
                     tuple((s.title, s.progress) for s in q.steps),
                 )
                 for q in block
@@ -276,6 +303,8 @@ def on_activate(app: Gtk.Application) -> None:
         fingerprint = (
             _fp(favorites),
             _fp(urgent),
+            _fp(category),
+            cat_slug,
             state["interactive"],
             state["collapsed"],
             state["settings_open"],
@@ -319,6 +348,7 @@ def on_activate(app: Gtk.Application) -> None:
         child, _hotspot, timers = build_hud(
             favorites,
             urgent,
+            category,
             interactive=state["interactive"],
             collapsed=state["collapsed"],
             settings_open=bool(state["settings_open"]),
@@ -326,12 +356,16 @@ def on_activate(app: Gtk.Application) -> None:
             monitor_index=idx,
             style_pack_id=str(state["style_pack"]),
             style_packs=packs,
+            categories=cat_opts,
+            category_slug=cat_slug,
+            category_label=cat_label,
             passthrough_bg_mode=str(state["passthrough_bg_mode"]),
             passthrough_bg_alpha=float(state["passthrough_bg_alpha"]),
             toasts_major=bool(state["toasts_major"]),
             toasts_minor=bool(state["toasts_minor"]),
             on_select_monitor=select_monitor if state["interactive"] else None,
             on_select_style=set_style_pack if state["interactive"] else None,
+            on_select_category=set_hud_category if state["interactive"] else None,
             on_passthrough_settings=set_passthrough_settings
             if state["interactive"]
             else None,
@@ -377,8 +411,31 @@ def on_activate(app: Gtk.Application) -> None:
         refresh_hud(force=True)
         return "settings" if state["settings_open"] else "quests"
 
+    def hud_output_name() -> str:
+        """Connector for the monitor the HUD is currently on."""
+        conn = str(state.get("monitor_connector") or "").strip()
+        if conn:
+            return conn
+        mons = list_monitors(display)
+        if not mons:
+            return ""
+        idx = resolve_monitor_index(
+            mons,
+            connector="",
+            index=int(state.get("monitor_index") or 0),
+        )
+        return monitor_connector(mons[idx])
+
+    def focus_hud_output() -> bool:
+        """Ask niri to focus the HUD output (needed for exclusive keyboard grab)."""
+        return focus_niri_output(hud_output_name())
+
     def set_interactive(enabled: bool) -> str:
-        state["interactive"] = bool(enabled)
+        entering = bool(enabled)
+        if entering:
+            # Seat focus must be on the HUD's output or layer-shell keys are dropped.
+            focus_hud_output()
+        state["interactive"] = entering
         if state["interactive"]:
             state["collapsed"] = False
         else:
@@ -404,6 +461,8 @@ def on_activate(app: Gtk.Application) -> None:
         apply_stored_margins()
         persist()
         refresh_hud(force=True)
+        if state["interactive"]:
+            focus_hud_output()
         return result
 
     def select_monitor(index: int) -> str:
@@ -416,6 +475,8 @@ def on_activate(app: Gtk.Application) -> None:
         apply_stored_margins()
         persist()
         refresh_hud(force=True)
+        if state["interactive"]:
+            focus_hud_output()
         return result
 
     def set_style_pack(name: str) -> str:
@@ -451,14 +512,34 @@ def on_activate(app: Gtk.Application) -> None:
         persist()
         refresh_hud(force=True)
 
+    def set_hud_category(slug: str) -> str:
+        state["hud_category"] = str(slug or "").strip()
+        persist()
+        refresh_hud(force=True)
+        return f"category: {state['hud_category'] or '—'}"
+
+    def cycle_category(*, delta: int) -> str:
+        try:
+            cats = fetch_categories()
+        except (urllib.error.URLError, TimeoutError, ValueError, TypeError, KeyError):
+            cats = []
+        nxt = cycle_hud_category(cats, str(state.get("hud_category") or ""), delta=delta)
+        return set_hud_category(nxt)
+
     def on_key(
         _controller: Gtk.EventControllerKey,
         keyval: int,
-        _keycode: int,
+        keycode: int,
         _mods: int,
     ) -> bool:
         if not state["interactive"]:
             return False
+
+        # Letter binds use hardware keycodes (X11 = linux evdev + 8) so they
+        # keep working on non-Latin layouts (e.g. Russian: я/ч instead of z/x).
+        # Escape / Backspace / Space / arrows stay on keyval — layout-invariant.
+        KC_H, KC_J, KC_K, KC_L = 43, 44, 45, 46
+        KC_Z, KC_X = 52, 53
 
         if keyval == Gdk.KEY_Escape:
             set_interactive(False)
@@ -472,15 +553,23 @@ def on_activate(app: Gtk.Application) -> None:
             cycle_monitor()
             return True
 
+        if keycode == KC_Z:
+            cycle_category(delta=-1)
+            return True
+
+        if keycode == KC_X:
+            cycle_category(delta=1)
+            return True
+
         step = NUDGE_STEP
         dx = dy = 0
-        if keyval in {Gdk.KEY_Left, Gdk.KEY_h, Gdk.KEY_H, Gdk.KEY_KP_Left}:
+        if keyval in {Gdk.KEY_Left, Gdk.KEY_KP_Left} or keycode == KC_H:
             dx = -step
-        elif keyval in {Gdk.KEY_Right, Gdk.KEY_l, Gdk.KEY_L, Gdk.KEY_KP_Right}:
+        elif keyval in {Gdk.KEY_Right, Gdk.KEY_KP_Right} or keycode == KC_L:
             dx = step
-        elif keyval in {Gdk.KEY_Up, Gdk.KEY_k, Gdk.KEY_K, Gdk.KEY_KP_Up}:
+        elif keyval in {Gdk.KEY_Up, Gdk.KEY_KP_Up} or keycode == KC_K:
             dy = -step
-        elif keyval in {Gdk.KEY_Down, Gdk.KEY_j, Gdk.KEY_J, Gdk.KEY_KP_Down}:
+        elif keyval in {Gdk.KEY_Down, Gdk.KEY_KP_Down} or keycode == KC_J:
             dy = step
         else:
             return False
@@ -582,6 +671,8 @@ def on_activate(app: Gtk.Application) -> None:
         major=bool(state["toasts_major"]),
         minor=bool(state["toasts_minor"]),
     )
+    # Best-effort: major toasts wait for seat activity via ext-idle-notify-v1.
+    get_idle_monitor().start()
     refresh_hud(force=True)
     try:
         revision, _ = fetch_events(0)
@@ -593,6 +684,7 @@ def on_activate(app: Gtk.Application) -> None:
 
     def on_shutdown(_app) -> None:
         persist()
+        get_idle_monitor().stop()
         stop_server(ipc_sock)
 
     app.connect("shutdown", on_shutdown)

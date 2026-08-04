@@ -25,9 +25,10 @@ class HudQuest:
     title: str
     steps: list[HudStep]
     timer_label: str | None = None
-    timer_tone: str | None = None  # green | orange | red
+    timer_tone: str | None = None  # green | orange | red | overdue
     deadline_at: object | None = None
     duration_seconds: int | None = None
+    overdue: bool = False
 
 
 @dataclass
@@ -56,31 +57,44 @@ def _with_timer(quest: dict, steps: list[HudStep]) -> HudQuest:
     rem = None
     deadline = quest.get("deadline_at")
     duration = quest.get("duration_seconds")
+    status = str(quest.get("status") or "")
+    overdue = status == "delayed"
     if deadline:
         rem = remaining_seconds(deadline)
-    if rem is not None and int(rem) <= 0:
-        rem = None
+        if rem is not None and int(rem) <= 0:
+            overdue = True
+            rem = None
     tone = None
     timer_label = None
     if rem is not None:
         tone = timer_tone(deadline, duration)
         timer_label = format_remaining(int(rem))
+    elif overdue:
+        tone = "overdue"
+        timer_label = "просрочено"
     return HudQuest(
         quest_id=int(qid) if qid is not None else None,
         title=quest.get("title") or "?",
         steps=steps,
         timer_label=timer_label,
         timer_tone=tone,
-        deadline_at=deadline,
+        deadline_at=deadline if rem is not None else None,
         duration_seconds=int(duration) if duration is not None else None,
+        overdue=overdue,
     )
 
 
-def split_hud_quests(items: list[dict]) -> tuple[list[HudQuest], list[HudQuest]]:
-    """Pinned (favorites) first; urgent non-pinned below. Pinned wins if both."""
+def split_hud_quests(
+    items: list[dict],
+    *,
+    category_slug: str | None = None,
+) -> tuple[list[HudQuest], list[HudQuest], list[HudQuest]]:
+    """Pinned → urgent → category (active/delayed). Earlier lanes win on overlap."""
     favorites: list[HudQuest] = []
     urgent: list[HudQuest] = []
-    fav_ids: set[int] = set()
+    category: list[HudQuest] = []
+    taken: set[int] = set()
+    slug = (category_slug or "").strip().lower() or None
 
     for q in items:
         if q.get("status") in {"completed", "failed", "archived"}:
@@ -92,14 +106,13 @@ def split_hud_quests(items: list[dict]) -> tuple[list[HudQuest], list[HudQuest]]
         if q.get("pinned"):
             favorites.append(entry)
             if entry.quest_id is not None:
-                fav_ids.add(entry.quest_id)
-            continue
+                taken.add(entry.quest_id)
 
     for q in items:
         if q.get("status") in {"completed", "failed", "archived"}:
             continue
         qid = q.get("id")
-        if qid is not None and int(qid) in fav_ids:
+        if qid is not None and int(qid) in taken:
             continue
         steps = _open_steps(q)
         if not steps:
@@ -109,9 +122,71 @@ def split_hud_quests(items: list[dict]) -> tuple[list[HudQuest], list[HudQuest]]
             urgent_flag = is_urgent(q.get("deadline_at"), q.get("duration_seconds"))
         if not urgent_flag:
             continue
-        urgent.append(_with_timer(q, steps))
+        entry = _with_timer(q, steps)
+        urgent.append(entry)
+        if entry.quest_id is not None:
+            taken.add(entry.quest_id)
 
-    return favorites, urgent
+    if slug:
+        for q in items:
+            status = str(q.get("status") or "")
+            if status not in {"active", "delayed"}:
+                continue
+            qid = q.get("id")
+            if qid is not None and int(qid) in taken:
+                continue
+            q_slug = str(q.get("category_slug") or "").strip().lower()
+            if q_slug != slug:
+                continue
+            steps = _open_steps(q)
+            if not steps:
+                continue
+            category.append(_with_timer(q, steps))
+
+    return favorites, urgent, category
+
+
+def resolve_hud_category(
+    categories: list[dict],
+    preferred: str | None,
+) -> tuple[str, str, list[tuple[str, str]]]:
+    """Pick slug/label and option list for settings / cycling.
+
+    Returns (slug, label, options[(slug, label)]). Empty categories → ("", "", []).
+    """
+    options: list[tuple[str, str]] = []
+    for cat in categories:
+        s = str(cat.get("slug") or "").strip()
+        if not s:
+            continue
+        label = str(cat.get("label") or s).strip() or s
+        options.append((s, label))
+    if not options:
+        return "", "", []
+    want = (preferred or "").strip().lower()
+    for s, label in options:
+        if s.lower() == want:
+            return s, label, options
+    s0, label0 = options[0]
+    return s0, label0, options
+
+
+def cycle_hud_category(
+    categories: list[dict],
+    current: str | None,
+    *,
+    delta: int,
+) -> str:
+    """Cycle category slug by delta (±1). Returns new slug (or "")."""
+    slug, _label, options = resolve_hud_category(categories, current)
+    if not options:
+        return ""
+    slugs = [s for s, _ in options]
+    try:
+        idx = next(i for i, s in enumerate(slugs) if s.lower() == slug.lower())
+    except StopIteration:
+        idx = 0
+    return slugs[(idx + int(delta)) % len(slugs)]
 
 
 def _chip(text: str, css_class: str) -> Gtk.Label:
@@ -146,7 +221,7 @@ def apply_timer_bindings(bindings: list[TimerBinding]) -> bool:
         if binding.label.get_label() != text:
             binding.label.set_label(text)
         if binding.tone != tone:
-            for old in ("green", "orange", "red"):
+            for old in ("green", "orange", "red", "overdue"):
                 binding.label.remove_css_class(f"quest-timer--{old}")
             binding.label.add_css_class(f"quest-timer--{tone}")
             binding.tone = tone
@@ -186,7 +261,7 @@ def _append_quest_section(
             )
         )
     elif quest.timer_label:
-        tone = quest.timer_tone or "red"
+        tone = quest.timer_tone or ("overdue" if quest.overdue else "red")
         timer = _chip(quest.timer_label, "quest-timer")
         timer.add_css_class(f"quest-timer--{tone}")
         title_row.append(timer)
@@ -216,6 +291,29 @@ def _append_quest_section(
         section.append(row)
 
     root.append(section)
+
+
+def _append_section_heading(root: Gtk.Box, text: str, *, interactive: bool) -> None:
+    block = Gtk.Box(
+        orientation=Gtk.Orientation.VERTICAL,
+        spacing=0 if not interactive else 2,
+    )
+    block.add_css_class("hud-section")
+    block.add_css_class("hud-section--lane")
+    block.set_halign(Gtk.Align.END)
+    row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+    row.add_css_class("hud-row")
+    row.set_halign(Gtk.Align.END)
+    row.append(_chip(text, "section-heading"))
+    block.append(row)
+    root.append(block)
+
+
+def _append_heavy_sep(root: Gtk.Box) -> None:
+    sep = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+    sep.set_halign(Gtk.Align.END)
+    sep.append(_rule(heavy=True))
+    root.append(sep)
 
 
 def _icon_button(
@@ -286,12 +384,15 @@ def _append_settings_panel(
     monitor_index: int,
     style_pack_id: str,
     style_packs: list[tuple[str, str]],
+    categories: list[tuple[str, str]],
+    category_slug: str,
     bg_mode: str,
     bg_alpha: float,
     toasts_major: bool,
     toasts_minor: bool,
     on_select_monitor: Callable[[int], None] | None,
     on_select_style: Callable[[str], None] | None,
+    on_select_category: Callable[[str], None] | None,
     on_passthrough_settings: Callable[[str, float], None] | None,
     on_toast_settings: Callable[[bool, bool], None] | None,
 ) -> None:
@@ -323,6 +424,20 @@ def _append_settings_panel(
         panel.append(_opt_slider(style_packs, style_pack_id, on_select_style))
     else:
         panel.append(_chip(style_pack_id, "hint"))
+
+    # Category lane
+    panel.append(_settings_label("Раздел в HUD"))
+    if categories and on_select_category is not None:
+        active_cat = category_slug if any(s == category_slug for s, _ in categories) else categories[0][0]
+        panel.append(_opt_slider(categories, active_cat, on_select_category))
+        cat_hint = Gtk.Label(label="z / x — листать раздел")
+        cat_hint.add_css_class("hint")
+        cat_hint.add_css_class("hud-settings-hint")
+        cat_hint.set_halign(Gtk.Align.END)
+        cat_hint.set_xalign(1.0)
+        panel.append(cat_hint)
+    else:
+        panel.append(_chip("нет разделов", "hint"))
 
     # Background mode
     panel.append(_settings_label("Фон (passthrough)"))
@@ -393,6 +508,7 @@ def _append_settings_panel(
 def build_hud(
     favorites: list[HudQuest],
     urgent: list[HudQuest] | None = None,
+    category: list[HudQuest] | None = None,
     *,
     interactive: bool = False,
     collapsed: bool = False,
@@ -401,12 +517,16 @@ def build_hud(
     monitor_index: int = 0,
     style_pack_id: str = "fantasy",
     style_packs: list[tuple[str, str]] | None = None,
+    categories: list[tuple[str, str]] | None = None,
+    category_slug: str = "",
+    category_label: str = "",
     passthrough_bg_mode: str = "chips",
     passthrough_bg_alpha: float = 0.6,
     toasts_major: bool = True,
     toasts_minor: bool = True,
     on_select_monitor: Callable[[int], None] | None = None,
     on_select_style: Callable[[str], None] | None = None,
+    on_select_category: Callable[[str], None] | None = None,
     on_passthrough_settings: Callable[[str, float], None] | None = None,
     on_toast_settings: Callable[[bool, bool], None] | None = None,
     on_toggle_collapsed: Callable[[], None] | None = None,
@@ -415,8 +535,10 @@ def build_hud(
     on_open_quest: Callable[[int], None] | None = None,
 ) -> tuple[Gtk.Widget, Gtk.Widget | None, list[TimerBinding]]:
     urgent = urgent or []
+    category = category or []
     monitors = monitors or []
     style_packs = style_packs or []
+    categories = categories or []
     timers: list[TimerBinding] = []
     show_settings = bool(interactive and settings_open and not collapsed)
 
@@ -499,16 +621,19 @@ def build_hud(
             monitor_index=monitor_index,
             style_pack_id=style_pack_id,
             style_packs=style_packs,
+            categories=categories,
+            category_slug=category_slug,
             bg_mode=passthrough_bg_mode,
             bg_alpha=passthrough_bg_alpha,
             toasts_major=toasts_major,
             toasts_minor=toasts_minor,
             on_select_monitor=on_select_monitor,
             on_select_style=on_select_style,
+            on_select_category=on_select_category,
             on_passthrough_settings=on_passthrough_settings,
             on_toast_settings=on_toast_settings,
         )
-    elif not favorites and not urgent:
+    elif not favorites and not urgent and not category and not category_slug:
         empty = Gtk.Box(
             orientation=Gtk.Orientation.VERTICAL,
             spacing=0 if not interactive else 4,
@@ -532,10 +657,7 @@ def build_hud(
             )
 
         if favorites and urgent:
-            sep = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-            sep.set_halign(Gtk.Align.END)
-            sep.append(_rule(heavy=True))
-            root.append(sep)
+            _append_heavy_sep(root)
 
         for quest in urgent:
             _append_quest_section(
@@ -545,6 +667,34 @@ def build_hud(
                 on_open_quest=on_open_quest,
                 timers=timers,
             )
+
+        if category_slug or category:
+            if favorites or urgent:
+                _append_heavy_sep(root)
+            heading = (category_label or category_slug or "Раздел").strip()
+            _append_section_heading(root, heading, interactive=interactive)
+            if category:
+                for quest in category:
+                    _append_quest_section(
+                        root,
+                        quest,
+                        interactive=interactive,
+                        on_open_quest=on_open_quest,
+                        timers=timers,
+                    )
+            else:
+                empty_cat = Gtk.Box(
+                    orientation=Gtk.Orientation.VERTICAL,
+                    spacing=0 if not interactive else 4,
+                )
+                empty_cat.add_css_class("hud-section")
+                empty_cat.set_halign(Gtk.Align.END)
+                hint_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+                hint_row.add_css_class("hud-row")
+                hint_row.set_halign(Gtk.Align.END)
+                hint_row.append(_chip("Нет задач в разделе", "hint"))
+                empty_cat.append(hint_row)
+                root.append(empty_cat)
 
     if interactive and (
         on_prepare_drag_handle is not None or controls is not None

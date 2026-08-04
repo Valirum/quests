@@ -51,7 +51,10 @@
   let ctxOpen = $state(false)
   let ctxX = $state(0)
   let ctxY = $state(0)
+  /** @type {'line' | 'quest' | null} */
+  let ctxKind = $state(null)
   let ctxLineId = $state(/** @type {number | null} */ (null))
+  let ctxQuestId = $state(/** @type {number | null} */ (null))
   let lineDeleteConfirmOpen = $state(false)
   let lineDeleting = $state(false)
   let deleting = $state(false)
@@ -65,6 +68,31 @@
   let showAllQuests = $state(false)
 
   const OPEN_STATUSES = new Set(['active', 'delayed'])
+
+  let ctxItems = $derived.by(() => {
+    if (ctxKind === 'line') {
+      return [
+        { id: 'add', label: 'Добавить квест' },
+        { id: 'edit', label: 'Редактировать' },
+        { id: 'delete', label: 'Удалить', danger: true },
+      ]
+    }
+    if (ctxKind === 'quest') {
+      return [
+        { id: 'edit', label: 'Редактировать' },
+        { id: 'sep-delay', sep: true },
+        { id: 'delay-15', label: 'Отложить на 15 мин' },
+        { id: 'delay-30', label: 'Отложить на 30 мин' },
+        { id: 'delay-60', label: 'Отложить на 60 мин' },
+        { id: 'sep-status', sep: true },
+        { id: 'complete', label: 'Выполнено' },
+        { id: 'fail', label: 'Провалено' },
+        { id: 'sep-danger', sep: true },
+        { id: 'delete', label: 'Удалить', danger: true },
+      ]
+    }
+    return []
+  })
 
   let matchedQuests = $derived(
     quests.filter((q) => questMatchesQuery(q, searchQuery)),
@@ -292,10 +320,29 @@
   function openLineContextMenu(event, line) {
     event.preventDefault()
     event.stopPropagation()
+    ctxKind = 'line'
     ctxLineId = line.id
+    ctxQuestId = null
     ctxX = event.clientX
     ctxY = event.clientY
     ctxOpen = true
+  }
+
+  function openQuestContextMenu(event, quest) {
+    event.preventDefault()
+    event.stopPropagation()
+    ctxKind = 'quest'
+    ctxQuestId = quest.id
+    ctxLineId = null
+    selectedId = quest.id
+    ctxX = event.clientX
+    ctxY = event.clientY
+    ctxOpen = true
+  }
+
+  function closeContextMenu() {
+    ctxOpen = false
+    ctxKind = null
   }
 
   function onLineContextSelect(action) {
@@ -314,6 +361,83 @@
     }
     if (action === 'delete') {
       lineDeleteConfirmOpen = true
+    }
+  }
+
+  async function patchQuestStatus(quest, status) {
+    if (!quest || statusBusy) return
+    statusBusy = true
+    error = ''
+    try {
+      const saved = await updateQuest(quest.id, { status })
+      applyQuest(saved)
+    } catch (e) {
+      error = e.message || String(e)
+    } finally {
+      statusBusy = false
+    }
+  }
+
+  async function postponeQuest(quest, minutes) {
+    if (!quest || statusBusy) return
+    statusBusy = true
+    error = ''
+    try {
+      const secs = Math.max(60, Math.round(Number(minutes) * 60))
+      const deadline = new Date(Date.now() + secs * 1000).toISOString()
+      const saved = await updateQuest(quest.id, {
+        status: 'active',
+        deadline_at: deadline,
+        duration_seconds: secs,
+      })
+      applyQuest(saved)
+    } catch (e) {
+      error = e.message || String(e)
+    } finally {
+      statusBusy = false
+    }
+  }
+
+  function onQuestContextSelect(action) {
+    const quest = quests.find((q) => q.id === ctxQuestId)
+    if (!quest) return
+    if (action === 'edit') {
+      openEdit(quest)
+      return
+    }
+    if (action === 'delay-15') {
+      postponeQuest(quest, 15)
+      return
+    }
+    if (action === 'delay-30') {
+      postponeQuest(quest, 30)
+      return
+    }
+    if (action === 'delay-60') {
+      postponeQuest(quest, 60)
+      return
+    }
+    if (action === 'complete') {
+      patchQuestStatus(quest, 'completed')
+      return
+    }
+    if (action === 'fail') {
+      patchQuestStatus(quest, 'failed')
+      return
+    }
+    if (action === 'delete') {
+      selectedId = quest.id
+      deleteConfirmOpen = true
+    }
+  }
+
+  function onContextSelect(action) {
+    if (ctxKind === 'line') {
+      onLineContextSelect(action)
+      return
+    }
+    if (ctxKind === 'quest') {
+      onQuestContextSelect(action)
     }
   }
 
@@ -507,11 +631,11 @@
 
 <div class="journal">
   <header class="journal__header">
-    <div class="brand">
-      <span class="brand__mark" aria-hidden="true">◈</span>
-      <h1 class="brand__title">{view === 'hero' ? 'Лист' : 'Задачи'}</h1>
-    </div>
-    <div class="header-actions">
+    <div class="header-left">
+      <div class="brand">
+        <span class="brand__mark" aria-hidden="true">◈</span>
+        <h1 class="brand__title">{view === 'hero' ? 'Лист' : 'Задачи'}</h1>
+      </div>
       <span
         class="live"
         data-status={liveStatus}
@@ -521,36 +645,31 @@
         <span class="live__dot" aria-hidden="true"></span>
         <span class="live__text">{liveStatus}</span>
       </span>
-      <div class="view-tabs" role="tablist" aria-label="Раздел">
-        <button
-          type="button"
-          class="view-tab"
-          class:view-tab--on={view === 'journal'}
-          role="tab"
-          aria-selected={view === 'journal'}
-          onclick={() => (view = 'journal')}
-        >
-          Журнал
-        </button>
-        <button
-          type="button"
-          class="view-tab"
-          class:view-tab--on={view === 'hero'}
-          role="tab"
-          aria-selected={view === 'hero'}
-          onclick={() => (view = 'hero')}
-        >
-          Лист
-        </button>
-      </div>
+    </div>
+    <div class="view-tabs" role="tablist" aria-label="Раздел">
+      <button
+        type="button"
+        class="view-tab"
+        class:view-tab--on={view === 'journal'}
+        role="tab"
+        aria-selected={view === 'journal'}
+        onclick={() => (view = 'journal')}
+      >
+        Журнал
+      </button>
+      <button
+        type="button"
+        class="view-tab"
+        class:view-tab--on={view === 'hero'}
+        role="tab"
+        aria-selected={view === 'hero'}
+        onclick={() => (view = 'hero')}
+      >
+        Лист
+      </button>
+    </div>
+    <div class="header-actions">
       {#if view === 'journal'}
-        <input
-          class="search"
-          type="search"
-          placeholder="Поиск…"
-          bind:value={searchQuery}
-          aria-label="Поиск по названию, описанию, шагам, статусу"
-        />
         <button type="button" class="btn" onclick={openTemplates} aria-label="Шаблоны периодики">
           <Icon name="renew" />
           <span class="btn__text">Шаблоны</span>
@@ -578,10 +697,19 @@
   {:else}
   <div class="journal__body">
     <aside class="sidebar">
-      <label class="sidebar__filter">
-        <input type="checkbox" bind:checked={showAllQuests} />
-        <span>Показать все</span>
-      </label>
+      <div class="sidebar__tools">
+        <input
+          class="search"
+          type="search"
+          placeholder="Поиск…"
+          bind:value={searchQuery}
+          aria-label="Поиск по названию, разделу, квестлайну, описанию, шагам"
+        />
+        <label class="sidebar__filter">
+          <input type="checkbox" bind:checked={showAllQuests} />
+          <span>Показывать завершённые</span>
+        </label>
+      </div>
       <div class="sidebar__list" aria-label="Список квестов">
         {#if loading}
           <p class="empty">Загрузка…</p>
@@ -590,7 +718,7 @@
         {:else if matchedQuests.length === 0}
           <p class="empty">Ничего не найдено</p>
         {:else if listedQuests.length === 0}
-          <p class="empty">Нет активных — включи «Показать все»</p>
+          <p class="empty">Нет активных — включи «Показывать завершённые»</p>
         {:else}
           {#snippet questRow(q)}
             {@const rowTimer = questTimer(q)}
@@ -601,10 +729,7 @@
               class:quest-row--pinned={q.pinned}
               class:quest-row--inactive={isQuestInactive(q)}
               onclick={() => (selectedId = q.id)}
-              oncontextmenu={(e) => {
-                e.preventDefault()
-                openEdit(q)
-              }}
+              oncontextmenu={(e) => openQuestContextMenu(e, q)}
             >
               <span class="quest-row__top">
                 <span class="quest-row__title">{q.title}</span>
@@ -760,8 +885,6 @@
               <button
                 type="button"
                 class="btn"
-                class:btn--done={selected.status !== 'completed'}
-                class:btn--reactivate={selected.status === 'completed'}
                 onclick={toggleCompleted}
                 disabled={statusBusy}
                 aria-label={
@@ -781,7 +904,7 @@
               </button>
               <button
                 type="button"
-                class="btn btn--accent"
+                class="btn"
                 onclick={() => openEdit()}
                 aria-label="Править"
               >
@@ -930,13 +1053,9 @@
   open={ctxOpen}
   x={ctxX}
   y={ctxY}
-  items={[
-    { id: 'add', label: 'Добавить квест' },
-    { id: 'edit', label: 'Редактировать' },
-    { id: 'delete', label: 'Удалить', danger: true },
-  ]}
-  onSelect={onLineContextSelect}
-  onClose={() => (ctxOpen = false)}
+  items={ctxItems}
+  onSelect={onContextSelect}
+  onClose={closeContextMenu}
 />
 
 <ConfirmModal
@@ -977,15 +1096,22 @@
   }
 
   .journal__header {
-    display: flex;
-    flex-wrap: wrap;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
     align-items: center;
-    justify-content: space-between;
     gap: var(--space-3, 0.75rem);
     min-height: var(--header-height, 3.25rem);
     padding: var(--space-3, 0.75rem) var(--space-4, 1rem);
     border-bottom: 1px solid var(--color-border, #333);
     background: color-mix(in srgb, var(--color-bg-raised, #1a1a1a) 92%, transparent);
+  }
+
+  .header-left {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3, 0.75rem);
+    min-width: 0;
+    justify-self: start;
   }
 
   .brand {
@@ -1020,24 +1146,29 @@
     display: flex;
     flex-wrap: wrap;
     align-items: center;
+    justify-content: flex-end;
     gap: var(--space-2, 0.5rem);
+    justify-self: end;
     font-family: var(--font-ui, sans-serif);
   }
 
   .view-tabs {
     display: inline-flex;
+    justify-self: center;
     border: 1px solid var(--color-border, #333);
-    border-radius: var(--radius-sm, 2px);
+    border-radius: var(--radius-lg, 12px);
     overflow: hidden;
+    background: var(--color-bg-muted, #242424);
   }
 
   .view-tab {
     border: 0;
     background: transparent;
     color: var(--color-fg-muted, #9a9a9a);
-    padding: 0.4rem 0.7rem;
+    padding: 0.45rem 0.95rem;
     cursor: pointer;
     font: inherit;
+    font-family: var(--font-ui, sans-serif);
     font-size: var(--text-sm, 0.875rem);
   }
 
@@ -1060,6 +1191,7 @@
     align-items: center;
     gap: var(--space-2, 0.5rem);
     height: 2.25rem;
+    flex-shrink: 0;
     font-family: var(--font-mono, monospace);
     font-size: var(--text-xs, 0.75rem);
     letter-spacing: 0.06em;
@@ -1115,14 +1247,22 @@
     background: var(--color-bg-raised, #1a1a1a);
   }
 
+  .sidebar__tools {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    flex-shrink: 0;
+    padding: 0.55rem 0.75rem 0.45rem;
+    border-bottom: 1px solid var(--color-border, #333);
+  }
+
   .sidebar__filter {
     display: flex;
     align-items: center;
     gap: 0.45rem;
-    flex-shrink: 0;
     margin: 0;
-    padding: 0.45rem 0.75rem;
-    border-bottom: 1px solid var(--color-border, #333);
+    padding: 0.1rem 0.05rem 0.15rem;
+    border: 0;
     font-size: var(--text-xs, 0.75rem);
     color: var(--color-fg-muted, #9a9a9a);
     cursor: pointer;
@@ -1141,12 +1281,11 @@
 
   .search {
     box-sizing: border-box;
+    width: 100%;
     height: 2.25rem;
-    min-width: 12rem;
-    max-width: 18rem;
     padding: 0 var(--space-3, 0.75rem);
     border: 1px solid var(--color-border-strong, #4a4a4a);
-    border-radius: var(--radius-sm, 2px);
+    border-radius: var(--radius-lg, 12px);
     background: var(--color-bg-muted, #242424);
     color: var(--color-fg, #e8e8e8);
     font-family: var(--font-ui, sans-serif);
@@ -1174,7 +1313,7 @@
     font-size: var(--text-sm, 0.875rem);
     padding: 0 var(--space-3, 0.75rem);
     border: 1px solid var(--color-border-strong, #4a4a4a);
-    border-radius: var(--radius-sm, 2px);
+    border-radius: var(--radius-lg, 12px);
     background: var(--color-bg-muted, #242424);
     color: var(--color-fg, #e8e8e8);
     cursor: pointer;
@@ -1194,24 +1333,25 @@
     background: color-mix(in srgb, var(--color-accent, #c9a227) 28%, var(--color-bg-muted, #242424));
   }
 
-  .btn--done {
-    border-color: color-mix(in srgb, var(--color-success, #7a9e3a) 55%, var(--color-border, #333));
-    background: color-mix(in srgb, var(--color-success, #7a9e3a) 20%, var(--color-bg-muted, #242424));
-    color: color-mix(in srgb, var(--color-success, #7a9e3a) 85%, var(--color-fg, #e8e8e8));
+  /* Detail header actions: text-only, less color noise */
+  .detail__actions .btn {
+    background: transparent;
+    border-color: transparent;
+    color: var(--color-fg, #e8e8e8);
   }
 
-  .btn--done:hover {
-    background: color-mix(in srgb, var(--color-success, #7a9e3a) 32%, var(--color-bg-muted, #242424));
+  .detail__actions .btn:hover:not(:disabled) {
+    background: var(--color-bg-hover, #2a2a2a);
   }
 
-  .btn--reactivate {
-    border-color: color-mix(in srgb, var(--color-accent, #c9a227) 55%, var(--color-border, #333));
-    background: color-mix(in srgb, var(--color-accent, #c9a227) 18%, var(--color-bg-muted, #242424));
-    color: var(--color-accent, #c9a227);
+  .detail__actions .btn--danger {
+    color: var(--color-danger, #b54a3a);
+    background: transparent;
+    border-color: transparent;
   }
 
-  .btn--reactivate:hover {
-    background: color-mix(in srgb, var(--color-accent, #c9a227) 28%, var(--color-bg-muted, #242424));
+  .detail__actions .btn--danger:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--color-danger, #b54a3a) 14%, transparent);
   }
 
   .quest-subgroup {
@@ -1735,7 +1875,7 @@
 
   .deadline-timer {
     display: flex;
-    align-items: baseline;
+    align-items: center;
     justify-content: space-between;
     gap: var(--space-3, 0.75rem);
     margin-top: var(--space-5, 1.5rem);
@@ -1787,6 +1927,34 @@
   }
 
   @media (orientation: portrait) {
+    .journal__header {
+      grid-template-columns: minmax(0, 1fr) auto;
+      grid-template-areas:
+        "left actions"
+        "tabs tabs";
+    }
+
+    .header-left {
+      grid-area: left;
+    }
+
+    .header-actions {
+      grid-area: actions;
+      gap: var(--space-1, 0.25rem);
+    }
+
+    .view-tabs {
+      grid-area: tabs;
+      display: flex;
+      width: 100%;
+      justify-self: stretch;
+    }
+
+    .view-tab {
+      flex: 1 1 0;
+      text-align: center;
+    }
+
     .btn__text,
     .live__text {
       position: absolute;
@@ -1815,17 +1983,6 @@
     .live__dot {
       width: 0.65rem;
       height: 0.65rem;
-    }
-
-    .search {
-      min-width: 0;
-      flex: 1 1 8rem;
-      max-width: none;
-    }
-
-    .header-actions {
-      flex: 1 1 auto;
-      justify-content: flex-end;
     }
   }
 </style>

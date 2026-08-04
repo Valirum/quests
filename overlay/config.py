@@ -23,6 +23,8 @@ DEFAULTS: dict[str, Any] = {
     # Toast lanes (major = fullscreen center, minor = small corner).
     "toasts_major": True,
     "toasts_minor": True,
+    # HUD category lane (slug from /api/categories); empty → first available.
+    "hud_category": "",
 }
 
 
@@ -85,6 +87,8 @@ def load() -> dict[str, Any]:
                 cfg["toasts_major"] = _as_bool(data["toasts_major"], DEFAULTS["toasts_major"])
             if "toasts_minor" in data:
                 cfg["toasts_minor"] = _as_bool(data["toasts_minor"], DEFAULTS["toasts_minor"])
+            if "hud_category" in data and isinstance(data["hud_category"], str):
+                cfg["hud_category"] = data["hud_category"].strip()
     except (OSError, json.JSONDecodeError, TypeError, ValueError):
         pass
 
@@ -107,6 +111,7 @@ def save(cfg: dict[str, Any]) -> None:
         ),
         "toasts_major": _as_bool(cfg.get("toasts_major"), DEFAULTS["toasts_major"]),
         "toasts_minor": _as_bool(cfg.get("toasts_minor"), DEFAULTS["toasts_minor"]),
+        "hud_category": str(cfg.get("hud_category") or "").strip(),
     }
     try:
         CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)

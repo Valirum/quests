@@ -23,6 +23,11 @@ def fetch_quests() -> list[dict]:
     return list(data)
 
 
+def fetch_categories() -> list[dict]:
+    data = fetch_json(f"{API_BASE}/api/categories")
+    return list(data)
+
+
 def fetch_events(since: int) -> tuple[int, list[dict]]:
     q = urllib.parse.urlencode({"since": since})
     data = fetch_json(f"{API_BASE}/api/events?{q}", timeout=1.2)

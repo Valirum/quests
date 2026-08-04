@@ -676,7 +676,7 @@
     max-height: min(90vh, 52rem);
     overflow: auto;
     border: 1px solid var(--color-border-strong, #4a4a4a);
-    border-radius: var(--radius-md, 4px);
+    border-radius: var(--radius-lg, 12px);
     background: var(--color-bg-raised, #1a1a1a);
     box-shadow: 0 16px 48px color-mix(in srgb, #000 45%, transparent);
     font-family: var(--font-ui, sans-serif);

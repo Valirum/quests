@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import shutil
+import subprocess
+
 from gi.repository import Gdk, Gtk, Gtk4LayerShell as LayerShell
 
 
@@ -111,3 +114,27 @@ def neighbor_monitor(
             best_dist = dist
             best = (i, mon)
     return best
+
+
+def focus_niri_output(connector: str) -> bool:
+    """Move niri seat focus to ``connector`` so layer-shell can grab the keyboard.
+
+    Best-effort: no-op when niri is missing or the name is empty.
+    """
+    name = (connector or "").strip()
+    if not name:
+        return False
+    niri = shutil.which("niri")
+    if not niri:
+        return False
+    try:
+        proc = subprocess.run(
+            [niri, "msg", "action", "focus-monitor", name],
+            capture_output=True,
+            text=True,
+            timeout=1.0,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return proc.returncode == 0

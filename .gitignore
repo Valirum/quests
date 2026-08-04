@@ -45,7 +45,11 @@ pnpm-debug.log*
 *.ntvs*
 *.njsproj
 *.sln
+sandbox.json
 
 # Logs / runtime
 *.log
 *.sock
+
+# Vendored overlay deps (installed by scripts/run-overlay-smoke.sh)
+overlay/_vendor/

@@ -8,10 +8,23 @@ PACK_LABEL = "Fantasy Journal"
 # System mono (Nerd Font build is what most Arch/Cachy installs ship).
 FONT_DISPLAY = '"JetBrainsMono Nerd Font", "JetBrains Mono", "JetBrainsMono NF", monospace'
 FONT_BODY = FONT_DISPLAY
+# Major / minor toasts — system serif (confirmed present on Cachy/Arch).
+FONT_TOAST = '"Noto Serif", "Liberation Serif", "DejaVu Serif", serif'
 
 # Passthrough background tint (RGB); alpha comes from overlay settings.
 PASSTHROUGH_BG_RGB = (26, 21, 16)
 PASSTHROUGH_RADIUS = 8
+
+# AFK major-toast glow (driven by sine from toast.py).
+AFK_SIG_RGB = {
+    "common": (168, 168, 168),
+    "uncommon": (142, 192, 124),
+    "epic": (211, 134, 155),
+    "legendary": (254, 128, 25),
+}
+AFK_BORDER_RADIUS = 8
+AFK_BORDER_WIDTH = 2
+AFK_BORDER_LEFT_WIDTH = 2
 
 # Timing (ms) — presentation contract; hosts should honor these.
 MAJOR_FADE_IN_MS = 500
@@ -102,6 +115,15 @@ box.hud.hud--interactive {{
   letter-spacing: 0.06em;
 }}
 
+.section-heading {{
+  color: #c4a574;
+  font-family: {FONT_DISPLAY};
+  font-size: 10pt;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}}
+
 .section-title-btn {{
   background-color: transparent;
   border: none;
@@ -155,6 +177,12 @@ box.hud.hud--interactive {{
 
 .quest-timer--red {{
   color: #fb4934;
+}}
+
+.quest-timer--overdue {{
+  color: #fb4934;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }}
 
 button.hud-icon-btn {{
@@ -347,14 +375,14 @@ button.hud-drag:selected {{
   border: none;
   border-radius: 8px;
   padding: 36px 48px 40px;
-  font-family: {FONT_BODY};
+  font-family: {FONT_TOAST};
   text-shadow:
     0 0 4px rgba(0, 0, 0, 0.9),
     0 1px 3px rgba(0, 0, 0, 0.85);
 }}
 
 .major__eyebrow {{
-  font-family: {FONT_DISPLAY};
+  font-family: {FONT_TOAST};
   font-size: 22pt;
   font-weight: 700;
   letter-spacing: 0.18em;
@@ -392,7 +420,7 @@ button.hud-drag:selected {{
 }}
 
 .major__title {{
-  font-family: {FONT_DISPLAY};
+  font-family: {FONT_TOAST};
   font-size: 44pt;
   font-weight: 700;
   color: #f0e6d2;
@@ -425,11 +453,11 @@ button.hud-drag:selected {{
   border-radius: 6px;
   border: 1px solid rgba(196, 165, 116, 0.4);
   background-color: rgba(26, 21, 16, 0.88);
-  font-family: {FONT_BODY};
+  font-family: {FONT_TOAST};
 }}
 
 .minor__title {{
-  font-family: {FONT_DISPLAY};
+  font-family: {FONT_TOAST};
   font-size: 11pt;
   font-weight: 700;
   color: #f0e6d2;

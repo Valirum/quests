@@ -17,9 +17,22 @@ FONT_DISPLAY = (
 FONT_BODY = (
     '"Rajdhani", "Noto Sans", "DejaVu Sans", sans-serif'
 )
+# Major / minor toasts — system serif.
+FONT_TOAST = '"Noto Serif", "Liberation Serif", "DejaVu Serif", serif'
 
 PASSTHROUGH_BG_RGB = (12, 12, 14)
 PASSTHROUGH_RADIUS = 0
+
+# AFK major-toast glow (driven by sine from toast.py).
+AFK_SIG_RGB = {
+    "common": (168, 168, 168),
+    "uncommon": (61, 255, 154),
+    "epic": (199, 125, 255),
+    "legendary": (255, 138, 31),
+}
+AFK_BORDER_RADIUS = 0
+AFK_BORDER_WIDTH = 2
+AFK_BORDER_LEFT_WIDTH = 3
 
 # Slightly snappier than fantasy — UI feels more "digital".
 MAJOR_FADE_IN_MS = 280
@@ -143,6 +156,18 @@ box.hud.hud--interactive {{
     0 0 10px rgba(255, 0, 60, 0.3);
 }}
 
+.section-heading {{
+  color: {CYAN};
+  font-family: {FONT_DISPLAY};
+  font-size: 10pt;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  text-shadow:
+    0 0 2px rgba(0, 0, 0, 0.9),
+    0 0 10px rgba(0, 240, 255, 0.35);
+}}
+
 .section-title-btn {{
   background-color: transparent;
   border: none;
@@ -198,6 +223,13 @@ box.hud.hud--interactive {{
 
 .quest-timer--red {{
   color: {RED_HOT};
+}}
+
+.quest-timer--overdue {{
+  color: {RED_HOT};
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  text-shadow: 0 0 10px rgba(255, 0, 60, 0.45);
 }}
 
 button.hud-icon-btn {{
@@ -399,14 +431,14 @@ button.hud-drag:selected {{
   border-left: 3px solid {YELLOW};
   border-radius: 0;
   padding: 32px 44px 36px;
-  font-family: {FONT_BODY};
+  font-family: {FONT_TOAST};
   text-shadow:
     0 0 3px rgba(0, 0, 0, 0.95),
     1px 0 0 rgba(224, 49, 49, 0.2);
 }}
 
 .major__eyebrow {{
-  font-family: {FONT_DISPLAY};
+  font-family: {FONT_TOAST};
   font-size: 18pt;
   font-weight: 700;
   letter-spacing: 0.22em;
@@ -452,7 +484,7 @@ button.hud-drag:selected {{
 }}
 
 .major__title {{
-  font-family: {FONT_DISPLAY};
+  font-family: {FONT_TOAST};
   font-size: 36pt;
   font-weight: 700;
   color: {YELLOW};
@@ -497,11 +529,11 @@ button.hud-drag:selected {{
   background-image:
     linear-gradient(135deg, transparent 8px, transparent 8px),
     {_scanlines(0.06)};
-  font-family: {FONT_BODY};
+  font-family: {FONT_TOAST};
 }}
 
 .minor__title {{
-  font-family: {FONT_DISPLAY};
+  font-family: {FONT_TOAST};
   font-size: 12pt;
   font-weight: 700;
   color: {YELLOW};
