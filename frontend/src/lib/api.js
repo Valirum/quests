@@ -90,6 +90,49 @@ export function copyTemplate(id) {
   return request(`/api/templates/${id}/copy`, { method: 'POST' })
 }
 
+export function getHero() {
+  return request('/api/hero')
+}
+
+export function listCategories() {
+  return request('/api/categories')
+}
+
+export function listQuestlines() {
+  return request('/api/questlines')
+}
+
+export function createQuestline(payload) {
+  return request('/api/questlines', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
+export function updateQuestline(id, payload) {
+  return request(`/api/questlines/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
+  })
+}
+
+export function deleteQuestline(id) {
+  return request(`/api/questlines/${id}`, { method: 'DELETE' })
+}
+
+export const QUESTLINE_ICONS = ['document', 'flag', 'map', 'layers', 'target', 'scroll']
+
+export const QUESTLINE_COLORS = [
+  '#5a8a9a',
+  '#8a8578',
+  '#7a9e3a',
+  '#6a7ab8',
+  '#c47a20',
+  '#c9a227',
+  '#b54a3a',
+  '#9a9a9a',
+]
+
 export const TEMPLATE_FREQS = ['daily', 'weekly']
 
 export const TEMPLATE_EMIT_MODES = [

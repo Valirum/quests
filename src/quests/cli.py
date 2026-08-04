@@ -110,7 +110,15 @@ def _fmt_quest_line(q: dict[str, Any]) -> str:
     title = q.get("title") or "?"
     status = _status_val(q)
     progress = q.get("progress_label") or ""
-    return f"{pin} {qid:>4}  {status:<10}  {progress:<8}  {title}"
+    cat = q.get("category_slug") or q.get("category_label") or ""
+    line = q.get("questline_title") or ""
+    extras = []
+    if cat:
+        extras.append(cat)
+    if line:
+        extras.append(f"⟶{line}")
+    suffix = f"  [{', '.join(extras)}]" if extras else ""
+    return f"{pin} {qid:>4}  {status:<10}  {progress:<8}  {title}{suffix}"
 
 
 def _fmt_quest_detail(q: dict[str, Any]) -> str:
@@ -121,6 +129,19 @@ def _fmt_quest_detail(q: dict[str, Any]) -> str:
         f"  pinned:       {bool(q.get('pinned'))}",
         f"  progress:     {q.get('progress_label')}",
     ]
+    cat_bits = []
+    if q.get("category_id") is not None:
+        cat_bits.append(f"id={q.get('category_id')}")
+    if q.get("category_slug"):
+        cat_bits.append(str(q.get("category_slug")))
+    if q.get("category_label"):
+        cat_bits.append(str(q.get("category_label")))
+    lines.append(f"  category:     {(' '.join(cat_bits) if cat_bits else '—')}")
+    if q.get("questline_id") is not None:
+        ql = q.get("questline_title") or ""
+        lines.append(f"  questline:    #{q.get('questline_id')} {ql}".rstrip())
+    else:
+        lines.append("  questline:    —")
     if q.get("deadline_at"):
         lines.append(f"  deadline:     {q.get('deadline_at')}")
     if q.get("description"):
@@ -134,6 +155,73 @@ def _fmt_quest_detail(q: dict[str, Any]) -> str:
                 f"    {mark} [{s.get('id')}] {s.get('title')}  "
                 f"{s.get('progress_current')}/{s.get('progress_total')}"
             )
+    return "\n".join(lines)
+
+
+def _resolve_category_id(raw: str | None) -> int | None:
+    """Accept id, slug, label, or none/-/null to clear."""
+    if raw is None:
+        return None
+    text = str(raw).strip()
+    if text == "" or text.lower() in {"none", "-", "null", "нет"}:
+        return None
+    if text.isdigit():
+        return int(text)
+    cats = api_request("GET", "/api/categories") or []
+    needle = text.lower()
+    for c in cats:
+        if str(c.get("slug") or "").lower() == needle:
+            return int(c["id"])
+        if str(c.get("label") or "").lower() == needle:
+            return int(c["id"])
+    raise CliError(f"категория не найдена: {raw!r} (id|slug|label|none)")
+
+
+def _resolve_questline_id(raw: str | None) -> int | None:
+    if raw is None:
+        return None
+    text = str(raw).strip()
+    if text == "" or text.lower() in {"none", "-", "null", "нет"}:
+        return None
+    if text.isdigit():
+        return int(text)
+    lines = api_request("GET", "/api/questlines") or []
+    needle = text.lower()
+    matches = [l for l in lines if needle in str(l.get("title") or "").lower()]
+    if not matches:
+        raise CliError(f"квестлайн не найден: {raw!r}")
+    if len(matches) > 1:
+        ids = ", ".join(f"#{m['id']} {m.get('title')}" for m in matches)
+        raise CliError(f"несколько квестлайнов: {ids}; укажи id")
+    return int(matches[0]["id"])
+
+
+def _fmt_category_line(c: dict[str, Any]) -> str:
+    return (
+        f"{c.get('id'):>3}  {c.get('slug'):<10}  {c.get('label'):<14}  "
+        f"{c.get('color') or ''}  ord={c.get('sort_order')}"
+    )
+
+
+def _fmt_questline_line(l: dict[str, Any]) -> str:
+    cat = l.get("category_slug") or l.get("category_label") or "—"
+    return (
+        f"{l.get('id'):>3}  {l.get('icon') or 'document':<8}  "
+        f"{l.get('color') or '#9a9a9a':<8}  [{cat}]  {l.get('title')}"
+    )
+
+
+def _fmt_questline_detail(l: dict[str, Any]) -> str:
+    cat = l.get("category_label") or l.get("category_slug") or "—"
+    lines = [
+        f"#{l.get('id')}  {l.get('title')}",
+        f"  category:  {cat}"
+        + (f" (id={l.get('category_id')})" if l.get("category_id") is not None else ""),
+        f"  color:     {l.get('color')}",
+        f"  icon:      {l.get('icon')}",
+    ]
+    if l.get("description"):
+        lines.append(f"  description: {l.get('description')}")
     return "\n".join(lines)
 
 
@@ -160,6 +248,12 @@ def cmd_list(ns: argparse.Namespace) -> int:
     elif ns.unpinned:
         query["pinned"] = "false"
     items = api_request("GET", "/api/quests", query=query) or []
+    if getattr(ns, "category", None):
+        cat_id = _resolve_category_id(ns.category)
+        items = [q for q in items if q.get("category_id") == cat_id]
+    if getattr(ns, "questline", None):
+        ql_id = _resolve_questline_id(ns.questline)
+        items = [q for q in items if q.get("questline_id") == ql_id]
     if _want_json(ns):
         emit(items, as_json=True)
         return 0
@@ -188,6 +282,10 @@ def cmd_add(ns: argparse.Namespace) -> int:
         "status": ns.status or "active",
         "significance": ns.significance or "common",
     }
+    if getattr(ns, "category", None) is not None:
+        body["category_id"] = _resolve_category_id(ns.category)
+    if getattr(ns, "questline", None) is not None:
+        body["questline_id"] = _resolve_questline_id(ns.questline)
     if ns.step:
         body["steps"] = [{"title": s, "progress_current": 0, "progress_total": 1} for s in ns.step]
     q = api_request("POST", "/api/quests", body=body)
@@ -195,6 +293,28 @@ def cmd_add(ns: argparse.Namespace) -> int:
         emit(q, as_json=True)
     else:
         print(f"создан #{q['id']}: {q['title']}")
+    return 0
+
+
+def cmd_set(ns: argparse.Namespace) -> int:
+    body: dict[str, Any] = {}
+    if ns.title is not None:
+        body["title"] = ns.title
+    if ns.description is not None:
+        body["description"] = ns.description
+    if ns.category is not None:
+        body["category_id"] = _resolve_category_id(ns.category)
+    if ns.questline is not None:
+        body["questline_id"] = _resolve_questline_id(ns.questline)
+    if ns.significance is not None:
+        body["significance"] = ns.significance
+    if not body:
+        raise CliError("нечего менять: укажи --title/--description/--category/--questline/--significance")
+    q = api_request("PATCH", f"/api/quests/{ns.quest_id}", body=body)
+    if _want_json(ns):
+        emit(q, as_json=True)
+    else:
+        print(_fmt_quest_detail(q))
     return 0
 
 
@@ -285,6 +405,95 @@ def cmd_delete(ns: argparse.Namespace) -> int:
         emit({"ok": True, "deleted": ns.quest_id}, as_json=True)
     else:
         print(f"удалён #{ns.quest_id}")
+    return 0
+
+
+# ── categories / questlines ──────────────────────────────────────────────────
+
+
+def cmd_categories(ns: argparse.Namespace) -> int:
+    items = api_request("GET", "/api/categories") or []
+    if _want_json(ns):
+        emit(items, as_json=True)
+        return 0
+    if not items:
+        print("(пусто)")
+        return 0
+    for c in items:
+        print(_fmt_category_line(c))
+    return 0
+
+
+def cmd_questline_list(ns: argparse.Namespace) -> int:
+    items = api_request("GET", "/api/questlines") or []
+    if getattr(ns, "category", None):
+        cat_id = _resolve_category_id(ns.category)
+        items = [l for l in items if l.get("category_id") == cat_id]
+    if _want_json(ns):
+        emit(items, as_json=True)
+        return 0
+    if not items:
+        print("(пусто)")
+        return 0
+    for l in items:
+        print(_fmt_questline_line(l))
+    return 0
+
+
+def cmd_questline_show(ns: argparse.Namespace) -> int:
+    l = api_request("GET", f"/api/questlines/{ns.line_id}")
+    if _want_json(ns):
+        emit(l, as_json=True)
+    else:
+        print(_fmt_questline_detail(l))
+    return 0
+
+
+def cmd_questline_add(ns: argparse.Namespace) -> int:
+    body: dict[str, Any] = {
+        "title": ns.title,
+        "description": ns.description or "",
+        "color": ns.color or "#9a9a9a",
+        "icon": ns.icon or "document",
+    }
+    if getattr(ns, "category", None) is not None:
+        body["category_id"] = _resolve_category_id(ns.category)
+    l = api_request("POST", "/api/questlines", body=body)
+    if _want_json(ns):
+        emit(l, as_json=True)
+    else:
+        print(f"создан квестлайн #{l['id']}: {l['title']}")
+    return 0
+
+
+def cmd_questline_set(ns: argparse.Namespace) -> int:
+    body: dict[str, Any] = {}
+    if ns.title is not None:
+        body["title"] = ns.title
+    if ns.description is not None:
+        body["description"] = ns.description
+    if ns.category is not None:
+        body["category_id"] = _resolve_category_id(ns.category)
+    if ns.color is not None:
+        body["color"] = ns.color
+    if ns.icon is not None:
+        body["icon"] = ns.icon
+    if not body:
+        raise CliError("нечего менять: укажи --title/--description/--category/--color/--icon")
+    l = api_request("PATCH", f"/api/questlines/{ns.line_id}", body=body)
+    if _want_json(ns):
+        emit(l, as_json=True)
+    else:
+        print(_fmt_questline_detail(l))
+    return 0
+
+
+def cmd_questline_delete(ns: argparse.Namespace) -> int:
+    api_request("DELETE", f"/api/questlines/{ns.line_id}")
+    if _want_json(ns):
+        emit({"ok": True, "deleted": ns.line_id}, as_json=True)
+    else:
+        print(f"удалён квестлайн #{ns.line_id}")
     return 0
 
 
@@ -450,6 +659,16 @@ def build_parser() -> argparse.ArgumentParser:
     g = p.add_mutually_exclusive_group()
     g.add_argument("--pinned", action="store_true", help="только pinned")
     g.add_argument("--unpinned", action="store_true", help="только не pinned")
+    p.add_argument(
+        "--category",
+        default=None,
+        help="фильтр по разделу (id|slug|label|none)",
+    )
+    p.add_argument(
+        "--questline",
+        default=None,
+        help="фильтр по квестлайну (id|подстрока title|none)",
+    )
     p.set_defaults(func=cmd_list)
 
     # show
@@ -484,7 +703,43 @@ def build_parser() -> argparse.ArgumentParser:
         default=[],
         help="шаг (можно повторять); иначе один шаг из title",
     )
+    p.add_argument(
+        "--category",
+        default=None,
+        help="раздел: id|slug|label (напр. work)",
+    )
+    p.add_argument(
+        "--questline",
+        default=None,
+        help="квестлайн: id или подстрока title",
+    )
     p.set_defaults(func=cmd_add)
+
+    # set (patch fields)
+    p = sub.add_parser(
+        "set",
+        help="изменить поля квеста (раздел, квестлайн, …)",
+        parents=[json_parent],
+    )
+    p.add_argument("quest_id", type=int)
+    p.add_argument("--title", default=None)
+    p.add_argument("-d", "--description", default=None)
+    p.add_argument(
+        "--category",
+        default=None,
+        help="раздел id|slug|label|none",
+    )
+    p.add_argument(
+        "--questline",
+        default=None,
+        help="квестлайн id|title|none",
+    )
+    p.add_argument(
+        "--significance",
+        choices=["common", "uncommon", "epic", "legendary"],
+        default=None,
+    )
+    p.set_defaults(func=cmd_set)
 
     # pin
     p = sub.add_parser("pin", help="закрепить квест", parents=[json_parent])
@@ -534,6 +789,66 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("quest_id", type=int)
     p.set_defaults(func=cmd_delete)
+
+    # categories
+    p = sub.add_parser(
+        "categories",
+        help="справочник разделов",
+        aliases=["cats", "category"],
+        parents=[json_parent],
+    )
+    p.set_defaults(func=cmd_categories)
+
+    # questlines
+    qp = sub.add_parser(
+        "questline",
+        help="квестлайны (цепочки квестов)",
+        aliases=["ql", "questlines"],
+        parents=[json_parent],
+    )
+    qsub = qp.add_subparsers(dest="questline_command", metavar="QL_COMMAND", required=True)
+
+    p = qsub.add_parser("list", help="список квестлайнов", aliases=["ls"], parents=[json_parent])
+    p.add_argument("--category", default=None, help="фильтр раздела id|slug|label|none")
+    p.set_defaults(func=cmd_questline_list)
+
+    p = qsub.add_parser("show", help="детали квестлайна", aliases=["get"], parents=[json_parent])
+    p.add_argument("line_id", type=int)
+    p.set_defaults(func=cmd_questline_show)
+
+    p = qsub.add_parser("add", help="создать квестлайн", aliases=["create", "new"], parents=[json_parent])
+    p.add_argument("title")
+    p.add_argument("-d", "--description", default="")
+    p.add_argument("--category", default=None, help="раздел id|slug|label")
+    p.add_argument("--color", default="#9a9a9a")
+    p.add_argument(
+        "--icon",
+        default="document",
+        choices=["document", "flag", "map", "layers", "target", "scroll"],
+    )
+    p.set_defaults(func=cmd_questline_add)
+
+    p = qsub.add_parser("set", help="изменить квестлайн", parents=[json_parent])
+    p.add_argument("line_id", type=int)
+    p.add_argument("--title", default=None)
+    p.add_argument("-d", "--description", default=None)
+    p.add_argument("--category", default=None, help="раздел id|slug|label|none")
+    p.add_argument("--color", default=None)
+    p.add_argument(
+        "--icon",
+        default=None,
+        choices=["document", "flag", "map", "layers", "target", "scroll"],
+    )
+    p.set_defaults(func=cmd_questline_set)
+
+    p = qsub.add_parser(
+        "delete",
+        help="удалить квестлайн (квесты отвяжутся)",
+        aliases=["rm"],
+        parents=[json_parent],
+    )
+    p.add_argument("line_id", type=int)
+    p.set_defaults(func=cmd_questline_delete)
 
     # hooks
     hp = sub.add_parser(

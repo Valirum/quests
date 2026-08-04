@@ -7,11 +7,16 @@
   import deleteIcon from '../assets/icons/delete.svg?raw'
   import document from '../assets/icons/document.svg?raw'
   import edit from '../assets/icons/edit.svg?raw'
+  import flag from '../assets/icons/flag.svg?raw'
+  import layers from '../assets/icons/layers.svg?raw'
+  import map from '../assets/icons/map.svg?raw'
   import pin from '../assets/icons/pin.svg?raw'
   import pinFilled from '../assets/icons/pin-filled.svg?raw'
   import renew from '../assets/icons/renew.svg?raw'
   import save from '../assets/icons/save.svg?raw'
+  import scroll from '../assets/icons/scroll.svg?raw'
   import subtract from '../assets/icons/subtract.svg?raw'
+  import target from '../assets/icons/target.svg?raw'
 
   const ICONS = {
     add,
@@ -22,14 +27,19 @@
     delete: deleteIcon,
     document,
     edit,
+    flag,
+    layers,
+    map,
     pin,
     'pin-filled': pinFilled,
     renew,
     save,
+    scroll,
     subtract,
+    target,
   }
 
-  /** @type {{ name: keyof typeof ICONS, size?: number, label?: string }} */
+  /** @type {{ name: string, size?: number, label?: string }} */
   let { name, size = 16, label = '' } = $props()
 
   let svg = $derived(ICONS[name] ?? '')

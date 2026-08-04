@@ -61,6 +61,35 @@ SIGNIFICANCE_LABEL_RU: dict[str, str] = {
 }
 
 
+# Seed catalog (slug, label, sort_order).
+# slug, label, sort_order, color (hex)
+CATEGORY_SEED: list[tuple[str, str, int, str]] = [
+    ("work", "Работа", 10, "#5a8a9a"),
+    ("routine", "Рутина", 20, "#8a8578"),
+    ("health", "Здоровье", 30, "#7a9e3a"),
+    ("study", "Учёба", 40, "#6a7ab8"),
+    ("fun", "Развлечения", 50, "#c47a20"),
+]
+
+
+class QuestCategory(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    slug: str = Field(max_length=32, unique=True, index=True)
+    label: str = Field(max_length=64)
+    sort_order: int = Field(default=0)
+    # Accent hex for UI (sidebar / slider), e.g. "#5a8a9a".
+    color: str = Field(default="#9a9a9a", max_length=16)
+    created_at: datetime = Field(default_factory=utcnow)
+
+
+class QuestCategoryRead(SQLModel):
+    id: int
+    slug: str
+    label: str
+    sort_order: int
+    color: str
+
+
 class QuestBase(SQLModel):
     title: str = Field(min_length=1, max_length=200)
     description: str = ""
@@ -72,6 +101,56 @@ class QuestBase(SQLModel):
     deadline_at: Optional[datetime] = None
     # Length of the countdown window ending at deadline_at (seconds).
     duration_seconds: Optional[int] = Field(default=None, ge=1)
+    # JSON object of attribute weights, e.g. {"str":1,"int":2}. Empty = XP+impulse only.
+    reward_attrs: Optional[str] = Field(default=None, max_length=500)
+    category_id: Optional[int] = Field(
+        default=None, foreign_key="questcategory.id", index=True
+    )
+    questline_id: Optional[int] = Field(
+        default=None, foreign_key="questline.id", index=True
+    )
+
+
+class QuestLineBase(SQLModel):
+    title: str = Field(min_length=1, max_length=200)
+    description: str = ""
+    category_id: Optional[int] = Field(
+        default=None, foreign_key="questcategory.id", index=True
+    )
+    color: str = Field(default="#9a9a9a", max_length=16)
+    icon: str = Field(default="document", max_length=32)
+
+
+class QuestLine(QuestLineBase, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    created_at: datetime = Field(default_factory=utcnow)
+    updated_at: datetime = Field(default_factory=utcnow)
+    category: Optional[QuestCategory] = Relationship()
+
+
+class QuestLineCreate(QuestLineBase):
+    pass
+
+
+class QuestLineUpdate(SQLModel):
+    title: Optional[str] = Field(default=None, min_length=1, max_length=200)
+    description: Optional[str] = None
+    category_id: Optional[int] = None
+    color: Optional[str] = Field(default=None, max_length=16)
+    icon: Optional[str] = Field(default=None, max_length=32)
+
+
+class QuestLineRead(QuestLineBase):
+    id: int
+    created_at: datetime
+    updated_at: datetime
+    category_slug: Optional[str] = None
+    category_label: Optional[str] = None
+    category_color: Optional[str] = None
+
+    @field_serializer("created_at", "updated_at", when_used="json")
+    def _ser_utc(self, value: Optional[datetime]) -> Optional[str]:
+        return to_utc_iso(value)
 
 
 class Quest(QuestBase, table=True):
@@ -94,6 +173,8 @@ class Quest(QuestBase, table=True):
             "order_by": "QuestStep.sort_order",
         },
     )
+    category: Optional[QuestCategory] = Relationship()
+    questline: Optional[QuestLine] = Relationship()
 
 
 class QuestStepBase(SQLModel):
@@ -158,6 +239,9 @@ class QuestUpdate(SQLModel):
     sort_order: Optional[int] = None
     deadline_at: Optional[datetime] = None
     duration_seconds: Optional[int] = Field(default=None, ge=1)
+    reward_attrs: Optional[str] = Field(default=None, max_length=500)
+    category_id: Optional[int] = None
+    questline_id: Optional[int] = None
     steps: Optional[List[QuestStepCreate]] = None
 
 
@@ -168,6 +252,12 @@ class QuestRead(QuestBase):
     completed_at: Optional[datetime] = None
     template_id: Optional[int] = None
     period_key: Optional[str] = None
+    category_slug: Optional[str] = None
+    category_label: Optional[str] = None
+    category_color: Optional[str] = None
+    questline_title: Optional[str] = None
+    questline_color: Optional[str] = None
+    questline_icon: Optional[str] = None
     steps: List[QuestStepRead] = Field(default_factory=list)
     steps_done: int = 0
     steps_total: int = 0
@@ -212,6 +302,14 @@ class QuestTemplateBase(SQLModel):
     # Local window for random scheduled_at ("HH:MM"). Empty → 00:00..23:59.
     emit_window_start: Optional[str] = Field(default=None, max_length=8)
     emit_window_end: Optional[str] = Field(default=None, max_length=8)
+    # JSON attribute weights copied onto instances, e.g. {"str":1,"int":2}.
+    reward_attrs: Optional[str] = Field(default=None, max_length=500)
+    category_id: Optional[int] = Field(
+        default=None, foreign_key="questcategory.id", index=True
+    )
+    questline_id: Optional[int] = Field(
+        default=None, foreign_key="questline.id", index=True
+    )
 
 
 class QuestTemplate(QuestTemplateBase, table=True):
@@ -225,6 +323,8 @@ class QuestTemplate(QuestTemplateBase, table=True):
             "order_by": "QuestTemplateStep.sort_order",
         },
     )
+    category: Optional[QuestCategory] = Relationship()
+    questline: Optional[QuestLine] = Relationship()
 
 
 class QuestTemplateStepBase(SQLModel):
@@ -284,12 +384,21 @@ class QuestTemplateUpdate(SQLModel):
     emit_window_start: Optional[str] = Field(default=None, max_length=8)
     emit_window_end: Optional[str] = Field(default=None, max_length=8)
     steps: Optional[List[QuestTemplateStepCreate]] = None
+    reward_attrs: Optional[str] = Field(default=None, max_length=500)
+    category_id: Optional[int] = None
+    questline_id: Optional[int] = None
 
 
 class QuestTemplateRead(QuestTemplateBase):
     id: int
     created_at: datetime
     updated_at: datetime
+    category_slug: Optional[str] = None
+    category_label: Optional[str] = None
+    category_color: Optional[str] = None
+    questline_title: Optional[str] = None
+    questline_color: Optional[str] = None
+    questline_icon: Optional[str] = None
     steps: List[QuestTemplateStepRead] = Field(default_factory=list)
 
     @field_serializer("created_at", "updated_at", when_used="json")
@@ -314,3 +423,101 @@ class TemplateEmitRoll(SQLModel, table=True):
     scheduled_at: Optional[datetime] = None
     created_at: datetime = Field(default_factory=utcnow)
     updated_at: datetime = Field(default_factory=utcnow)
+
+
+# --- Hero sheet / metrics -------------------------------------------------
+
+
+class HeroAttributeId(str, Enum):
+    str = "str"  # сила
+    dex = "dex"  # ловкость
+    con = "con"  # выносливость
+    int = "int"  # интеллект
+    wis = "wis"  # мудрость
+    cha = "cha"  # харизма
+
+
+ATTR_LABEL_RU: dict[str, str] = {
+    HeroAttributeId.str.value: "Сила",
+    HeroAttributeId.dex.value: "Ловкость",
+    HeroAttributeId.con.value: "Выносливость",
+    HeroAttributeId.int.value: "Интеллект",
+    HeroAttributeId.wis.value: "Мудрость",
+    HeroAttributeId.cha.value: "Харизма",
+}
+
+
+class HeroSheet(SQLModel, table=True):
+    """Singleton player sheet (id=1)."""
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    xp: int = Field(default=0, ge=0)
+    momentum: int = Field(default=50, ge=0, le=100)
+    # Naive UTC; decay advances this by whole hours.
+    momentum_updated_at: datetime = Field(default_factory=utcnow)
+    updated_at: datetime = Field(default_factory=utcnow)
+
+
+class HeroAttribute(SQLModel, table=True):
+    __table_args__ = (UniqueConstraint("attr_id", name="uq_hero_attribute_attr_id"),)
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    attr_id: str = Field(max_length=8, index=True)
+    rank: int = Field(default=0, ge=0)
+    progress: int = Field(default=0, ge=0)
+    updated_at: datetime = Field(default_factory=utcnow)
+
+
+class MetricLedger(SQLModel, table=True):
+    """Append-only metric changes (xp / momentum / attribute progress)."""
+
+    __table_args__ = (
+        UniqueConstraint("quest_id", "reason", name="uq_metric_ledger_quest_reason"),
+    )
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    at: datetime = Field(default_factory=utcnow, index=True)
+    kind: str = Field(max_length=16, index=True)  # xp | momentum | attr
+    attr_id: Optional[str] = Field(default=None, max_length=8)
+    delta: int = 0
+    balance_after: int = 0
+    quest_id: Optional[int] = Field(default=None, foreign_key="quest.id", index=True)
+    reason: str = Field(max_length=64, index=True)
+    flavor: Optional[str] = Field(default=None, max_length=300)
+
+
+class HeroAttributeRead(SQLModel):
+    attr_id: str
+    label: str
+    rank: int
+    progress: int
+    progress_to_next: int
+
+
+class MetricLedgerRead(SQLModel):
+    id: int
+    at: datetime
+    kind: str
+    attr_id: Optional[str] = None
+    delta: int
+    balance_after: int
+    quest_id: Optional[int] = None
+    reason: str
+    flavor: Optional[str] = None
+
+    @field_serializer("at", when_used="json")
+    def _ser_at(self, value: Optional[datetime]) -> Optional[str]:
+        return to_utc_iso(value)
+
+
+class HeroSheetRead(SQLModel):
+    xp: int
+    momentum: int
+    momentum_updated_at: datetime
+    updated_at: datetime
+    attributes: List[HeroAttributeRead] = Field(default_factory=list)
+    recent: List[MetricLedgerRead] = Field(default_factory=list)
+
+    @field_serializer("momentum_updated_at", "updated_at", when_used="json")
+    def _ser_utc(self, value: Optional[datetime]) -> Optional[str]:
+        return to_utc_iso(value)

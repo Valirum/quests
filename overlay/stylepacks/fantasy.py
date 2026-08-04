@@ -77,6 +77,11 @@ box.hud.hud--interactive {{
   margin-bottom: 2px;
 }}
 
+.hud-header-controls {{
+  margin: 0;
+  padding: 2px 4px;
+}}
+
 .hud-section {{
   margin-top: 0;
 }}
@@ -152,43 +157,46 @@ box.hud.hud--interactive {{
   color: #fb4934;
 }}
 
-.hud-btn {{
-  color: #e8d5b0;
-  font-family: {FONT_BODY};
-  font-size: 8pt;
-  min-width: 0;
-}}
-
-.hud--interactive .hud-btn {{
-  background-color: rgba(196, 165, 116, 0.16);
-  border: 1px solid rgba(196, 165, 116, 0.4);
-  border-radius: 4px;
-  padding: 3px 8px;
-}}
-
-.hud-btn:hover {{
-  background-color: rgba(40, 32, 24, 0.95);
-  color: #fff1d0;
-}}
-
-.hud--interactive .hud-btn:hover {{
-  background-color: rgba(196, 165, 116, 0.28);
-}}
-
-.hud-btn:active {{
-  background-color: rgba(20, 16, 12, 0.95);
+button.hud-icon-btn {{
   color: #c4a574;
-}}
-
-.hud-fold {{
-  min-width: 1.5em;
-  font-size: 11pt;
-  font-weight: 700;
+  font-family: {FONT_BODY};
+  font-size: 13pt;
+  font-weight: 600;
   letter-spacing: 0;
+  line-height: 1;
+  min-width: 1.6em;
+  min-height: 1.6em;
+  padding: 2px 4px;
+  margin: 0;
+  background: none;
+  background-color: transparent;
+  border: none;
+  border-radius: 4px;
+  box-shadow: none;
+  outline: none;
+  opacity: 0.72;
 }}
 
-.hud-style-menu {{
-  background-color: rgba(26, 21, 16, 0.96);
+button.hud-icon-btn:hover {{
+  color: #fff1d0;
+  background-color: rgba(196, 165, 116, 0.18);
+  opacity: 1;
+}}
+
+button.hud-icon-btn:active {{
+  color: #c4a574;
+  background-color: rgba(196, 165, 116, 0.28);
+  opacity: 1;
+}}
+
+button.hud-icon-btn:focus {{
+  box-shadow: none;
+  outline: none;
+}}
+
+.hud-settings-panel {{
+  min-width: 260px;
+  padding: 2px 0 4px;
 }}
 
 .hud-settings-label {{
@@ -204,16 +212,76 @@ box.hud.hud--interactive {{
   opacity: 0.75;
 }}
 
-.hud-style-option--active {{
-  border-color: rgba(196, 165, 116, 0.85);
-  color: #fff1d0;
+.hud-opt-slider {{
+  border: 1px solid rgba(196, 165, 116, 0.35);
+  border-radius: 5px;
+  overflow: hidden;
+  background-color: rgba(20, 16, 12, 0.45);
 }}
 
-popover.hud-style-popover contents {{
-  background-color: rgba(26, 21, 16, 0.96);
-  border: 1px solid rgba(196, 165, 116, 0.45);
-  border-radius: 4px;
-  padding: 0;
+button.hud-opt {{
+  color: #e8d5b0;
+  font-family: {FONT_BODY};
+  font-size: 9pt;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  min-width: 0;
+  min-height: 0;
+  padding: 6px 10px;
+  margin: 0;
+  border: none;
+  border-radius: 0;
+  border-right: 1px solid rgba(196, 165, 116, 0.22);
+  background: none;
+  background-color: transparent;
+  box-shadow: none;
+  outline: none;
+}}
+
+button.hud-opt--last {{
+  border-right: none;
+}}
+
+button.hud-opt:hover {{
+  color: #fff1d0;
+  background-color: rgba(196, 165, 116, 0.14);
+}}
+
+button.hud-opt--on {{
+  color: #fff1d0;
+  background-color: rgba(196, 165, 116, 0.28);
+  font-weight: 700;
+}}
+
+button.hud-opt--on:hover {{
+  background-color: rgba(196, 165, 116, 0.34);
+}}
+
+.hud-settings-scale {{
+  color: #e8d5b0;
+  font-family: {FONT_BODY};
+  font-size: 9pt;
+  margin-top: 2px;
+}}
+
+.hud-settings-scale trough {{
+  min-height: 6px;
+  border-radius: 3px;
+  background-color: rgba(196, 165, 116, 0.18);
+}}
+
+.hud-settings-scale highlight {{
+  background-color: rgba(196, 165, 116, 0.55);
+  border-radius: 3px;
+}}
+
+.hud-settings-scale slider {{
+  min-width: 12px;
+  min-height: 12px;
+  border-radius: 6px;
+  background-color: #c4a574;
+  border: none;
+  box-shadow: none;
 }}
 
 button.hud-drag {{

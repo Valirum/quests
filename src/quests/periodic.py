@@ -213,7 +213,11 @@ def surprise_ready(roll: TemplateEmitRoll, now_utc: datetime) -> bool:
 
 
 def template_load_options():
-    return selectinload(QuestTemplate.steps)
+    return (
+        selectinload(QuestTemplate.steps),
+        selectinload(QuestTemplate.category),
+        selectinload(QuestTemplate.questline),
+    )
 
 
 def _fixed_deadline(
@@ -336,7 +340,7 @@ async def _materialize(
     result = await session.exec(
         select(QuestTemplate)
         .where(QuestTemplate.enabled == True)  # noqa: E712
-        .options(template_load_options())
+        .options(*template_load_options())
         .order_by(QuestTemplate.sort_order, QuestTemplate.id)
     )
     templates = list(result.all())
@@ -388,6 +392,9 @@ async def _materialize(
             sort_order=int(tmpl.sort_order or 0),
             deadline_at=deadline_utc,
             duration_seconds=duration,
+            reward_attrs=tmpl.reward_attrs,
+            category_id=tmpl.category_id,
+            questline_id=tmpl.questline_id,
             template_id=tmpl.id,
             period_key=key,
             steps=_build_quest_steps(tmpl, rng=rng),

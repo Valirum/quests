@@ -1,13 +1,17 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlmodel import select
+from sqlmodel import delete, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from quests.categories import validate_category_id
 from quests.checks import normalize_check_fields
 from quests.db import get_session, quest_load_options
 from quests.events import hub
+from quests.expire import expire_overdue_quests
+from quests.hero import apply_quest_status_rewards, normalize_reward_attrs
 from quests.models import (
+    MetricLedger,
     Quest,
     QuestCreate,
     QuestRead,
@@ -17,10 +21,10 @@ from quests.models import (
     QuestUpdate,
     utcnow,
 )
-from quests.expire import expire_overdue_quests
 from quests.notify import quest_change_events
 from quests.periodic import materialize_due
 from quests.progress import clamp_step_progress, sync_status_from_steps
+from quests.questlines import apply_questline_to_quest
 from quests.serializers import quest_to_read
 from quests.timeutil import auto_duration_seconds, ensure_utc, to_db_utc
 
@@ -48,7 +52,7 @@ def _normalize_deadline(quest: Quest, *, duration_explicit: bool = False) -> Non
 
 async def _get_quest_or_404(session: AsyncSession, quest_id: int) -> Quest:
     result = await session.exec(
-        select(Quest).where(Quest.id == quest_id).options(quest_load_options())
+        select(Quest).where(Quest.id == quest_id).options(*quest_load_options())
     )
     quest = result.first()
     if quest is None:
@@ -64,7 +68,7 @@ async def list_quests(
 ) -> list[QuestRead]:
     await expire_overdue_quests(session)
     await materialize_due(session)
-    stmt = select(Quest).options(quest_load_options()).order_by(Quest.sort_order, Quest.id)
+    stmt = select(Quest).options(*quest_load_options()).order_by(Quest.sort_order, Quest.id)
     if status_filter is not None:
         stmt = stmt.where(Quest.status == status_filter)
     if pinned is not None:
@@ -91,7 +95,13 @@ async def create_quest(
     data = payload.model_dump(exclude={"steps"})
     if data.get("deadline_at") is not None:
         data["deadline_at"] = to_db_utc(data["deadline_at"])
+    if "reward_attrs" in data:
+        data["reward_attrs"] = normalize_reward_attrs(data.get("reward_attrs"))
+    if "category_id" in data:
+        data["category_id"] = await validate_category_id(session, data.get("category_id"))
+    questline_id = data.pop("questline_id", None)
     quest = Quest(**data)
+    await apply_questline_to_quest(session, quest, questline_id)
     _normalize_deadline(
         quest,
         duration_explicit=payload.duration_seconds is not None,
@@ -111,9 +121,9 @@ async def create_quest(
     await session.commit()
     qid = quest.id
     assert qid is not None
-    failed_ids = await expire_overdue_quests(session)
+    expired_ids = await expire_overdue_quests(session)
     read = quest_to_read(await _get_quest_or_404(session, qid))
-    if qid not in failed_ids:
+    if qid not in expired_ids:
         await hub.publish(
             "quest_created",
             quest_id=read.id,
@@ -149,8 +159,20 @@ async def update_quest(
     data = {k: v for k, v in incoming.items() if k != "steps"}
     if "deadline_at" in data and data["deadline_at"] is not None:
         data["deadline_at"] = to_db_utc(data["deadline_at"])
+    if "reward_attrs" in data:
+        data["reward_attrs"] = normalize_reward_attrs(data.get("reward_attrs"))
+    if "category_id" in data:
+        data["category_id"] = await validate_category_id(session, data.get("category_id"))
+    questline_touched = "questline_id" in data
+    questline_id = data.pop("questline_id", None) if questline_touched else None
+    before_status = quest.status
     for key, value in data.items():
         setattr(quest, key, value)
+    if questline_touched:
+        await apply_questline_to_quest(session, quest, questline_id)
+    elif quest.questline_id is not None and "category_id" in data:
+        # Member quests cannot diverge from line category.
+        await apply_questline_to_quest(session, quest, quest.questline_id)
 
     if steps_touched:
         quest.steps.clear()
@@ -190,6 +212,9 @@ async def update_quest(
                 assert anchor_utc is not None
             quest.duration_seconds = auto_duration_seconds(deadline, anchor_utc)
 
+    if before_status != quest.status:
+        await apply_quest_status_rewards(session, quest, new_status=quest.status)
+
     session.add(quest)
     await session.commit()
     read = quest_to_read(await _get_quest_or_404(session, quest_id))
@@ -206,6 +231,7 @@ async def update_quest_step(
 ) -> QuestRead:
     quest = await _get_quest_or_404(session, quest_id)
     before = quest_to_read(quest)
+    before_status = quest.status
     step = next((s for s in quest.steps if s.id == step_id), None)
     if step is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Step not found")
@@ -216,6 +242,9 @@ async def update_quest_step(
     clamp_step_progress(step)
     normalize_check_fields(step)
     sync_status_from_steps(quest)
+
+    if before_status != quest.status:
+        await apply_quest_status_rewards(session, quest, new_status=quest.status)
 
     quest.updated_at = utcnow()
     session.add(quest)
@@ -248,6 +277,7 @@ async def delete_quest(
     quest = await _get_quest_or_404(session, quest_id)
     title = quest.title
     description = quest.description or ""
+    await session.exec(delete(MetricLedger).where(MetricLedger.quest_id == quest_id))
     await session.delete(quest)
     await session.commit()
     await hub.publish(

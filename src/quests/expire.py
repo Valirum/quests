@@ -1,4 +1,4 @@
-"""Mark overdue active quests as failed (delayed is user-set, left alone)."""
+"""Mark overdue active quests as delayed (failed stays manual)."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from quests.db import SessionLocal, quest_load_options
 from quests.events import hub
+from quests.hero import apply_quest_status_rewards
 from quests.models import Quest, QuestStatus, utcnow
 from quests.notify import quest_change_events
 from quests.serializers import quest_to_read
@@ -21,7 +22,7 @@ async def _expire(session: AsyncSession) -> list[int]:
         .where(Quest.status == QuestStatus.active)
         .where(col(Quest.deadline_at).is_not(None))
         .where(col(Quest.deadline_at) <= now)
-        .options(quest_load_options())
+        .options(*quest_load_options())
     )
     overdue = list(result.all())
     if not overdue:
@@ -30,18 +31,19 @@ async def _expire(session: AsyncSession) -> list[int]:
     pairs: list[tuple] = []
     for quest in overdue:
         before = quest_to_read(quest)
-        quest.status = QuestStatus.failed
+        quest.status = QuestStatus.delayed
         quest.updated_at = utcnow()
         session.add(quest)
+        await apply_quest_status_rewards(session, quest, new_status=QuestStatus.delayed)
         pairs.append((before, quest))
 
     await session.commit()
 
-    failed_ids: list[int] = []
+    delayed_ids: list[int] = []
     for before, quest in pairs:
         await session.refresh(quest)
         after = quest_to_read(quest)
-        failed_ids.append(after.id)
+        delayed_ids.append(after.id)
         for ev in quest_change_events(before, after):
             await hub.publish(
                 ev["kind"],
@@ -54,11 +56,11 @@ async def _expire(session: AsyncSession) -> list[int]:
                 step_title=ev.get("step_title"),
                 significance=ev.get("significance"),
             )
-    return failed_ids
+    return delayed_ids
 
 
 async def expire_overdue_quests(session: AsyncSession | None = None) -> list[int]:
-    """Fail active quests whose deadline has passed. Returns failed quest ids."""
+    """Delay active quests whose deadline has passed. Returns delayed quest ids."""
     if session is not None:
         return await _expire(session)
     async with SessionLocal() as session:

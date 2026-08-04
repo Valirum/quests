@@ -340,18 +340,27 @@ class NoticeRouter:
     def __init__(self, app: Gtk.Application) -> None:
         self.major = MajorHost(app)
         self.minor = MinorHost(app)
+        self.major_enabled = True
+        self.minor_enabled = True
 
     def set_monitor(self, monitor: Gdk.Monitor | None) -> None:
         apply_monitor(self.major._window, monitor)
         apply_monitor(self.minor._window, monitor)
+
+    def set_enabled(self, *, major: bool | None = None, minor: bool | None = None) -> None:
+        if major is not None:
+            self.major_enabled = bool(major)
+        if minor is not None:
+            self.minor_enabled = bool(minor)
 
     def enqueue(self, event: dict) -> None:
         kind = event.get("kind") or ""
         if event.get("toast") is False and kind not in MAJOR_KINDS:
             return
         if kind in MAJOR_KINDS:
-            self.major.enqueue(event)
-        else:
-            # Quiet kinds stay off-screen unless explicitly toasted.
-            if event.get("toast", True):
-                self.minor.enqueue(event)
+            if self.major_enabled:
+                self.major.enqueue(event)
+            return
+        # Quiet kinds stay off-screen unless explicitly toasted.
+        if self.minor_enabled and event.get("toast", True):
+            self.minor.enqueue(event)

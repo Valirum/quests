@@ -6,9 +6,10 @@ Optional: paplay/mpv for VO
 
 Input mode (HUD):
   default = click-through (text chips only)
-  interactive = panel + drag + monitor/style/фон btns + titles; keys:
+  interactive = panel + drag + gear settings + titles; keys:
     Esc → passthrough · Space → monitor · arrows/hjkl → nudge
-    Backspace / ─ → collapse (also exits interactive)
+    Backspace / − → collapse (also exits interactive)
+  gear → settings panel (monitors / style / bg / alpha); list icon → quests
   toggle  = python -m overlay toggle
   Settings: data/overlay.json (style, monitor, margins, passthrough bg)
 """
@@ -34,8 +35,6 @@ from .browser import focus_quest
 from . import config as overlay_config
 from .drag import NUDGE_STEP, attach_drag_handle, nudge_hud
 from .hud import (
-    MOCK_FAVORITES,
-    MOCK_URGENT,
     apply_timer_bindings,
     build_hud,
     split_hud_quests,
@@ -151,34 +150,17 @@ def on_activate(app: Gtk.Application) -> None:
         "style_pack": pack_id,
         "passthrough_bg_mode": str(saved.get("passthrough_bg_mode") or "chips"),
         "passthrough_bg_alpha": float(saved.get("passthrough_bg_alpha", 0.6)),
+        "toasts_major": bool(saved.get("toasts_major", True)),
+        "toasts_minor": bool(saved.get("toasts_minor", True)),
         "input_gen": 0,
         "dragging": False,
         "margin_top": int(saved.get("margin_top", 24)),
         "margin_right": int(saved.get("margin_right", 24)),
         "timer_bindings": [],
-        "style_btn": None,
-        "settings_btn": None,
+        "settings_open": False,
         "pending_refresh": False,
         "sync_ticks": 0,
     }
-
-    def _menu_button_open(btn) -> bool:
-        if btn is None:
-            return False
-        try:
-            if hasattr(btn, "get_active") and btn.get_active():
-                return True
-            pop = btn.get_popover() if hasattr(btn, "get_popover") else None
-            if pop is not None and pop.get_visible():
-                return True
-        except Exception:
-            return False
-        return False
-
-    def hud_menu_open() -> bool:
-        return _menu_button_open(state.get("style_btn")) or _menu_button_open(
-            state.get("settings_btn")
-        )
 
     def persist() -> None:
         mons = list_monitors(display)
@@ -194,6 +176,8 @@ def on_activate(app: Gtk.Application) -> None:
                 "margin_right": int(state["margin_right"]),
                 "passthrough_bg_mode": state["passthrough_bg_mode"],
                 "passthrough_bg_alpha": state["passthrough_bg_alpha"],
+                "toasts_major": bool(state["toasts_major"]),
+                "toasts_minor": bool(state["toasts_minor"]),
             }
         )
 
@@ -270,14 +254,11 @@ def on_activate(app: Gtk.Application) -> None:
     def refresh_hud(*, force: bool = False) -> None:
         if state.get("dragging") and not force:
             return
-        if not force and hud_menu_open():
-            state["pending_refresh"] = True
-            return
         try:
             items = fetch_quests()
             favorites, urgent = split_hud_quests(items)
         except (urllib.error.URLError, TimeoutError, ValueError, TypeError, KeyError):
-            favorites, urgent = MOCK_FAVORITES, MOCK_URGENT
+            favorites, urgent = [], []
 
         def _fp(block):
             # Timers tick in place — exclude live countdown text from rebuild key.
@@ -297,8 +278,12 @@ def on_activate(app: Gtk.Application) -> None:
             _fp(urgent),
             state["interactive"],
             state["collapsed"],
+            state["settings_open"],
             state["monitor_index"],
             state["style_pack"],
+            state["passthrough_bg_mode"],
+            bool(state["toasts_major"]),
+            bool(state["toasts_minor"]),
         )
         if not force and fingerprint == state["fingerprint"]:
             return
@@ -326,32 +311,37 @@ def on_activate(app: Gtk.Application) -> None:
         mons = list_monitors(display)
         total = len(mons)
         idx = state["monitor_index"] % total if total else 0
-        mon = mons[idx] if total else None
-        label = monitor_label(mon, idx, total)
+        mon_opts = [
+            (i, monitor_label(m, i, total)) for i, m in enumerate(mons)
+        ]
         packs = [(p["id"], p["label"]) for p in list_packs()]
 
-        child, _hotspot, timers, style_btn, settings_btn = build_hud(
+        child, _hotspot, timers = build_hud(
             favorites,
             urgent,
             interactive=state["interactive"],
             collapsed=state["collapsed"],
-            monitor_label=label,
+            settings_open=bool(state["settings_open"]),
+            monitors=mon_opts,
+            monitor_index=idx,
             style_pack_id=str(state["style_pack"]),
             style_packs=packs,
             passthrough_bg_mode=str(state["passthrough_bg_mode"]),
             passthrough_bg_alpha=float(state["passthrough_bg_alpha"]),
-            on_cycle_monitor=cycle_monitor if state["interactive"] else None,
+            toasts_major=bool(state["toasts_major"]),
+            toasts_minor=bool(state["toasts_minor"]),
+            on_select_monitor=select_monitor if state["interactive"] else None,
             on_select_style=set_style_pack if state["interactive"] else None,
             on_passthrough_settings=set_passthrough_settings
             if state["interactive"]
             else None,
+            on_toast_settings=set_toast_settings if state["interactive"] else None,
             on_toggle_collapsed=toggle_collapsed,
+            on_toggle_settings=toggle_settings if state["interactive"] else None,
             on_prepare_drag_handle=prepare_drag if state["interactive"] else None,
             on_open_quest=open_quest,
         )
         state["timer_bindings"] = timers
-        state["style_btn"] = style_btn
-        state["settings_btn"] = settings_btn
 
         if state["interactive"]:
             hud.add_css_class("hud-window--interactive")
@@ -361,8 +351,10 @@ def on_activate(app: Gtk.Application) -> None:
             hud.add_css_class("hud-window--passthrough")
         if state["collapsed"]:
             hud.add_css_class("hud-window--collapsed")
+            hud.set_opacity(0.1)
         else:
             hud.remove_css_class("hud-window--collapsed")
+            hud.set_opacity(1.0)
         hud.set_child(child)
         apply_stored_margins()
         schedule_input_sync()
@@ -371,6 +363,7 @@ def on_activate(app: Gtk.Application) -> None:
         state["collapsed"] = bool(collapsed)
         if state["collapsed"]:
             state["interactive"] = False
+            state["settings_open"] = False
         refresh_hud(force=True)
         return "collapsed" if state["collapsed"] else "expanded"
 
@@ -379,10 +372,17 @@ def on_activate(app: Gtk.Application) -> None:
             return set_collapsed(False)
         return set_collapsed(True)
 
+    def toggle_settings() -> str:
+        state["settings_open"] = not bool(state.get("settings_open"))
+        refresh_hud(force=True)
+        return "settings" if state["settings_open"] else "quests"
+
     def set_interactive(enabled: bool) -> str:
         state["interactive"] = bool(enabled)
         if state["interactive"]:
             state["collapsed"] = False
+        else:
+            state["settings_open"] = False
         refresh_hud(force=True)
         if state["interactive"]:
             # Ensure layer-shell keyboard grab can land on this surface.
@@ -406,6 +406,18 @@ def on_activate(app: Gtk.Application) -> None:
         refresh_hud(force=True)
         return result
 
+    def select_monitor(index: int) -> str:
+        mons = list_monitors(display)
+        if not mons:
+            return "no monitors"
+        state["monitor_connector"] = ""
+        state["monitor_index"] = int(index) % len(mons)
+        result = sync_monitor()
+        apply_stored_margins()
+        persist()
+        refresh_hud(force=True)
+        return result
+
     def set_style_pack(name: str) -> str:
         pack = apply_style_pack(name, reload=True)
         state["style_pack"] = pack
@@ -423,10 +435,21 @@ def on_activate(app: Gtk.Application) -> None:
                 a = max(0.0, min(1.0, float(state.get("passthrough_bg_alpha", 0.6))))
             except (TypeError, ValueError):
                 a = 0.6
+        prev_mode = str(state.get("passthrough_bg_mode") or "")
         state["passthrough_bg_mode"] = mode_key
         state["passthrough_bg_alpha"] = a
         apply_passthrough_look()
         persist()
+        # Rebuild so mode chips update; skip on alpha-only (scale must stay mounted).
+        if mode_key != prev_mode:
+            refresh_hud(force=True)
+
+    def set_toast_settings(major: bool, minor: bool) -> None:
+        state["toasts_major"] = bool(major)
+        state["toasts_minor"] = bool(minor)
+        notices.set_enabled(major=state["toasts_major"], minor=state["toasts_minor"])
+        persist()
+        refresh_hud(force=True)
 
     def on_key(
         _controller: Gtk.EventControllerKey,
@@ -517,7 +540,7 @@ def on_activate(app: Gtk.Application) -> None:
     def tick_timers() -> bool:
         if apply_timer_bindings(state.get("timer_bindings") or []):
             refresh_hud(force=True)
-        elif state.get("pending_refresh") and not hud_menu_open():
+        elif state.get("pending_refresh"):
             refresh_hud(force=True)
         state["sync_ticks"] = int(state.get("sync_ticks") or 0) + 1
         # Soft data sync ~every DATA_SYNC_MS without waiting for events.
@@ -555,6 +578,10 @@ def on_activate(app: Gtk.Application) -> None:
 
     sync_monitor()
     apply_passthrough_look()
+    notices.set_enabled(
+        major=bool(state["toasts_major"]),
+        minor=bool(state["toasts_minor"]),
+    )
     refresh_hud(force=True)
     try:
         revision, _ = fetch_events(0)

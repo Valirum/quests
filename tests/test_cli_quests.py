@@ -22,10 +22,86 @@ def _run(argv: list[str]) -> tuple[int, str, str]:
 
 @pytest.fixture()
 def api_mock(monkeypatch: pytest.MonkeyPatch):
-    store: dict[str, Any] = {"quests": {}, "seq": 0}
+    store: dict[str, Any] = {
+        "quests": {},
+        "questlines": {},
+        "seq": 0,
+        "ql_seq": 0,
+        "categories": [
+            {
+                "id": 1,
+                "slug": "work",
+                "label": "Работа",
+                "sort_order": 10,
+                "color": "#5a8a9a",
+            },
+            {
+                "id": 3,
+                "slug": "health",
+                "label": "Здоровье",
+                "sort_order": 30,
+                "color": "#7a9e3a",
+            },
+        ],
+    }
 
     def api_request(method: str, path: str, *, body=None, query=None):
         method = method.upper()
+        if method == "GET" and path == "/api/categories":
+            return list(store["categories"])
+
+        if method == "GET" and path == "/api/questlines":
+            return list(store["questlines"].values())
+
+        if method == "POST" and path == "/api/questlines":
+            store["ql_seq"] += 1
+            lid = store["ql_seq"]
+            cat_id = body.get("category_id")
+            cat = next((c for c in store["categories"] if c["id"] == cat_id), None)
+            row = {
+                "id": lid,
+                "title": body["title"],
+                "description": body.get("description") or "",
+                "category_id": cat_id,
+                "color": body.get("color") or "#9a9a9a",
+                "icon": body.get("icon") or "document",
+                "category_slug": cat["slug"] if cat else None,
+                "category_label": cat["label"] if cat else None,
+            }
+            store["questlines"][lid] = row
+            return row
+
+        if method == "GET" and path.startswith("/api/questlines/"):
+            lid = int(path.rsplit("/", 1)[-1])
+            return store["questlines"][lid]
+
+        if method == "PATCH" and path.startswith("/api/questlines/"):
+            lid = int(path.rsplit("/", 1)[-1])
+            row = store["questlines"][lid]
+            row.update(body or {})
+            cat = next(
+                (c for c in store["categories"] if c["id"] == row.get("category_id")),
+                None,
+            )
+            row["category_slug"] = cat["slug"] if cat else None
+            row["category_label"] = cat["label"] if cat else None
+            # sync member categories
+            for q in store["quests"].values():
+                if q.get("questline_id") == lid:
+                    q["category_id"] = row.get("category_id")
+                    q["category_slug"] = row.get("category_slug")
+                    q["category_label"] = row.get("category_label")
+            return row
+
+        if method == "DELETE" and path.startswith("/api/questlines/"):
+            lid = int(path.rsplit("/", 1)[-1])
+            store["questlines"].pop(lid, None)
+            for q in store["quests"].values():
+                if q.get("questline_id") == lid:
+                    q["questline_id"] = None
+                    q["questline_title"] = None
+            return None
+
         if method == "GET" and path == "/api/quests":
             items = list(store["quests"].values())
             if query:
@@ -57,6 +133,12 @@ def api_mock(monkeypatch: pytest.MonkeyPatch):
                     }
                 )
                 steps[-1]["done"] = steps[-1]["progress_current"] >= steps[-1]["progress_total"]
+            ql_id = body.get("questline_id")
+            cat_id = body.get("category_id")
+            ql = store["questlines"].get(ql_id) if ql_id else None
+            if ql is not None:
+                cat_id = ql.get("category_id")
+            cat = next((c for c in store["categories"] if c["id"] == cat_id), None)
             q = {
                 "id": qid,
                 "title": body["title"],
@@ -66,6 +148,13 @@ def api_mock(monkeypatch: pytest.MonkeyPatch):
                 "pinned": bool(body.get("pinned")),
                 "progress_label": f"0 / {len(steps)}",
                 "steps": steps,
+                "category_id": cat_id,
+                "category_slug": cat["slug"] if cat else None,
+                "category_label": cat["label"] if cat else None,
+                "questline_id": ql_id,
+                "questline_title": ql["title"] if ql else None,
+                "questline_color": ql["color"] if ql else None,
+                "questline_icon": ql["icon"] if ql else None,
             }
             store["quests"][qid] = q
             return q
@@ -94,7 +183,25 @@ def api_mock(monkeypatch: pytest.MonkeyPatch):
         if method == "PATCH" and path.startswith("/api/quests/"):
             qid = int(path.rsplit("/", 1)[-1])
             q = store["quests"][qid]
-            q.update(body or {})
+            payload = dict(body or {})
+            if "questline_id" in payload:
+                ql_id = payload["questline_id"]
+                ql = store["questlines"].get(ql_id) if ql_id else None
+                q["questline_id"] = ql_id
+                q["questline_title"] = ql["title"] if ql else None
+                q["questline_color"] = ql["color"] if ql else None
+                q["questline_icon"] = ql["icon"] if ql else None
+                if ql is not None:
+                    payload["category_id"] = ql.get("category_id")
+                payload.pop("questline_id", None)
+            if "category_id" in payload:
+                cat_id = payload["category_id"]
+                cat = next((c for c in store["categories"] if c["id"] == cat_id), None)
+                q["category_id"] = cat_id
+                q["category_slug"] = cat["slug"] if cat else None
+                q["category_label"] = cat["label"] if cat else None
+                payload.pop("category_id", None)
+            q.update(payload)
             return q
 
         if method == "DELETE" and path.startswith("/api/quests/"):
@@ -159,6 +266,63 @@ def test_cli_quest_flow(api_mock):
     code, out, err = _run(["delete", str(qid), "--json"])
     assert code == 0, err
     assert json.loads(out)["deleted"] == qid
+
+
+def test_cli_categories_and_questlines(api_mock):
+    code, out, err = _run(["categories", "--json"])
+    assert code == 0, err
+    cats = json.loads(out)
+    assert any(c["slug"] == "work" for c in cats)
+
+    code, out, err = _run(
+        [
+            "questline",
+            "add",
+            "Проект",
+            "--category",
+            "work",
+            "--icon",
+            "flag",
+            "--color",
+            "#5a8a9a",
+            "--json",
+        ]
+    )
+    assert code == 0, err
+    line = json.loads(out)
+    assert line["title"] == "Проект"
+    assert line["category_slug"] == "work"
+    lid = line["id"]
+
+    code, out, err = _run(["add", "MVP", "--questline", str(lid), "--json"])
+    assert code == 0, err
+    q = json.loads(out)
+    assert q["questline_id"] == lid
+    assert q["category_slug"] == "work"
+    qid = q["id"]
+
+    code, out, err = _run(["list", "--questline", "Проект"])
+    assert code == 0, err
+    assert "MVP" in out
+    assert "work" in out
+
+    code, out, err = _run(
+        ["questline", "set", str(lid), "--category", "health", "--json"]
+    )
+    assert code == 0, err
+    assert json.loads(out)["category_slug"] == "health"
+
+    code, out, err = _run(["show", str(qid), "--json"])
+    assert code == 0, err
+    assert json.loads(out)["category_slug"] == "health"
+
+    code, out, err = _run(["set", str(qid), "--questline", "none", "--json"])
+    assert code == 0, err
+    assert json.loads(out)["questline_id"] is None
+
+    code, out, err = _run(["questline", "delete", str(lid), "--json"])
+    assert code == 0, err
+    assert json.loads(out)["deleted"] == lid
 
 
 def test_cli_api_error_json(api_mock, monkeypatch: pytest.MonkeyPatch):

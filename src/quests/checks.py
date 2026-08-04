@@ -18,6 +18,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from quests.db import SessionLocal, quest_load_options
 from quests.events import hub
+from quests.hero import apply_quest_status_rewards
 from quests.models import Quest, QuestStatus, utcnow
 from quests.notify import quest_change_events
 from quests.progress import clamp_step_progress, sync_status_from_steps
@@ -114,7 +115,7 @@ async def run_due_step_checks(
         result = await session.exec(
             select(Quest)
             .where(Quest.status.in_([QuestStatus.active, QuestStatus.delayed]))
-            .options(quest_load_options())
+            .options(*quest_load_options())
         )
         quests = list(result.all())
         now = datetime.now(timezone.utc)
@@ -142,7 +143,12 @@ async def run_due_step_checks(
                 continue
 
             if progress_changed:
+                before_status = quest.status
                 sync_status_from_steps(quest)
+                if before_status != quest.status:
+                    await apply_quest_status_rewards(
+                        session, quest, new_status=quest.status
+                    )
                 quest.updated_at = utcnow()
             session.add(quest)
             await session.commit()
@@ -154,7 +160,7 @@ async def run_due_step_checks(
 
             changed_ids.append(int(qid))
             reloaded = await session.exec(
-                select(Quest).where(Quest.id == qid).options(quest_load_options())
+                select(Quest).where(Quest.id == qid).options(*quest_load_options())
             )
             quest2 = reloaded.first()
             if quest2 is None:

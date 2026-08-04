@@ -5,8 +5,10 @@ from sqlalchemy.orm import selectinload
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from quests.categories import validate_category_id
 from quests.checks import normalize_check_fields
 from quests.db import get_session
+from quests.hero import normalize_reward_attrs
 from quests.models import (
     QuestTemplate,
     QuestTemplateCreate,
@@ -26,12 +28,17 @@ from quests.periodic import (
     normalize_progress_range,
     parse_weekdays,
 )
+from quests.questlines import apply_questline_to_template
 
 router = APIRouter(prefix="/api/templates", tags=["templates"])
 
 
 def template_load_options():
-    return selectinload(QuestTemplate.steps)
+    return (
+        selectinload(QuestTemplate.steps),
+        selectinload(QuestTemplate.category),
+        selectinload(QuestTemplate.questline),
+    )
 
 
 def _step_to_read(step: QuestTemplateStep) -> QuestTemplateStepRead:
@@ -50,6 +57,8 @@ def _step_to_read(step: QuestTemplateStep) -> QuestTemplateStepRead:
 
 def template_to_read(tmpl: QuestTemplate) -> QuestTemplateRead:
     steps = sorted(tmpl.steps or [], key=lambda s: (s.sort_order, s.id or 0))
+    cat = getattr(tmpl, "category", None)
+    line = getattr(tmpl, "questline", None)
     return QuestTemplateRead(
         id=tmpl.id,  # type: ignore[arg-type]
         title=tmpl.title,
@@ -67,6 +76,15 @@ def template_to_read(tmpl: QuestTemplate) -> QuestTemplateRead:
         emit_chance=clamp_emit_chance(tmpl.emit_chance, 1.0),
         emit_window_start=tmpl.emit_window_start,
         emit_window_end=tmpl.emit_window_end,
+        reward_attrs=tmpl.reward_attrs,
+        category_id=tmpl.category_id,
+        category_slug=getattr(cat, "slug", None) if cat is not None else None,
+        category_label=getattr(cat, "label", None) if cat is not None else None,
+        category_color=getattr(cat, "color", None) if cat is not None else None,
+        questline_id=tmpl.questline_id,
+        questline_title=getattr(line, "title", None) if line is not None else None,
+        questline_color=getattr(line, "color", None) if line is not None else None,
+        questline_icon=getattr(line, "icon", None) if line is not None else None,
         created_at=tmpl.created_at,
         updated_at=tmpl.updated_at,
         steps=[_step_to_read(s) for s in steps],
@@ -138,7 +156,7 @@ async def _get_template_or_404(session: AsyncSession, template_id: int) -> Quest
     result = await session.exec(
         select(QuestTemplate)
         .where(QuestTemplate.id == template_id)
-        .options(template_load_options())
+        .options(*template_load_options())
     )
     tmpl = result.first()
     if tmpl is None:
@@ -153,7 +171,7 @@ async def list_templates(
 ) -> list[QuestTemplateRead]:
     stmt = (
         select(QuestTemplate)
-        .options(template_load_options())
+        .options(*template_load_options())
         .order_by(QuestTemplate.sort_order, QuestTemplate.id)
     )
     if enabled is not None:
@@ -211,6 +229,9 @@ async def copy_template(
         emit_chance=clamp_emit_chance(src.emit_chance, 1.0),
         emit_window_start=normalize_deadline_time(src.emit_window_start),
         emit_window_end=normalize_deadline_time(src.emit_window_end),
+        reward_attrs=normalize_reward_attrs(src.reward_attrs),
+        category_id=src.category_id,
+        questline_id=src.questline_id,
     )
     steps_src = sorted(src.steps or [], key=lambda s: (s.sort_order, s.id or 0))
     _apply_steps(
@@ -257,7 +278,13 @@ async def create_template(
     data["weekdays"] = _normalize_weekdays(data.get("weekdays"), freq=freq)
     emit_mode = normalize_emit_mode(data.get("emit_mode"))
     _normalize_template_timing(data, emit_mode=emit_mode)
+    if "reward_attrs" in data:
+        data["reward_attrs"] = normalize_reward_attrs(data.get("reward_attrs"))
+    if "category_id" in data:
+        data["category_id"] = await validate_category_id(session, data.get("category_id"))
+    questline_id = data.pop("questline_id", None)
     tmpl = QuestTemplate(**data)
+    await apply_questline_to_template(session, tmpl, questline_id)
     _apply_steps(tmpl, list(payload.steps) if payload.steps else None)
     session.add(tmpl)
     await session.commit()
@@ -310,6 +337,16 @@ async def update_template(
 
     for key, value in data.items():
         setattr(tmpl, key, value)
+    if "reward_attrs" in data:
+        tmpl.reward_attrs = normalize_reward_attrs(tmpl.reward_attrs)
+    questline_touched = "questline_id" in data
+    if questline_touched:
+        await apply_questline_to_template(session, tmpl, tmpl.questline_id)
+    elif "category_id" in data:
+        if tmpl.questline_id is not None:
+            await apply_questline_to_template(session, tmpl, tmpl.questline_id)
+        else:
+            tmpl.category_id = await validate_category_id(session, tmpl.category_id)
     freq = str(tmpl.freq.value if hasattr(tmpl.freq, "value") else tmpl.freq)
     if "weekdays" in data or "freq" in data:
         tmpl.weekdays = _normalize_weekdays(tmpl.weekdays, freq=freq)

@@ -1,5 +1,13 @@
 <script>
-  import { QUEST_SIGNIFICANCES, QUEST_STATUSES, createQuest, updateQuest, deleteQuest } from '../lib/api.js'
+  import {
+    QUEST_SIGNIFICANCES,
+    QUEST_STATUSES,
+    createQuest,
+    updateQuest,
+    deleteQuest,
+    listCategories,
+    listQuestlines,
+  } from '../lib/api.js'
   import {
     defaultLocalDeadlineParts,
     localInputToUtcIso,
@@ -9,11 +17,12 @@
   import Icon from './Icon.svelte'
   import ConfirmModal from './ConfirmModal.svelte'
 
-  /** @type {{ open: boolean, mode: 'create' | 'edit', quest?: any, onClose: () => void, onSaved: (q: any) => void, onDeleted?: (id: number) => void }} */
+  /** @type {{ open: boolean, mode: 'create' | 'edit', quest?: any, defaults?: { questline_id?: number | null, category_id?: number | null }, onClose: () => void, onSaved: (q: any) => void, onDeleted?: (id: number) => void }} */
   let {
     open = false,
     mode = 'create',
     quest = null,
+    defaults = null,
     onClose,
     onSaved,
     onDeleted,
@@ -25,6 +34,14 @@
   let significance = $state('common')
   let pinned = $state(false)
   let sortOrder = $state(0)
+  /** Empty string = no category. */
+  let categoryId = $state('')
+  /** Empty string = no questline. */
+  let questlineId = $state('')
+  /** @type {{ id: number, slug: string, label: string, color?: string }[]} */
+  let categories = $state([])
+  /** @type {{ id: number, title: string, category_id?: number | null, color?: string }[]} */
+  let questlines = $state([])
   /** Local date YYYY-MM-DD + 24h clock (no native time picker — it follows OS 12h). */
   let deadlineDate = $state('')
   let deadlineHour = $state('12')
@@ -45,9 +62,23 @@
   const MINUTES_60 = Array.from({ length: 60 }, (_, i) => String(i).padStart(2, '0'))
 
   let heading = $derived(mode === 'create' ? 'Новый квест' : 'Редактировать квест')
+  let selectedLine = $derived(
+    questlineId === ''
+      ? null
+      : questlines.find((l) => String(l.id) === questlineId) ?? null,
+  )
+  let categoryLocked = $derived(selectedLine != null)
   let deadlineLocal = $derived(
     deadlineDate ? `${deadlineDate}T${deadlineHour}:${deadlineMinute}` : '',
   )
+
+  function applyQuestline(idStr) {
+    questlineId = idStr
+    if (idStr === '') return
+    const line = questlines.find((l) => String(l.id) === idStr)
+    if (!line) return
+    categoryId = line.category_id != null ? String(line.category_id) : ''
+  }
 
   function blankStep() {
     return {
@@ -57,6 +88,7 @@
       progress_total: 1,
       check_command: '',
       check_interval_seconds: '',
+      check_open: false,
     }
   }
 
@@ -91,6 +123,10 @@
       significance = 'common'
       pinned = false
       sortOrder = 0
+      categoryId =
+        defaults?.category_id != null ? String(defaults.category_id) : ''
+      questlineId =
+        defaults?.questline_id != null ? String(defaults.questline_id) : ''
       deadlineOpen = false
       clearDeadline()
       steps = [blankStep()]
@@ -102,6 +138,8 @@
     significance = q.significance ?? 'common'
     pinned = Boolean(q.pinned)
     sortOrder = q.sort_order ?? 0
+    categoryId = q.category_id != null ? String(q.category_id) : ''
+    questlineId = q.questline_id != null ? String(q.questline_id) : ''
     const local = toLocalInputValue(q.deadline_at)
     if (local && local.includes('T')) {
       deadlineOpen = true
@@ -132,6 +170,7 @@
             check_command: s.check_command ?? '',
             check_interval_seconds:
               s.check_interval_seconds != null ? String(s.check_interval_seconds) : '',
+            check_open: Boolean(String(s.check_command || '').trim()),
           }))
         : [blankStep()]
   }
@@ -143,6 +182,18 @@
       deleting = false
       deleteConfirmOpen = false
       resetFromQuest(mode === 'edit' ? quest : null)
+      Promise.all([listCategories(), listQuestlines()])
+        .then(([cats, lines]) => {
+          categories = Array.isArray(cats) ? cats : []
+          questlines = Array.isArray(lines) ? lines : []
+          if (mode === 'create' && defaults?.questline_id != null) {
+            applyQuestline(String(defaults.questline_id))
+          }
+        })
+        .catch(() => {
+          categories = []
+          questlines = []
+        })
     }
   })
 
@@ -216,6 +267,8 @@
         significance,
         pinned,
         sort_order: Number(sortOrder) || 0,
+        category_id: categoryId === '' ? null : Number(categoryId),
+        questline_id: questlineId === '' ? null : Number(questlineId),
         deadline_at,
         ...(deadline_at && duration_seconds != null ? { duration_seconds } : {}),
         steps: stepsPayload,
@@ -334,6 +387,73 @@
           </div>
         </div>
 
+        <div class="field">
+          <span class="label">Квестлайн</span>
+          <div class="opt-slider opt-slider--wrap" role="radiogroup" aria-label="Квестлайн">
+            <button
+              type="button"
+              class="opt-slider__opt"
+              class:opt-slider__opt--on={questlineId === ''}
+              role="radio"
+              aria-checked={questlineId === ''}
+              onclick={() => applyQuestline('')}
+            >
+              Нет
+            </button>
+            {#each questlines as line}
+              <button
+                type="button"
+                class="opt-slider__opt opt-slider__opt--cat"
+                class:opt-slider__opt--on={questlineId === String(line.id)}
+                style="--opt-color: {line.color || '#9a9a9a'}"
+                role="radio"
+                aria-checked={questlineId === String(line.id)}
+                onclick={() => applyQuestline(String(line.id))}
+              >
+                {line.title}
+              </button>
+            {/each}
+          </div>
+        </div>
+
+        <div class="field">
+          <span class="label">Раздел{categoryLocked ? ' (от квестлайна)' : ''}</span>
+          <div
+            class="opt-slider opt-slider--wrap"
+            class:opt-slider--locked={categoryLocked}
+            role="radiogroup"
+            aria-label="Раздел"
+            aria-disabled={categoryLocked}
+          >
+            <button
+              type="button"
+              class="opt-slider__opt opt-slider__opt--cat"
+              class:opt-slider__opt--on={categoryId === ''}
+              data-cat="none"
+              role="radio"
+              aria-checked={categoryId === ''}
+              disabled={categoryLocked}
+              onclick={() => (categoryId = '')}
+            >
+              Нет
+            </button>
+            {#each categories as c}
+              <button
+                type="button"
+                class="opt-slider__opt opt-slider__opt--cat"
+                class:opt-slider__opt--on={categoryId === String(c.id)}
+                style="--opt-color: {c.color || '#9a9a9a'}"
+                role="radio"
+                aria-checked={categoryId === String(c.id)}
+                disabled={categoryLocked}
+                onclick={() => (categoryId = String(c.id))}
+              >
+                {c.label}
+              </button>
+            {/each}
+          </div>
+        </div>
+
         <label class="check">
           <input type="checkbox" bind:checked={pinned} />
           Pinned (показывать в оверлее)
@@ -434,36 +554,48 @@
                 <button
                   type="button"
                   class="btn btn--ghost btn--icon"
+                  class:btn--check-on={step.check_open}
+                  onclick={() => (step.check_open = !step.check_open)}
+                  aria-label="Check-команда"
+                  title="Check-команда"
+                >
+                  <Icon name="renew" size={14} />
+                </button>
+                <button
+                  type="button"
+                  class="btn btn--ghost btn--icon"
                   onclick={() => removeStep(step.key)}
                   aria-label="Удалить шаг"
                 >
                   <Icon name="subtract" size={16} />
                 </button>
               </div>
-              <div class="step-edit__check">
-                <input
-                  type="text"
-                  class="step-edit__cmd"
-                  placeholder="check-команда (stdout → число), напр. find ~/docs -type f | wc -l"
-                  bind:value={step.check_command}
-                  spellcheck="false"
-                />
-                <input
-                  type="number"
-                  class="step-edit__interval"
-                  min="15"
-                  step="15"
-                  placeholder="сек"
-                  title="Интервал проверки (сек, мин. 15)"
-                  bind:value={step.check_interval_seconds}
-                  disabled={!String(step.check_command || '').trim()}
-                />
-              </div>
+              {#if step.check_open}
+                <div class="step-edit__check">
+                  <input
+                    type="text"
+                    class="step-edit__cmd"
+                    placeholder="check-команда (stdout → число), напр. find ~/docs -type f | wc -l"
+                    bind:value={step.check_command}
+                    spellcheck="false"
+                  />
+                  <input
+                    type="number"
+                    class="step-edit__interval"
+                    min="15"
+                    step="15"
+                    placeholder="сек"
+                    title="Интервал проверки (сек, мин. 15)"
+                    bind:value={step.check_interval_seconds}
+                    disabled={!String(step.check_command || '').trim()}
+                  />
+                </div>
+              {/if}
             </div>
           {/each}
           <p class="hint">
-            Пустые шаги отбрасываются. Check-команда опциональна: сервер раз в N сек читает число из
-            stdout и пишет в current.
+            Пустые шаги отбрасываются. Check-команда — по кнопке ↻ у шага: сервер раз в N сек читает
+            число из stdout и пишет в current.
           </p>
         </div>
 
@@ -760,6 +892,42 @@
     background: color-mix(in srgb, #fe8019 34%, var(--color-bg, #121212));
   }
 
+  .opt-slider--wrap {
+    flex-wrap: wrap;
+  }
+
+  .opt-slider__opt--cat {
+    color: var(--opt-color, var(--color-fg-muted, #9a9a9a));
+    background: color-mix(in srgb, var(--opt-color, #9a9a9a) 12%, transparent);
+  }
+
+  .opt-slider__opt--cat[data-cat='none'] {
+    color: var(--color-fg-muted, #9a9a9a);
+    background: transparent;
+  }
+
+  .opt-slider__opt--cat.opt-slider__opt--on {
+    color: color-mix(in srgb, var(--opt-color, #e8e8e8) 85%, #fff);
+    background: color-mix(
+      in srgb,
+      var(--opt-color, #9a9a9a) 34%,
+      var(--color-bg, #121212)
+    );
+  }
+
+  .opt-slider__opt--cat[data-cat='none'].opt-slider__opt--on {
+    color: var(--color-fg, #e8e8e8);
+    background: color-mix(in srgb, var(--color-bg-hover, #2a2a2a) 80%, transparent);
+  }
+
+  .opt-slider--locked {
+    opacity: 0.72;
+  }
+
+  .opt-slider--locked .opt-slider__opt:disabled {
+    cursor: default;
+  }
+
   .time-24 {
     display: inline-flex;
     align-items: center;
@@ -821,7 +989,7 @@
 
   .step-edit__row {
     display: grid;
-    grid-template-columns: 1fr 3.2rem auto 3.2rem auto;
+    grid-template-columns: minmax(0, 1fr) 3.2rem auto 3.2rem auto auto;
     gap: var(--space-2, 0.5rem);
     align-items: center;
   }
@@ -917,10 +1085,14 @@
     padding: var(--space-2, 0.5rem);
   }
 
+  .btn--check-on {
+    border-color: var(--color-accent, #c9a227);
+    color: var(--color-accent, #c9a227);
+  }
+
   @media (max-width: 520px) {
     .deadline-row,
-    .deadline-inputs,
-    .step-edit {
+    .deadline-inputs {
       grid-template-columns: 1fr;
     }
   }

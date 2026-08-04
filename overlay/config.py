@@ -20,6 +20,9 @@ DEFAULTS: dict[str, Any] = {
     # Passthrough (non-interactive) look only.
     "passthrough_bg_mode": "chips",  # chips | full
     "passthrough_bg_alpha": 0.6,
+    # Toast lanes (major = fullscreen center, minor = small corner).
+    "toasts_major": True,
+    "toasts_minor": True,
 }
 
 
@@ -28,6 +31,20 @@ def _clamp_alpha(value: Any, default: float = 0.6) -> float:
         return max(0.0, min(1.0, float(value)))
     except (TypeError, ValueError):
         return default
+
+
+def _as_bool(value: Any, default: bool = True) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    if isinstance(value, str):
+        key = value.strip().lower()
+        if key in {"1", "true", "yes", "on", "вкл"}:
+            return True
+        if key in {"0", "false", "no", "off", "выкл"}:
+            return False
+    return default
 
 
 def _normalize_bg_mode(value: Any) -> str:
@@ -64,6 +81,10 @@ def load() -> dict[str, Any]:
                 cfg["passthrough_bg_alpha"] = _clamp_alpha(
                     data["passthrough_bg_alpha"], DEFAULTS["passthrough_bg_alpha"]
                 )
+            if "toasts_major" in data:
+                cfg["toasts_major"] = _as_bool(data["toasts_major"], DEFAULTS["toasts_major"])
+            if "toasts_minor" in data:
+                cfg["toasts_minor"] = _as_bool(data["toasts_minor"], DEFAULTS["toasts_minor"])
     except (OSError, json.JSONDecodeError, TypeError, ValueError):
         pass
 
@@ -84,6 +105,8 @@ def save(cfg: dict[str, Any]) -> None:
         "passthrough_bg_alpha": _clamp_alpha(
             cfg.get("passthrough_bg_alpha"), DEFAULTS["passthrough_bg_alpha"]
         ),
+        "toasts_major": _as_bool(cfg.get("toasts_major"), DEFAULTS["toasts_major"]),
+        "toasts_minor": _as_bool(cfg.get("toasts_minor"), DEFAULTS["toasts_minor"]),
     }
     try:
         CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)

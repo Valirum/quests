@@ -61,6 +61,8 @@ def quest_to_read(quest: Quest) -> QuestRead:
     else:
         tone = timer_tone(deadline, quest.duration_seconds)
         urgent = is_in_urgent_window(deadline, quest.duration_seconds)
+    cat = getattr(quest, "category", None)
+    line = getattr(quest, "questline", None)
     return QuestRead(
         id=quest.id,  # type: ignore[arg-type]
         title=quest.title,
@@ -71,6 +73,15 @@ def quest_to_read(quest: Quest) -> QuestRead:
         sort_order=quest.sort_order,
         deadline_at=deadline,
         duration_seconds=quest.duration_seconds,
+        reward_attrs=quest.reward_attrs,
+        category_id=quest.category_id,
+        category_slug=getattr(cat, "slug", None) if cat is not None else None,
+        category_label=getattr(cat, "label", None) if cat is not None else None,
+        category_color=getattr(cat, "color", None) if cat is not None else None,
+        questline_id=quest.questline_id,
+        questline_title=getattr(line, "title", None) if line is not None else None,
+        questline_color=getattr(line, "color", None) if line is not None else None,
+        questline_icon=getattr(line, "icon", None) if line is not None else None,
         created_at=ensure_utc(quest.created_at),  # type: ignore[arg-type]
         updated_at=ensure_utc(quest.updated_at),  # type: ignore[arg-type]
         completed_at=ensure_utc(quest.completed_at),

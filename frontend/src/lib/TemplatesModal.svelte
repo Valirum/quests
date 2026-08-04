@@ -7,6 +7,8 @@
     copyTemplate,
     createTemplate,
     deleteTemplate,
+    listCategories,
+    listQuestlines,
     listTemplates,
     updateTemplate,
   } from '../lib/api.js'
@@ -31,6 +33,14 @@
   let enabled = $state(true)
   let freq = $state('daily')
   let emitMode = $state('fixed')
+  /** Empty string = no category. */
+  let categoryId = $state('')
+  /** Empty string = no questline. */
+  let questlineId = $state('')
+  /** @type {{ id: number, slug: string, label: string, color?: string }[]} */
+  let categories = $state([])
+  /** @type {{ id: number, title: string, category_id?: number | null, color?: string }[]} */
+  let questlines = $state([])
   /** 0..100 for UI; sent as 0..1 */
   let emitChancePct = $state(100)
   let windowStartHour = $state('09')
@@ -45,7 +55,7 @@
   let deadlineMinute = $state('00')
   let durationHours = $state('')
   let durationMinutes = $state('')
-  /** @type {{ key: string, title: string, progress_range: string, check_command: string, check_interval_seconds: string }[]} */
+  /** @type {{ key: string, title: string, progress_range: string, check_command: string, check_interval_seconds: string, check_open: boolean }[]} */
   let steps = $state([])
   let saving = $state(false)
   let deleting = $state(false)
@@ -57,6 +67,31 @@
 
   let isSurprise = $derived(emitMode === 'surprise')
   let hasDeadline = $derived(!isSurprise && Boolean(deadlineHour))
+  let selectedLine = $derived(
+    questlineId === ''
+      ? null
+      : questlines.find((l) => String(l.id) === questlineId) ?? null,
+  )
+  let categoryLocked = $derived(selectedLine != null)
+
+  function applyQuestline(idStr) {
+    questlineId = idStr
+    if (idStr === '') return
+    const line = questlines.find((l) => String(l.id) === idStr)
+    if (!line) return
+    categoryId = line.category_id != null ? String(line.category_id) : ''
+  }
+
+  function blankStep() {
+    return {
+      key: crypto.randomUUID(),
+      title: '',
+      progress_range: '1',
+      check_command: '',
+      check_interval_seconds: '',
+      check_open: false,
+    }
+  }
 
   function formatProgressRange(min, max) {
     const lo = Math.max(1, Number(min) || 1)
@@ -77,16 +112,6 @@
     }
     const n = Math.max(1, Number(text) || 1)
     return { progress_min: n, progress_max: n }
-  }
-
-  function blankStep() {
-    return {
-      key: crypto.randomUUID(),
-      title: '',
-      progress_range: '1',
-      check_command: '',
-      check_interval_seconds: '',
-    }
   }
 
   function parseClock(raw, fallbackH, fallbackM) {
@@ -126,6 +151,8 @@
       enabled = true
       freq = 'daily'
       emitMode = 'fixed'
+      categoryId = ''
+      questlineId = ''
       emitChancePct = 100
       windowStartHour = '09'
       windowStartMinute = '00'
@@ -146,6 +173,8 @@
     enabled = t.enabled !== false
     freq = t.freq ?? 'daily'
     emitMode = t.emit_mode === 'surprise' ? 'surprise' : 'fixed'
+    categoryId = t.category_id != null ? String(t.category_id) : ''
+    questlineId = t.questline_id != null ? String(t.questline_id) : ''
     emitChancePct = Math.round(Math.max(0, Math.min(1, Number(t.emit_chance) || 1)) * 100)
     const ws = parseClock(t.emit_window_start, '09', '00')
     const we = parseClock(t.emit_window_end, '18', '00')
@@ -184,6 +213,7 @@
             check_command: s.check_command ?? '',
             check_interval_seconds:
               s.check_interval_seconds != null ? String(s.check_interval_seconds) : '',
+            check_open: Boolean(String(s.check_command || '').trim()),
           }))
         : [blankStep()]
   }
@@ -192,7 +222,14 @@
     loading = true
     error = ''
     try {
-      templates = await listTemplates({})
+      const [tpls, cats, lines] = await Promise.all([
+        listTemplates({}),
+        listCategories(),
+        listQuestlines(),
+      ])
+      templates = tpls
+      categories = Array.isArray(cats) ? cats : []
+      questlines = Array.isArray(lines) ? lines : []
     } catch (e) {
       error = e.message || String(e)
       templates = []
@@ -304,6 +341,8 @@
         emit_window_end: `${windowEndHour}:${windowEndMinute}`,
         deadline_time: null,
         duration_seconds,
+        category_id: categoryId === '' ? null : Number(categoryId),
+        questline_id: questlineId === '' ? null : Number(questlineId),
         steps: stepsPayload,
       }
     }
@@ -324,6 +363,8 @@
       emit_window_end: null,
       deadline_time,
       duration_seconds: deadline_time ? duration_seconds : null,
+      category_id: categoryId === '' ? null : Number(categoryId),
+      questline_id: questlineId === '' ? null : Number(questlineId),
       steps: stepsPayload,
     }
   }
@@ -469,6 +510,8 @@
                     <span class="tpl-row__meta">
                       {freqLabel(t.freq)}
                       · {emitLabel(t.emit_mode)}
+                      {#if t.questline_title}· {t.questline_title}{/if}
+                      {#if t.category_label}· {t.category_label}{/if}
                       · {sigLabel(t.significance)}
                       {#if t.pinned}· pin{/if}
                       · {t.steps?.length ?? 0} шаг.
@@ -510,39 +553,132 @@
             <textarea rows="2" bind:value={description}></textarea>
           </label>
 
-          <div class="grid-2">
-            <label class="field">
-              <span class="label">Частота</span>
-              <select bind:value={freq}>
-                {#each TEMPLATE_FREQS as f}
-                  <option value={f}>{f}</option>
-                {/each}
-              </select>
-            </label>
-            <label class="field">
-              <span class="label">Тип</span>
-              <select bind:value={emitMode}>
-                {#each TEMPLATE_EMIT_MODES as m}
-                  <option value={m.id}>{m.label}</option>
-                {/each}
-              </select>
-            </label>
+          <div class="field">
+            <span class="label">Частота</span>
+            <div class="opt-slider" role="radiogroup" aria-label="Частота">
+              {#each TEMPLATE_FREQS as f}
+                <button
+                  type="button"
+                  class="opt-slider__opt"
+                  class:opt-slider__opt--on={freq === f}
+                  role="radio"
+                  aria-checked={freq === f}
+                  onclick={() => (freq = f)}
+                >
+                  {f}
+                </button>
+              {/each}
+            </div>
           </div>
 
-          <div class="grid-2">
-            <label class="field">
-              <span class="label">Значимость</span>
-              <select bind:value={significance}>
-                {#each QUEST_SIGNIFICANCES as s}
-                  <option value={s.id}>{s.label}</option>
-                {/each}
-              </select>
-            </label>
-            <label class="field">
-              <span class="label">Timezone</span>
-              <input type="text" bind:value={timezone} placeholder="Europe/Moscow" />
-            </label>
+          <div class="field">
+            <span class="label">Тип</span>
+            <div class="opt-slider" role="radiogroup" aria-label="Тип">
+              {#each TEMPLATE_EMIT_MODES as m}
+                <button
+                  type="button"
+                  class="opt-slider__opt"
+                  class:opt-slider__opt--on={emitMode === m.id}
+                  role="radio"
+                  aria-checked={emitMode === m.id}
+                  onclick={() => (emitMode = m.id)}
+                >
+                  {m.label}
+                </button>
+              {/each}
+            </div>
           </div>
+
+          <div class="field">
+            <span class="label">Значимость</span>
+            <div class="opt-slider opt-slider--wrap" role="radiogroup" aria-label="Значимость">
+              {#each QUEST_SIGNIFICANCES as s}
+                <button
+                  type="button"
+                  class="opt-slider__opt opt-slider__opt--sig"
+                  class:opt-slider__opt--on={significance === s.id}
+                  data-sig={s.id}
+                  role="radio"
+                  aria-checked={significance === s.id}
+                  onclick={() => (significance = s.id)}
+                >
+                  {s.label}
+                </button>
+              {/each}
+            </div>
+          </div>
+
+          <div class="field">
+            <span class="label">Квестлайн</span>
+            <div class="opt-slider opt-slider--wrap" role="radiogroup" aria-label="Квестлайн">
+              <button
+                type="button"
+                class="opt-slider__opt"
+                class:opt-slider__opt--on={questlineId === ''}
+                role="radio"
+                aria-checked={questlineId === ''}
+                onclick={() => applyQuestline('')}
+              >
+                Нет
+              </button>
+              {#each questlines as line}
+                <button
+                  type="button"
+                  class="opt-slider__opt opt-slider__opt--cat"
+                  class:opt-slider__opt--on={questlineId === String(line.id)}
+                  style="--opt-color: {line.color || '#9a9a9a'}"
+                  role="radio"
+                  aria-checked={questlineId === String(line.id)}
+                  onclick={() => applyQuestline(String(line.id))}
+                >
+                  {line.title}
+                </button>
+              {/each}
+            </div>
+          </div>
+
+          <div class="field">
+            <span class="label">Раздел{categoryLocked ? ' (от квестлайна)' : ''}</span>
+            <div
+              class="opt-slider opt-slider--wrap"
+              class:opt-slider--locked={categoryLocked}
+              role="radiogroup"
+              aria-label="Раздел"
+              aria-disabled={categoryLocked}
+            >
+              <button
+                type="button"
+                class="opt-slider__opt opt-slider__opt--cat"
+                class:opt-slider__opt--on={categoryId === ''}
+                data-cat="none"
+                role="radio"
+                aria-checked={categoryId === ''}
+                disabled={categoryLocked}
+                onclick={() => (categoryId = '')}
+              >
+                Нет
+              </button>
+              {#each categories as c}
+                <button
+                  type="button"
+                  class="opt-slider__opt opt-slider__opt--cat"
+                  class:opt-slider__opt--on={categoryId === String(c.id)}
+                  style="--opt-color: {c.color || '#9a9a9a'}"
+                  role="radio"
+                  aria-checked={categoryId === String(c.id)}
+                  disabled={categoryLocked}
+                  onclick={() => (categoryId = String(c.id))}
+                >
+                  {c.label}
+                </button>
+              {/each}
+            </div>
+          </div>
+
+          <label class="field">
+            <span class="label">Timezone</span>
+            <input type="text" bind:value={timezone} placeholder="Europe/Moscow" />
+          </label>
 
           {#if freq === 'weekly'}
             <div class="field">
@@ -709,31 +845,43 @@
                   <button
                     type="button"
                     class="btn btn--ghost btn--icon"
+                    class:btn--check-on={s.check_open}
+                    onclick={() => (s.check_open = !s.check_open)}
+                    aria-label="Check-команда"
+                    title="Check-команда"
+                  >
+                    <Icon name="renew" size={14} />
+                  </button>
+                  <button
+                    type="button"
+                    class="btn btn--ghost btn--icon"
                     onclick={() => removeStep(s.key)}
                     aria-label="Удалить шаг"
                   >
                     <Icon name="subtract" size={14} />
                   </button>
                 </div>
-                <div class="step-check">
-                  <input
-                    type="text"
-                    class="step-check__cmd"
-                    placeholder="check-команда (опц.)"
-                    bind:value={s.check_command}
-                    spellcheck="false"
-                  />
-                  <input
-                    type="number"
-                    class="step-check__interval"
-                    min="15"
-                    step="15"
-                    placeholder="сек"
-                    title="Интервал (сек)"
-                    bind:value={s.check_interval_seconds}
-                    disabled={!String(s.check_command || '').trim()}
-                  />
-                </div>
+                {#if s.check_open}
+                  <div class="step-check">
+                    <input
+                      type="text"
+                      class="step-check__cmd"
+                      placeholder="check-команда (опц.)"
+                      bind:value={s.check_command}
+                      spellcheck="false"
+                    />
+                    <input
+                      type="number"
+                      class="step-check__interval"
+                      min="15"
+                      step="15"
+                      placeholder="сек"
+                      title="Интервал (сек)"
+                      bind:value={s.check_interval_seconds}
+                      disabled={!String(s.check_command || '').trim()}
+                    />
+                  </div>
+                {/if}
               </div>
             {/each}
             <p class="hint">Кол-во шага: <code>5</code> или диапазон <code>5..10</code> (рандом при появлении).</p>
@@ -944,12 +1092,6 @@
     padding: 0.45rem 0.55rem;
   }
 
-  .grid-2 {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: var(--space-3, 0.75rem);
-  }
-
   .deadline-block {
     display: grid;
     gap: 0.35rem;
@@ -1027,7 +1169,7 @@
 
   .step-row {
     display: grid;
-    grid-template-columns: 1fr 5.5rem auto;
+    grid-template-columns: minmax(0, 1fr) 5.5rem auto auto;
     gap: 0.35rem;
     align-items: center;
   }
@@ -1096,8 +1238,124 @@
     padding: 0.35rem;
   }
 
+  .opt-slider {
+    display: flex;
+    flex-wrap: nowrap;
+    gap: 0;
+    border: 1px solid var(--color-border, #333);
+    border-radius: var(--radius-sm, 2px);
+    overflow: hidden;
+    background: var(--color-bg-muted, #242424);
+  }
+
+  .opt-slider--wrap {
+    flex-wrap: wrap;
+  }
+
+  .opt-slider__opt {
+    flex: 1 1 auto;
+    border: 0;
+    border-right: 1px solid var(--color-border, #333);
+    background: transparent;
+    color: var(--color-fg-muted, #9a9a9a);
+    padding: 0.4rem 0.55rem;
+    cursor: pointer;
+    font: inherit;
+    font-size: var(--text-sm, 0.875rem);
+  }
+
+  .opt-slider__opt:last-child {
+    border-right: 0;
+  }
+
+  .opt-slider__opt:hover {
+    color: var(--color-fg, #e8e8e8);
+    background: color-mix(in srgb, var(--color-bg-hover, #2a2a2a) 80%, transparent);
+  }
+
+  .opt-slider__opt--on {
+    background: color-mix(in srgb, var(--color-accent, #c9a227) 22%, var(--color-bg, #121212));
+    color: var(--color-accent, #c9a227);
+  }
+
+  .opt-slider__opt--cat {
+    color: var(--opt-color, var(--color-fg-muted, #9a9a9a));
+    background: color-mix(in srgb, var(--opt-color, #9a9a9a) 12%, transparent);
+  }
+
+  .opt-slider__opt--cat[data-cat='none'] {
+    color: var(--color-fg-muted, #9a9a9a);
+    background: transparent;
+  }
+
+  .opt-slider__opt--cat.opt-slider__opt--on {
+    color: color-mix(in srgb, var(--opt-color, #e8e8e8) 85%, #fff);
+    background: color-mix(
+      in srgb,
+      var(--opt-color, #9a9a9a) 34%,
+      var(--color-bg, #121212)
+    );
+  }
+
+  .opt-slider__opt--cat[data-cat='none'].opt-slider__opt--on {
+    color: var(--color-fg, #e8e8e8);
+    background: color-mix(in srgb, var(--color-bg-hover, #2a2a2a) 80%, transparent);
+  }
+
+  .opt-slider--locked {
+    opacity: 0.72;
+  }
+
+  .opt-slider--locked .opt-slider__opt:disabled {
+    cursor: default;
+  }
+
+  .opt-slider__opt--sig[data-sig='common'] {
+    color: #a89984;
+    background: color-mix(in srgb, #a89984 12%, transparent);
+  }
+
+  .opt-slider__opt--sig[data-sig='uncommon'] {
+    color: #8ec07c;
+    background: color-mix(in srgb, #8ec07c 12%, transparent);
+  }
+
+  .opt-slider__opt--sig[data-sig='epic'] {
+    color: #d3869b;
+    background: color-mix(in srgb, #d3869b 12%, transparent);
+  }
+
+  .opt-slider__opt--sig[data-sig='legendary'] {
+    color: #fe8019;
+    background: color-mix(in srgb, #fe8019 12%, transparent);
+  }
+
+  .opt-slider__opt--sig.opt-slider__opt--on[data-sig='common'] {
+    color: #ebdbb2;
+    background: color-mix(in srgb, #a89984 32%, var(--color-bg, #121212));
+  }
+
+  .opt-slider__opt--sig.opt-slider__opt--on[data-sig='uncommon'] {
+    color: #b8bb26;
+    background: color-mix(in srgb, #8ec07c 32%, var(--color-bg, #121212));
+  }
+
+  .opt-slider__opt--sig.opt-slider__opt--on[data-sig='epic'] {
+    color: #e9b4c7;
+    background: color-mix(in srgb, #d3869b 34%, var(--color-bg, #121212));
+  }
+
+  .opt-slider__opt--sig.opt-slider__opt--on[data-sig='legendary'] {
+    color: #ffb86c;
+    background: color-mix(in srgb, #fe8019 34%, var(--color-bg, #121212));
+  }
+
+  .btn--check-on {
+    border-color: var(--color-accent, #c9a227);
+    color: var(--color-accent, #c9a227);
+  }
+
   @media (max-width: 520px) {
-    .grid-2,
     .deadline-row {
       grid-template-columns: 1fr;
     }

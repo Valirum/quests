@@ -10,6 +10,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from quests.config import DATA_DIR, DATABASE_URL
 from quests.migrate import upgrade_to_head
 from quests.models import Quest, QuestStatus, QuestStep
+from quests.categories import ensure_categories
 
 engine = create_async_engine(DATABASE_URL, echo=False)
 SessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
@@ -73,6 +74,10 @@ async def init_db(*, seed: bool = True) -> None:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     upgrade_to_head()
 
+    async with SessionLocal() as session:
+        await ensure_categories(session)
+        await session.commit()
+
     if not seed:
         return
 
@@ -91,4 +96,8 @@ async def get_session() -> AsyncGenerator[AsyncSession, None]:
 
 
 def quest_load_options():
-    return selectinload(Quest.steps)
+    return (
+        selectinload(Quest.steps),
+        selectinload(Quest.category),
+        selectinload(Quest.questline),
+    )

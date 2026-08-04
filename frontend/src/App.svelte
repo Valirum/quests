@@ -1,6 +1,6 @@
 <script>
   import { onMount } from 'svelte'
-  import { deleteQuest, listQuests, updateQuest, updateQuestStep, QUEST_SIGNIFICANCES } from './lib/api.js'
+  import { deleteQuest, deleteQuestline, listCategories, listQuestlines, listQuests, updateQuest, updateQuestStep, QUEST_SIGNIFICANCES } from './lib/api.js'
   import { subscribeQuestEvents } from './lib/live.js'
   import { applyTheme, loadSavedTheme } from './lib/theme.js'
   import {
@@ -11,8 +11,11 @@
     timerTone,
   } from './lib/time.js'
   import QuestModal from './lib/QuestModal.svelte'
+  import QuestlineModal from './lib/QuestlineModal.svelte'
   import TemplatesModal from './lib/TemplatesModal.svelte'
   import ConfirmModal from './lib/ConfirmModal.svelte'
+  import ContextMenu from './lib/ContextMenu.svelte'
+  import HeroPanel from './lib/HeroPanel.svelte'
   import Icon from './lib/Icon.svelte'
   import { questMatchesQuery } from './lib/search.js'
 
@@ -22,10 +25,35 @@
   let error = $state('')
   let liveStatus = $state('off')
   let searchQuery = $state('')
+  /** @type {'journal' | 'hero'} */
+  let view = $state('journal')
+  /** Bump to refresh hero silently after quest events. */
+  let heroNonce = $state(0)
+  /** @type {{ id: number, slug: string, label: string, sort_order: number, color?: string }[]} */
+  let categories = $state([])
+  /** @type {{ id: number, title: string, category_id?: number | null, color?: string, icon?: string }[]} */
+  let questlines = $state([])
+  /** Open state for category subgroups: `${bucket}:${key}` → boolean (default true). */
+  let categoryOpen = $state(/** @type {Record<string, boolean>} */ ({}))
+  /** Open state for questline subgroups: `${bucket}:${catKey}:${lineKey}` → boolean. */
+  let lineOpen = $state(/** @type {Record<string, boolean>} */ ({}))
 
   let modalOpen = $state(false)
   let modalMode = $state(/** @type {'create' | 'edit'} */ ('create'))
+  /** Prefill when creating from questline context menu. */
+  let modalDefaults = $state(
+    /** @type {{ questline_id?: number | null, category_id?: number | null } | null} */ (null),
+  )
   let templatesOpen = $state(false)
+  let lineModalOpen = $state(false)
+  let lineModalMode = $state(/** @type {'create' | 'edit'} */ ('create'))
+  let lineModalTarget = $state(/** @type {any | null} */ (null))
+  let ctxOpen = $state(false)
+  let ctxX = $state(0)
+  let ctxY = $state(0)
+  let ctxLineId = $state(/** @type {number | null} */ (null))
+  let lineDeleteConfirmOpen = $state(false)
+  let lineDeleting = $state(false)
   let deleting = $state(false)
   let deleteConfirmOpen = $state(false)
   let statusBusy = $state(false)
@@ -33,25 +61,130 @@
   let stepBusyId = $state(/** @type {number | null} */ (null))
   /** Prefer this id across in-flight load() (URL / HUD focus). */
   let pendingSelectId = $state(/** @type {number | null} */ (null))
-  /** Open quests group (active / delayed). */
-  let openQuestsOpen = $state(true)
-  /** Closed quests group (completed / failed / archived). */
-  let closedQuestsOpen = $state(false)
+  /** When false — only active/delayed; when true — all statuses. */
+  let showAllQuests = $state(false)
 
   const OPEN_STATUSES = new Set(['active', 'delayed'])
-  const CLOSED_STATUSES = new Set(['completed', 'failed', 'archived'])
 
-  let visibleQuests = $derived(
+  let matchedQuests = $derived(
     quests.filter((q) => questMatchesQuery(q, searchQuery)),
   )
-  let openQuests = $derived(
-    visibleQuests.filter((q) => OPEN_STATUSES.has(q.status)),
+  let listedQuests = $derived(
+    showAllQuests
+      ? matchedQuests
+      : matchedQuests.filter((q) => OPEN_STATUSES.has(q.status)),
   )
-  let closedQuests = $derived(
-    visibleQuests.filter((q) => CLOSED_STATUSES.has(q.status)),
-  )
+  let byCategory = $derived(groupQuestsByCategory(listedQuests))
   let selected = $derived(quests.find((q) => q.id === selectedId) ?? null)
   let nowMs = $state(Date.now())
+
+  function isQuestInactive(q) {
+    return !OPEN_STATUSES.has(q?.status)
+  }
+
+  function groupQuestsByCategory(list) {
+    /** @type {Map<string, any[]>} */
+    const buckets = new Map()
+    for (const q of list) {
+      const key = q.category_id != null ? `c${q.category_id}` : 'none'
+      if (!buckets.has(key)) buckets.set(key, [])
+      buckets.get(key).push(q)
+    }
+    const ordered = []
+    const sortedCats = [...categories].sort(
+      (a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0) || a.id - b.id,
+    )
+    for (const c of sortedCats) {
+      const key = `c${c.id}`
+      if (!buckets.has(key)) continue
+      ordered.push({
+        key,
+        label: c.label,
+        color: c.color || '#9a9a9a',
+        ...partitionByQuestline(buckets.get(key)),
+      })
+      buckets.delete(key)
+    }
+    for (const [key, items] of buckets) {
+      if (key === 'none') continue
+      ordered.push({
+        key,
+        label: items[0]?.category_label || 'Раздел',
+        color: items[0]?.category_color || '#9a9a9a',
+        ...partitionByQuestline(items),
+      })
+    }
+    if (buckets.has('none')) {
+      ordered.push({
+        key: 'none',
+        label: 'Без раздела',
+        color: null,
+        ...partitionByQuestline(buckets.get('none')),
+      })
+    }
+    return ordered
+  }
+
+  function partitionByQuestline(items) {
+    /** @type {Map<number, any[]>} */
+    const byLine = new Map()
+    const alone = []
+    for (const q of items) {
+      if (q.questline_id != null) {
+        const id = Number(q.questline_id)
+        if (!byLine.has(id)) byLine.set(id, [])
+        byLine.get(id).push(q)
+      } else {
+        alone.push(q)
+      }
+    }
+    const lineById = new Map(questlines.map((l) => [l.id, l]))
+    const lines = []
+    for (const [id, quests] of byLine) {
+      const meta = lineById.get(id)
+      const sorted = [...quests].sort((a, b) => {
+        const ta = a.created_at || ''
+        const tb = b.created_at || ''
+        if (ta !== tb) return ta < tb ? -1 : 1
+        return (a.id || 0) - (b.id || 0)
+      })
+      lines.push({
+        key: `ql${id}`,
+        id,
+        title: meta?.title || quests[0]?.questline_title || 'Квестлайн',
+        color: meta?.color || quests[0]?.questline_color || '#9a9a9a',
+        icon: meta?.icon || quests[0]?.questline_icon || 'document',
+        category_id: meta?.category_id ?? quests[0]?.category_id ?? null,
+        quests: sorted,
+      })
+    }
+    lines.sort((a, b) => a.title.localeCompare(b.title, 'ru') || a.id - b.id)
+    alone.sort((a, b) => {
+      const ta = a.created_at || ''
+      const tb = b.created_at || ''
+      if (ta !== tb) return ta < tb ? -1 : 1
+      return (a.id || 0) - (b.id || 0)
+    })
+    return { lines, alone, questCount: items.length }
+  }
+
+  function isCategoryOpen(key) {
+    return categoryOpen[key] !== false
+  }
+
+  function toggleCategory(key) {
+    categoryOpen = { ...categoryOpen, [key]: !isCategoryOpen(key) }
+  }
+
+  function isLineOpen(catKey, lineKey) {
+    const id = `${catKey}:${lineKey}`
+    return lineOpen[id] !== false
+  }
+
+  function toggleLine(catKey, lineKey) {
+    const id = `${catKey}:${lineKey}`
+    lineOpen = { ...lineOpen, [id]: !isLineOpen(catKey, lineKey) }
+  }
 
   function questTimer(q) {
     if (!q?.deadline_at) return null
@@ -86,8 +219,14 @@
     if (!silent) loading = true
     if (!silent) error = ''
     try {
-      const next = await listQuests({})
+      const [next, cats, lines] = await Promise.all([
+        listQuests({}),
+        listCategories(),
+        listQuestlines(),
+      ])
       quests = next
+      categories = Array.isArray(cats) ? cats : []
+      questlines = Array.isArray(lines) ? lines : []
       const prefer = pendingSelectId ?? selectedId ?? questIdFromUrl()
       if (prefer != null && next.some((q) => q.id === prefer)) {
         selectedId = prefer
@@ -107,13 +246,37 @@
     }
   }
 
-  function openCreate() {
+  function openCreate(defaults = null) {
     modalMode = 'create'
+    modalDefaults =
+      defaults && !(defaults instanceof Event)
+        ? {
+            questline_id: defaults.questline_id ?? null,
+            category_id: defaults.category_id ?? null,
+          }
+        : null
     modalOpen = true
   }
 
   function openTemplates() {
     templatesOpen = true
+  }
+
+  function openCreateQuestline() {
+    lineModalMode = 'create'
+    lineModalTarget = null
+    lineModalOpen = true
+  }
+
+  function openEditQuestline(line) {
+    const row =
+      typeof line === 'number'
+        ? questlines.find((l) => l.id === line)
+        : line
+    if (!row) return
+    lineModalMode = 'edit'
+    lineModalTarget = row
+    lineModalOpen = true
   }
 
   function openEdit(quest = selected) {
@@ -122,7 +285,60 @@
     if (!q?.id) return
     selectedId = q.id
     modalMode = 'edit'
+    modalDefaults = null
     modalOpen = true
+  }
+
+  function openLineContextMenu(event, line) {
+    event.preventDefault()
+    event.stopPropagation()
+    ctxLineId = line.id
+    ctxX = event.clientX
+    ctxY = event.clientY
+    ctxOpen = true
+  }
+
+  function onLineContextSelect(action) {
+    const line = questlines.find((l) => l.id === ctxLineId)
+    if (!line && action !== 'delete') return
+    if (action === 'add') {
+      openCreate({
+        questline_id: ctxLineId,
+        category_id: line?.category_id ?? null,
+      })
+      return
+    }
+    if (action === 'edit') {
+      openEditQuestline(line)
+      return
+    }
+    if (action === 'delete') {
+      lineDeleteConfirmOpen = true
+    }
+  }
+
+  async function confirmDeleteQuestline() {
+    if (ctxLineId == null || lineDeleting) return
+    lineDeleting = true
+    error = ''
+    try {
+      await deleteQuestline(ctxLineId)
+      lineDeleteConfirmOpen = false
+      ctxLineId = null
+      await load({ silent: true })
+    } catch (e) {
+      error = e.message || String(e)
+    } finally {
+      lineDeleting = false
+    }
+  }
+
+  function onQuestlineSaved() {
+    load({ silent: true })
+  }
+
+  function onQuestlineDeleted() {
+    load({ silent: true })
   }
 
   function periodBadge(q) {
@@ -277,6 +493,7 @@
         }
         if (msg?.type === 'quests_changed') {
           load({ silent: true })
+          if (view === 'hero') heroNonce += 1
         }
       },
       { onStatus: (s) => (liveStatus = s) },
@@ -292,7 +509,7 @@
   <header class="journal__header">
     <div class="brand">
       <span class="brand__mark" aria-hidden="true">◈</span>
-      <h1 class="brand__title">Задачи</h1>
+      <h1 class="brand__title">{view === 'hero' ? 'Лист' : 'Задачи'}</h1>
     </div>
     <div class="header-actions">
       <span
@@ -304,21 +521,49 @@
         <span class="live__dot" aria-hidden="true"></span>
         <span class="live__text">{liveStatus}</span>
       </span>
-      <input
-        class="search"
-        type="search"
-        placeholder="Поиск…"
-        bind:value={searchQuery}
-        aria-label="Поиск по названию, описанию, шагам, статусу"
-      />
-      <button type="button" class="btn" onclick={openTemplates} aria-label="Шаблоны периодики">
-        <Icon name="renew" />
-        <span class="btn__text">Шаблоны</span>
-      </button>
-      <button type="button" class="btn btn--accent" onclick={openCreate} aria-label="Новый квест">
-        <Icon name="add" />
-        <span class="btn__text">Новый квест</span>
-      </button>
+      <div class="view-tabs" role="tablist" aria-label="Раздел">
+        <button
+          type="button"
+          class="view-tab"
+          class:view-tab--on={view === 'journal'}
+          role="tab"
+          aria-selected={view === 'journal'}
+          onclick={() => (view = 'journal')}
+        >
+          Журнал
+        </button>
+        <button
+          type="button"
+          class="view-tab"
+          class:view-tab--on={view === 'hero'}
+          role="tab"
+          aria-selected={view === 'hero'}
+          onclick={() => (view = 'hero')}
+        >
+          Лист
+        </button>
+      </div>
+      {#if view === 'journal'}
+        <input
+          class="search"
+          type="search"
+          placeholder="Поиск…"
+          bind:value={searchQuery}
+          aria-label="Поиск по названию, описанию, шагам, статусу"
+        />
+        <button type="button" class="btn" onclick={openTemplates} aria-label="Шаблоны периодики">
+          <Icon name="renew" />
+          <span class="btn__text">Шаблоны</span>
+        </button>
+        <button type="button" class="btn" onclick={openCreateQuestline} aria-label="Новый квестлайн">
+          <Icon name="flag" />
+          <span class="btn__text">Квестлайн</span>
+        </button>
+        <button type="button" class="btn btn--accent" onclick={() => openCreate()} aria-label="Новый квест">
+          <Icon name="add" />
+          <span class="btn__text">Новый квест</span>
+        </button>
+      {/if}
     </div>
   </header>
 
@@ -326,15 +571,26 @@
     <p class="banner-error" role="alert">{error}</p>
   {/if}
 
+  {#if view === 'hero'}
+    <div class="journal__hero">
+      <HeroPanel active={view === 'hero'} nonce={heroNonce} />
+    </div>
+  {:else}
   <div class="journal__body">
     <aside class="sidebar">
+      <label class="sidebar__filter">
+        <input type="checkbox" bind:checked={showAllQuests} />
+        <span>Показать все</span>
+      </label>
       <div class="sidebar__list" aria-label="Список квестов">
         {#if loading}
           <p class="empty">Загрузка…</p>
         {:else if quests.length === 0}
           <p class="empty">Квестов нет</p>
-        {:else if visibleQuests.length === 0}
+        {:else if matchedQuests.length === 0}
           <p class="empty">Ничего не найдено</p>
+        {:else if listedQuests.length === 0}
+          <p class="empty">Нет активных — включи «Показать все»</p>
         {:else}
           {#snippet questRow(q)}
             {@const rowTimer = questTimer(q)}
@@ -343,6 +599,7 @@
               class="quest-row"
               class:quest-row--active={q.id === selectedId}
               class:quest-row--pinned={q.pinned}
+              class:quest-row--inactive={isQuestInactive(q)}
               onclick={() => (selectedId = q.id)}
               oncontextmenu={(e) => {
                 e.preventDefault()
@@ -386,57 +643,87 @@
             </button>
           {/snippet}
 
-          {#if openQuests.length > 0}
-            <div class="quest-group">
+          {#snippet categoryBody(g)}
+            {#if g.lines.length === 0}
+              {#each g.alone as q (q.id)}
+                {@render questRow(q)}
+              {/each}
+            {:else}
+              {#each g.lines as line (line.key)}
+                <div
+                  class="quest-line"
+                  style="--line-color: {line.color || '#9a9a9a'}"
+                >
+                  <button
+                    type="button"
+                    class="quest-line__toggle"
+                    aria-expanded={isLineOpen(g.key, line.key)}
+                    onclick={() => toggleLine(g.key, line.key)}
+                    oncontextmenu={(e) => openLineContextMenu(e, line)}
+                  >
+                    <span class="quest-line__icon" aria-hidden="true">
+                      <Icon name={line.icon || 'document'} size={12} />
+                    </span>
+                    <span class="quest-line__label">{line.title}</span>
+                    <span class="quest-line__hint">{line.quests.length}</span>
+                    <span class="quest-line__chevron" aria-hidden="true">
+                      <Icon
+                        name={isLineOpen(g.key, line.key) ? 'chevron-down' : 'chevron-right'}
+                        size={12}
+                      />
+                    </span>
+                  </button>
+                  {#if isLineOpen(g.key, line.key)}
+                    <div class="quest-line__body">
+                      {#each line.quests as q (q.id)}
+                        {@render questRow(q)}
+                      {/each}
+                    </div>
+                  {/if}
+                </div>
+              {/each}
+              {#if g.alone.length > 0}
+                <div class="quest-line quest-line--alone">
+                  <div class="quest-line__alone-label">Без квестлайна</div>
+                  <div class="quest-line__body">
+                    {#each g.alone as q (q.id)}
+                      {@render questRow(q)}
+                    {/each}
+                  </div>
+                </div>
+              {/if}
+            {/if}
+          {/snippet}
+
+          {#each byCategory as g (g.key)}
+            <div
+              class="quest-subgroup"
+              class:quest-subgroup--plain={g.key === 'none'}
+              style={g.color ? `--cat-color: ${g.color}` : undefined}
+            >
               <button
                 type="button"
-                class="quest-group__toggle"
-                aria-expanded={openQuestsOpen}
-                onclick={() => (openQuestsOpen = !openQuestsOpen)}
+                class="quest-subgroup__toggle"
+                aria-expanded={isCategoryOpen(g.key)}
+                onclick={() => toggleCategory(g.key)}
               >
-                <span class="quest-group__label">Активные</span>
-                <span class="quest-group__hint">{openQuests.length}</span>
-                <span class="quest-group__chevron" aria-hidden="true">
-                  <Icon name={openQuestsOpen ? 'chevron-down' : 'chevron-right'} size={14} />
+                <span class="quest-subgroup__swatch" aria-hidden="true"></span>
+                <span class="quest-subgroup__label">{g.label}</span>
+                <span class="quest-subgroup__hint">{g.questCount}</span>
+                <span class="quest-subgroup__chevron" aria-hidden="true">
+                  <Icon
+                    name={isCategoryOpen(g.key) ? 'chevron-down' : 'chevron-right'}
+                    size={12}
+                  />
                 </span>
               </button>
-              {#if openQuestsOpen}
-                <div class="quest-group__body">
-                  {#each openQuests as q (q.id)}
-                    {@render questRow(q)}
-                  {/each}
+              {#if isCategoryOpen(g.key)}
+                <div class="quest-subgroup__body">
+                  {@render categoryBody(g)}
                 </div>
               {/if}
             </div>
-          {/if}
-
-          {#if closedQuests.length > 0}
-            <div class="quest-group">
-              <button
-                type="button"
-                class="quest-group__toggle"
-                aria-expanded={closedQuestsOpen}
-                onclick={() => (closedQuestsOpen = !closedQuestsOpen)}
-              >
-                <span class="quest-group__label">Завершённые</span>
-                <span class="quest-group__hint">{closedQuests.length}</span>
-                <span class="quest-group__chevron" aria-hidden="true">
-                  <Icon name={closedQuestsOpen ? 'chevron-down' : 'chevron-right'} size={14} />
-                </span>
-              </button>
-              {#if closedQuestsOpen}
-                <div class="quest-group__body">
-                  {#each closedQuests as q (q.id)}
-                    {@render questRow(q)}
-                  {/each}
-                </div>
-              {/if}
-            </div>
-          {/if}
-
-          {#if openQuests.length === 0 && closedQuests.length === 0}
-            <p class="empty">Ничего не найдено</p>
-          {/if}
+          {/each}
         {/if}
       </div>
     </aside>
@@ -460,6 +747,9 @@
                 <span class="sig-badge" data-sig={selected.significance}
                   >{significanceLabel(selected)}</span
                 >
+              {/if}
+              {#if selected.category_label}
+                <span class="period-badge" title="Раздел">{selected.category_label}</span>
               {/if}
               {#if periodBadge(selected)}
                 <span class="period-badge" title="Период">{periodBadge(selected)}</span>
@@ -602,21 +892,51 @@
       {/if}
     </section>
   </div>
+  {/if}
 </div>
 
 <QuestModal
   open={modalOpen}
   mode={modalMode}
   quest={modalMode === 'edit' ? selected : null}
-  onClose={() => (modalOpen = false)}
+  defaults={modalMode === 'create' ? modalDefaults : null}
+  onClose={() => {
+    modalOpen = false
+    modalDefaults = null
+  }}
   onSaved={onSaved}
   onDeleted={onDeleted}
+/>
+
+<QuestlineModal
+  open={lineModalOpen}
+  mode={lineModalMode}
+  line={lineModalMode === 'edit' ? lineModalTarget : null}
+  onClose={() => {
+    lineModalOpen = false
+    lineModalTarget = null
+  }}
+  onSaved={onQuestlineSaved}
+  onDeleted={onQuestlineDeleted}
 />
 
 <TemplatesModal
   open={templatesOpen}
   onClose={() => (templatesOpen = false)}
   onChanged={() => load({ silent: true })}
+/>
+
+<ContextMenu
+  open={ctxOpen}
+  x={ctxX}
+  y={ctxY}
+  items={[
+    { id: 'add', label: 'Добавить квест' },
+    { id: 'edit', label: 'Редактировать' },
+    { id: 'delete', label: 'Удалить', danger: true },
+  ]}
+  onSelect={onLineContextSelect}
+  onClose={() => (ctxOpen = false)}
 />
 
 <ConfirmModal
@@ -628,6 +948,17 @@
     if (!deleting) deleteConfirmOpen = false
   }}
   onConfirm={confirmDeleteSelected}
+/>
+
+<ConfirmModal
+  open={lineDeleteConfirmOpen}
+  title="Удалить квестлайн?"
+  message="Квесты останутся, но отвяжутся от линии."
+  busy={lineDeleting}
+  onCancel={() => {
+    if (!lineDeleting) lineDeleteConfirmOpen = false
+  }}
+  onConfirm={confirmDeleteQuestline}
 />
 
 <style>
@@ -693,6 +1024,37 @@
     font-family: var(--font-ui, sans-serif);
   }
 
+  .view-tabs {
+    display: inline-flex;
+    border: 1px solid var(--color-border, #333);
+    border-radius: var(--radius-sm, 2px);
+    overflow: hidden;
+  }
+
+  .view-tab {
+    border: 0;
+    background: transparent;
+    color: var(--color-fg-muted, #9a9a9a);
+    padding: 0.4rem 0.7rem;
+    cursor: pointer;
+    font: inherit;
+    font-size: var(--text-sm, 0.875rem);
+  }
+
+  .view-tab + .view-tab {
+    border-left: 1px solid var(--color-border, #333);
+  }
+
+  .view-tab--on {
+    background: color-mix(in srgb, var(--color-accent, #c9a227) 16%, transparent);
+    color: var(--color-accent, #c9a227);
+  }
+
+  .journal__hero {
+    min-height: 0;
+    overflow: auto;
+  }
+
   .live {
     display: inline-flex;
     align-items: center;
@@ -751,6 +1113,24 @@
     min-height: 0;
     border-right: 1px solid var(--color-border, #333);
     background: var(--color-bg-raised, #1a1a1a);
+  }
+
+  .sidebar__filter {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    flex-shrink: 0;
+    margin: 0;
+    padding: 0.45rem 0.75rem;
+    border-bottom: 1px solid var(--color-border, #333);
+    font-size: var(--text-xs, 0.75rem);
+    color: var(--color-fg-muted, #9a9a9a);
+    cursor: pointer;
+    user-select: none;
+  }
+
+  .sidebar__filter input {
+    accent-color: var(--color-accent, #c9a227);
   }
 
   .sidebar__list {
@@ -834,56 +1214,149 @@
     background: color-mix(in srgb, var(--color-accent, #c9a227) 28%, var(--color-bg-muted, #242424));
   }
 
-  .quest-group {
-    border-bottom: 1px solid var(--color-border, #333);
-  }
-
-  .quest-group + .quest-group {
-    border-top: 0;
-  }
-
-  .quest-group__toggle {
+  .quest-subgroup {
     display: grid;
-    grid-template-columns: 1fr auto auto;
+    gap: 0.15rem;
+    border-left: 2px solid var(--cat-color, var(--color-border-strong, #4a4a4a));
+    background: color-mix(
+      in srgb,
+      var(--cat-color, var(--color-bg-muted, #242424)) 10%,
+      transparent
+    );
+    border-radius: 0 var(--radius-sm, 2px) var(--radius-sm, 2px) 0;
+    padding: 0.15rem 0 0.2rem;
+  }
+
+  .quest-subgroup--plain {
+    border-left-color: var(--color-border, #333);
+    background: color-mix(in srgb, var(--color-bg-muted, #242424) 55%, transparent);
+  }
+
+  .quest-subgroup + .quest-subgroup {
+    margin-top: 0.45rem;
+  }
+
+  .quest-subgroup__toggle {
+    display: grid;
+    grid-template-columns: auto 1fr auto auto;
     align-items: center;
-    gap: var(--space-2, 0.5rem);
+    gap: 0.35rem;
     width: 100%;
-    margin: 0;
-    padding: var(--space-2, 0.5rem) var(--space-3, 0.75rem);
     border: 0;
-    background: var(--color-bg-muted, #242424);
+    background: transparent;
     color: inherit;
+    padding: 0.25rem 0.55rem;
+    cursor: pointer;
     font: inherit;
     text-align: left;
-    cursor: pointer;
   }
 
-  .quest-group__toggle:hover {
-    background: var(--color-bg-hover, #2a2a2a);
+  .quest-subgroup__swatch {
+    width: 0.45rem;
+    height: 0.45rem;
+    border-radius: 1px;
+    background: var(--cat-color, var(--color-fg-subtle, #6e6e6e));
+    flex-shrink: 0;
   }
 
-  .quest-group__label {
-    font-family: var(--font-mono, monospace);
+  .quest-subgroup--plain .quest-subgroup__swatch {
+    background: var(--color-fg-subtle, #6e6e6e);
+    opacity: 0.55;
+  }
+
+  .quest-subgroup__label {
     font-size: var(--text-xs, 0.75rem);
-    letter-spacing: 0.06em;
+    letter-spacing: 0.05em;
     text-transform: uppercase;
+    color: color-mix(in srgb, var(--cat-color, var(--color-fg-muted, #9a9a9a)) 70%, #e8e8e8);
+  }
+
+  .quest-subgroup--plain .quest-subgroup__label {
     color: var(--color-fg-muted, #9a9a9a);
   }
 
-  .quest-group__hint {
+  .quest-subgroup__hint {
     font-family: var(--font-mono, monospace);
     font-size: var(--text-xs, 0.75rem);
-    font-variant-numeric: tabular-nums;
     color: var(--color-fg-subtle, #6e6e6e);
   }
 
-  .quest-group__chevron {
+  .quest-subgroup__chevron {
     display: inline-flex;
+    color: var(--color-fg-subtle, #6e6e6e);
+  }
+
+  .quest-subgroup__body {
+    display: grid;
+  }
+
+  .quest-line {
+    display: grid;
+    gap: 0.1rem;
+    margin: 0.15rem 0.2rem 0.25rem;
+    border-left: 2px solid var(--line-color, var(--color-border, #333));
+    background: color-mix(in srgb, var(--line-color, #9a9a9a) 8%, transparent);
+    border-radius: 0 var(--radius-sm, 2px) var(--radius-sm, 2px) 0;
+  }
+
+  .quest-line + .quest-line {
+    margin-top: 0.35rem;
+  }
+
+  .quest-line--alone {
+    border-left-color: var(--color-border, #333);
+    background: transparent;
+  }
+
+  .quest-line__toggle {
+    display: grid;
+    grid-template-columns: auto 1fr auto auto;
     align-items: center;
-    justify-content: center;
-    width: 1.25rem;
-    height: 1.25rem;
-    color: var(--color-fg-muted, #9a9a9a);
+    gap: 0.3rem;
+    width: 100%;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    padding: 0.22rem 0.45rem;
+    cursor: pointer;
+    font: inherit;
+    text-align: left;
+  }
+
+  .quest-line__icon {
+    display: inline-flex;
+    color: var(--line-color, var(--color-fg-muted, #9a9a9a));
+  }
+
+  .quest-line__label {
+    font-size: var(--text-xs, 0.75rem);
+    color: color-mix(in srgb, var(--line-color, #9a9a9a) 55%, #e8e8e8);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .quest-line__hint {
+    font-family: var(--font-mono, monospace);
+    font-size: var(--text-xs, 0.75rem);
+    color: var(--color-fg-subtle, #6e6e6e);
+  }
+
+  .quest-line__chevron {
+    display: inline-flex;
+    color: var(--color-fg-subtle, #6e6e6e);
+  }
+
+  .quest-line__alone-label {
+    padding: 0.2rem 0.45rem;
+    font-size: var(--text-xs, 0.75rem);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--color-fg-subtle, #6e6e6e);
+  }
+
+  .quest-line__body {
+    display: grid;
   }
 
   .quest-row {
@@ -907,6 +1380,15 @@
   .quest-row--active {
     border-left-color: var(--color-accent, #c9a227);
     background: color-mix(in srgb, var(--color-accent, #c9a227) 10%, var(--color-bg-raised, #1a1a1a));
+  }
+
+  .quest-row--inactive {
+    opacity: 0.62;
+  }
+
+  .quest-row--inactive .quest-row__title {
+    text-decoration: line-through;
+    color: var(--color-fg-muted, #9a9a9a);
   }
 
   .quest-row__top {

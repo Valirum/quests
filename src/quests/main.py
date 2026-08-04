@@ -8,12 +8,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from quests.api import events, health, quests, templates
+from quests.api import categories, events, health, hero, questlines, quests, templates
 from quests.checks import run_due_step_checks
 from quests.config import HOST, PORT, ROOT
 from quests.db import init_db
 from quests.events import hub
 from quests.expire import expire_overdue_quests
+from quests.hero import decay_momentum
 from quests.periodic import materialize_due
 
 FRONTEND_DIST = ROOT / "frontend" / "dist"
@@ -37,6 +38,10 @@ async def lifespan(_app: FastAPI):
                 pass
             try:
                 await run_due_step_checks()
+            except Exception:
+                pass
+            try:
+                await decay_momentum()
             except Exception:
                 pass
             await asyncio.sleep(EXPIRE_POLL_S)
@@ -66,6 +71,9 @@ app.include_router(health.router)
 app.include_router(events.router)
 app.include_router(quests.router)
 app.include_router(templates.router)
+app.include_router(hero.router)
+app.include_router(categories.router)
+app.include_router(questlines.router)
 
 
 def _mount_spa() -> None:

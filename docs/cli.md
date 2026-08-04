@@ -32,9 +32,10 @@ quests show 3 --json | jq .title
 
 | Команда | Что делает |
 |---------|------------|
-| `list` / `ls` | список (`--status`, `--pinned` / `--unpinned`) |
-| `show` / `get ID` | детали + шаги |
-| `add TITLE` | создать (`-d`, `--pin`, `--significance`, `--step`×N) |
+| `list` / `ls` | список (`--status`, `--pinned` / `--unpinned`, `--category`, `--questline`) |
+| `show` / `get ID` | детали + шаги (+ раздел / квестлайн) |
+| `add TITLE` | создать (`-d`, `--pin`, `--significance`, `--step`×N, `--category`, `--questline`) |
+| `set ID` | поля: `--title` / `-d` / `--category` / `--questline` / `--significance` (`none` снимает) |
 | `pin ID` / `unpin ID` | булавки (`pin --off`) |
 | `status ID STATUS` | `active\|delayed\|completed\|failed\|archived` |
 | `complete ID` | → completed |
@@ -46,8 +47,31 @@ quests show 3 --json | jq .title
 
 ```bash
 quests add "Собрать травы" --pin --step "Луговая" --step "Горная"
+quests add "MVP" --category work --questline "Проект"
+quests set 4 --category health
+quests set 4 --questline none
 quests step 4 --title лугов --inc 2
 quests complete 4 --json
+```
+
+## Разделы и квестлайны
+
+| Команда | Что делает |
+|---------|------------|
+| `categories` / `cats` | справочник разделов (slug, label, color) |
+| `questline list` / `ql ls` | список линий (`--category`) |
+| `questline show ID` | детали |
+| `questline add TITLE` | создать (`--category`, `--color`, `--icon`) |
+| `questline set ID` | изменить (`--title` / `-d` / `--category` / `--color` / `--icon`) |
+| `questline delete ID` | удалить (квесты отвяжутся, категория у них останется) |
+
+`--category` / `--questline` принимают `id`, `slug`/`label` (для раздела), подстроку title (для линии) или `none`/`-`/`нет` для сброса. Участник квестлайна всегда получает категорию линии.
+
+```bash
+quests categories
+quests questline add "Проект Quests" --category work --icon flag --color '#5a8a9a'
+quests ql list --category work
+quests ql set 1 --category health   # sync category у участников
 ```
 
 ## Хуки: и global, и на квест
