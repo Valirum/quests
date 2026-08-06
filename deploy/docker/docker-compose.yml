@@ -37,6 +37,7 @@ services:
       retries: 5
       start_period: 20s
 
+  # host network: proxy on 127.0.0.1:12334 is reachable (bridge → host.docker.internal is not)
   bot:
     build:
       context: ../..
@@ -45,6 +46,7 @@ services:
     image: quests-bot:local
     container_name: quests-bot
     restart: unless-stopped
+    network_mode: host
     depends_on:
       api:
         condition: service_healthy
@@ -54,11 +56,8 @@ services:
     environment:
       QUESTS_ROOT: /app
       QUESTS_DATA_DIR: /app/data
-      QUESTS_API: http://api:8765
-      # Host-side HTTP proxy. Override in .env if needed.
-      QUESTS_TG_PROXY: ${QUESTS_TG_PROXY:-http://host.docker.internal:12334}
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+      QUESTS_API: http://127.0.0.1:${QUESTS_PUBLISH_PORT:-8765}
+      QUESTS_TG_PROXY: ${QUESTS_TG_PROXY:-http://127.0.0.1:12334}
     volumes:
       - quests-data:/app/data
 
