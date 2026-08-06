@@ -1,16 +1,14 @@
-name: main
+name: CI
 
-on:
+# Quote "on": YAML 1.1 treats bare `on` as boolean true; that can leave push
+# unregistered while Actions UI still allows manual workflow_dispatch.
+"on":
   push:
-    branches: [main]
+    branches:
+      - main
   pull_request:
-    branches: [main]
-    paths:
-      - "src/**"
-      - "tests/**"
-      - "pyproject.toml"
-      - "uv.lock"
-      - ".github/workflows/main.yml"
+    branches:
+      - main
   workflow_dispatch:
     inputs:
       force_api:
@@ -23,7 +21,7 @@ on:
         default: false
 
 concurrency:
-  group: main-${{ github.workflow }}-${{ github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -38,7 +36,11 @@ jobs:
       frontend: ${{ steps.filter.outputs.frontend }}
       bot: ${{ steps.filter.outputs.bot }}
     steps:
+      # depth 1 (checkout default) breaks push diffs → filters stay false,
+      # so build-* only run via workflow_dispatch force_* inputs.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: dorny/paths-filter@v3
         id: filter
         with:

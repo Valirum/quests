@@ -28,7 +28,7 @@ curl -sS http://127.0.0.1:8080/api/health
 
 ### CI / GHCR (ветка `main`)
 
-GitHub Actions (`.github/workflows/main.yml`) только собирает и пушит образы
+GitHub Actions (`.github/workflows/main.yml`, workflow **CI**) только собирает и пушит образы
 (без SSH-деплоя):
 
 1. `pytest` на push/PR
@@ -57,7 +57,7 @@ docker compose --env-file .env -f deploy/docker/docker-compose.yml up -d
 Файл: [`docker-compose.watchtower.yml`](docker-compose.watchtower.yml)
 (poll 60s, только `quests-api` и `quests-bot`).
 
-Ручной прогон сборки: Actions → **main** → Run workflow (`force_api` / `force_bot`).
+Ручной прогон сборки: Actions → **CI** → Run workflow (`force_api` / `force_bot`).
 
 Локально по-прежнему: без `QUESTS_*_IMAGE` → `quests-*:local` и `up --build`.
 
