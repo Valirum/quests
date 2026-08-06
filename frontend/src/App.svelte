@@ -1,4 +1,5 @@
 <script>
+  // Quests web UI
   import { onMount } from 'svelte'
   import { deleteQuest, deleteQuestline, listCategories, listQuestlines, listQuests, updateQuest, updateQuestStep, fetchHealth, QUEST_SIGNIFICANCES } from './lib/api.js'
   import { subscribeQuestEvents } from './lib/live.js'
