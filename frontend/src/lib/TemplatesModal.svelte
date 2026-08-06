@@ -239,12 +239,18 @@
     }
   }
 
+  // Reset list only when the modal opens (false → true). A plain
+  // `if (open) { view = 'list' }` re-runs on parent re-renders and
+  // immediately undoes "Новый шаблон" / edit.
+  let wasOpen = false
   $effect(() => {
-    if (open) {
+    const isOpen = open
+    if (isOpen && !wasOpen) {
       view = 'list'
       editing = null
-      refresh()
+      void refresh()
     }
+    wasOpen = isOpen
   })
 
   $effect(() => {
@@ -266,14 +272,14 @@
 
   function openCreate() {
     editing = null
-    resetForm(null)
     view = 'create'
+    resetForm(null)
   }
 
   function openEdit(t) {
     editing = t
-    resetForm(t)
     view = 'edit'
+    resetForm(t)
   }
 
   function toggleDay(id) {
