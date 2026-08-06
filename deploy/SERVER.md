@@ -1,7 +1,35 @@
 # Деплой Quests на сервер (после `git clone`)
 
+Два пути: **Docker** (проще на VPS) или **systemd + uv** (как на рабочей станции).
+
 Оверлей (HUD) на сервере **не** нужен — только API + SPA (+ опционально Telegram-бот).  
 HUD остаётся на рабочей станции с Wayland и ходит на сервер через `QUESTS_API`.
+
+---
+
+## Вариант A — Docker (рекомендуется на сервере)
+
+```bash
+cd ~
+git clone <repo-url> Quests
+cd Quests
+cp .env.example .env
+$EDITOR .env   # QUESTS_TG_* ; прокси см. ниже
+
+# HTTP-прокси для Telegram на хосте :12334 (свой стек), затем:
+docker compose -f deploy/docker/docker-compose.yml up -d --build
+
+curl -sS http://127.0.0.1:8765/api/health
+# UI: http://SERVER_IP:8765  или  :8080 (nginx)
+```
+
+Подробнее: [`docker/README.md`](docker/README.md).
+
+Дальше — firewall на `8765`/`8080`, на ПК HUD: `QUESTS_API=http://SERVER_IP:8765`.
+
+---
+
+## Вариант B — systemd (после клона без Docker)
 
 Ниже путь клонирования: `~/Quests`. Если другой — правь `WorkingDirectory` / `ExecStart` в unit-файлах.
 

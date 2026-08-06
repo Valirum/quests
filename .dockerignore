@@ -1,0 +1,38 @@
+# Git / IDE
+.git
+.gitignore
+.cursor
+**/.DS_Store
+
+# Python
+.venv
+venv
+**/__pycache__
+**/*.py[cod]
+**/*.egg-info
+.pytest_cache
+.ruff_cache
+.mypy_cache
+
+# Node (frontend built in Docker stage)
+frontend/node_modules
+frontend/dist
+
+# Runtime / secrets
+data
+.env
+.env.*
+!.env.example
+*.db
+*.sqlite
+*.log
+*.sock
+
+# Overlay vendor (rebuilt in overlay image)
+overlay/_vendor
+
+# Deploy noise
+deploy/sing-box
+**/*.md
+!README.md
+TODO.md

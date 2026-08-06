@@ -10,7 +10,7 @@ from fastapi.staticfiles import StaticFiles
 
 from quests.api import categories, events, health, hero, questlines, quests, templates
 from quests.checks import run_due_step_checks
-from quests.config import CORS_ORIGINS, HOST, PORT, ROOT
+from quests.config import CORS_ORIGINS, HOST, PORT, RELOAD, ROOT
 from quests.db import init_db
 from quests.events import hub
 from quests.expire import expire_overdue_quests
@@ -101,7 +101,7 @@ _mount_spa()
 def run() -> None:
     import uvicorn
 
-    uvicorn.run("quests.main:app", host=HOST, port=PORT, reload=True)
+    uvicorn.run("quests.main:app", host=HOST, port=PORT, reload=RELOAD)
 
 
 if __name__ == "__main__":
