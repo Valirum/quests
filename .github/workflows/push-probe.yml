@@ -11,3 +11,4 @@ jobs:
     steps:
       - name: Prove push triggers Actions
         run: echo "push trigger ok sha=${GITHUB_SHA}"
+
