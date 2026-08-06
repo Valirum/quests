@@ -1,8 +1,13 @@
 # Quests — Docker Compose (server: api + bot + frontend)
 #
 #   cd /path/to/Quests
-#   cp .env.example .env   # fill TG_* if using bot
-#   docker compose -f deploy/docker/docker-compose.yml up -d --build
+#   cp .env.example .env   # fill TG_* ; QUESTS_*_IMAGE for GHCR
+#
+# Важно: -f deploy/docker/... сам по себе НЕ читает корневой .env для
+# подстановки ${QUESTS_API_IMAGE}. Всегда передавай --env-file:
+#
+#   docker compose --env-file .env -f deploy/docker/docker-compose.yml up -d --build
+#   docker compose --env-file .env -f deploy/docker/docker-compose.yml pull
 #
 # HUD: not in Docker — scripts/run-overlay-smoke.sh + quests-overlay.service
 

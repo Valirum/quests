@@ -15,14 +15,16 @@ HUD в Docker нет — на рабочей станции: `./scripts/run-over
 cd /path/to/Quests
 cp -n .env.example .env
 # QUESTS_TG_TOKEN, QUESTS_TG_USER_IDS; прокси на хосте :12334
+# GHCR: QUESTS_API_IMAGE=ghcr.io/<owner>/quests-api:main  (и BOT)
 
-docker compose -f deploy/docker/docker-compose.yml up -d --build
+# --env-file обязателен: иначе ${QUESTS_*_IMAGE} не подхватятся из корневого .env
+docker compose --env-file .env -f deploy/docker/docker-compose.yml up -d --build
 
 curl -sS http://127.0.0.1:8765/api/health
 curl -sS http://127.0.0.1:8080/api/health
 ```
 
-Логи: `docker compose -f deploy/docker/docker-compose.yml logs -f`
+Логи: `docker compose --env-file .env -f deploy/docker/docker-compose.yml logs -f`
 
 ### CI / GHCR (ветка `main`)
 
@@ -43,18 +45,17 @@ QUESTS_BOT_IMAGE=ghcr.io/<owner>/quests-bot:main
 Один раз: `echo $CR_PAT | docker login ghcr.io -u USER --password-stdin`
 (пакеты GitHub часто private — нужен PAT с `read:packages`).
 
-Обновление контейнеров — вручную (`compose pull && up -d`) или Watchtower,
-который сам подтягивает новый `:main`:
-
 ```bash
-docker run -d --name watchtower --restart unless-stopped \
-  -v /var/run/docker.sock:/var/run/docker.sock \
-  -v "$HOME/.docker/config.json:/config.json:ro" \
-  containrrr/watchtower \
-  --interval 60 quests-api quests-bot
+docker compose --env-file .env -f deploy/docker/docker-compose.yml pull
+docker compose --env-file .env -f deploy/docker/docker-compose.yml up -d
 ```
 
-(`config.json` после `docker login ghcr.io`; имена — `container_name` из compose.)
+(`env_file:` в compose кормит контейнеры; `--env-file` нужен для подстановки `image: ${QUESTS_*_IMAGE}`.)
+
+Обновление контейнеров — вручную (команды выше) или Watchtower:
+
+Файл: [`docker-compose.watchtower.yml`](docker-compose.watchtower.yml)
+(poll 60s, только `quests-api` и `quests-bot`).
 
 Ручной прогон сборки: Actions → **main** → Run workflow (`force_api` / `force_bot`).
 
