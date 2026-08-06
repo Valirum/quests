@@ -63,4 +63,4 @@ SQLite: `data/quests.db`.
 
 User systemd units: [`deploy/systemd/`](deploy/systemd/).  
 Деплой на сервер после клона: [`deploy/SERVER.md`](deploy/SERVER.md).  
-Docker (api / bot / frontend / overlay): [`deploy/docker/`](deploy/docker/).
+Docker (api / bot / frontend): [`deploy/docker/`](deploy/docker/).

@@ -174,23 +174,18 @@ journalctl --user -u quests-telegram.service -f
 
 ## 5. Рабочая станция (HUD)
 
-На машине с niri / Wayland, в unit оверлея или в `.env` / `data/overlay.json`:
+На машине с niri / Wayland (не Docker):
 
 ```bash
-# Environment= в quests-overlay.service или export перед запуском:
-QUESTS_API=http://SERVER_IP:8765
-QUESTS_WEB_URL=http://SERVER_IP:8765
+export QUESTS_API=http://SERVER_IP:8765
+export QUESTS_WEB_URL=http://SERVER_IP:8765
+
+./scripts/run-overlay-smoke.sh
+# или systemd:
+# systemctl --user enable --now quests-overlay.service
 ```
 
-Либо в `data/overlay.json`:
-
-```json
-{
-  "api_base": "http://SERVER_IP:8765"
-}
-```
-
-(`QUESTS_API` имеет приоритет над файлом.)
+Либо `api_base` в `data/overlay.json` (env `QUESTS_API` важнее файла).
 
 Перезапуск оверлея → чип **HUD** в веб-форме станет зелёным.
 

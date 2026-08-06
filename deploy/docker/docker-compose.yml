@@ -1,12 +1,10 @@
-# Quests — Docker Compose
+# Quests — Docker Compose (server: api + bot + frontend)
 #
 #   cd /path/to/Quests
 #   cp .env.example .env   # fill TG_* if using bot
 #   docker compose -f deploy/docker/docker-compose.yml up -d --build
 #
-# Profiles:
-#   (default)  api + bot + frontend (nginx → api)
-#   --profile hud   + Wayland overlay (Linux workstation only)
+# HUD: not in Docker — scripts/run-overlay-smoke.sh + quests-overlay.service
 
 name: quests
 
@@ -76,26 +74,6 @@ services:
       - "${QUESTS_HTTP_PORT:-8080}:80"
     volumes:
       - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
-
-  # Experimental Wayland HUD (same machine as the compositor).
-  overlay:
-    profiles: ["hud"]
-    build:
-      context: ../..
-      dockerfile: deploy/docker/Dockerfile.overlay
-    image: quests-overlay:local
-    container_name: quests-overlay
-    restart: unless-stopped
-    network_mode: host
-    environment:
-      QUESTS_API: ${QUESTS_API:-http://127.0.0.1:8765}
-      QUESTS_WEB_URL: ${QUESTS_WEB_URL:-http://127.0.0.1:8765}
-      QUESTS_DATA_DIR: /app/data
-      WAYLAND_DISPLAY: ${WAYLAND_DISPLAY:-wayland-1}
-      XDG_RUNTIME_DIR: ${XDG_RUNTIME_DIR:-/run/user/1000}
-    volumes:
-      - ${XDG_RUNTIME_DIR:-/run/user/1000}:${XDG_RUNTIME_DIR:-/run/user/1000}
-      - ../../data:/app/data
 
 volumes:
   quests-data:

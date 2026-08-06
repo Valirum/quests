@@ -28,9 +28,6 @@ data
 *.log
 *.sock
 
-# Overlay vendor (rebuilt in overlay image)
-overlay/_vendor
-
 # Deploy noise
 deploy/sing-box
 **/*.md
