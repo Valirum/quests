@@ -1,6 +1,6 @@
 # Quests — MVP TODO
 
-Стек: Python · FastAPI · SQLite · Svelte (Vite) · GTK4 + gtk4-layer-shell  
+Стек: Python · FastAPI · SQLite · Svelte (Vite) · GTK4 + gtk4-layer-shell · Telegram  
 Окружение: CachyOS · niri (Wayland)
 
 ## Точки входа
@@ -11,6 +11,7 @@
 - Оверлей: `./scripts/run-overlay-smoke.sh` / `python -m overlay`
 - HUD input: `python -m overlay toggle` · монитор: `python -m overlay monitor`
 - CLI: `uv run quests --help` · [`docs/cli.md`](docs/cli.md)
+- Telegram-бот: `./scripts/run-telegram.sh` (секреты в `.env`; `/new-llm` → Cursor API)
 
 ---
 
@@ -107,7 +108,64 @@
 
 
 
-## 8. Потом
+## 8. Telegram-бот (телефон: список / статус / пуши)
+
+Цель: смотреть активные задачи с телефона, минимально управлять, получать уведомления.  
+Стек остаётся локальным (API+БД на хосте); бот — клиент к API. Исходящий Telegram API — **только через HTTP(S)-прокси**.
+
+### 8.1 Инфра
+
+- [x] Пакет/модуль бота (`quests-telegram` / `src/quests/telegram/`), зависимость (aiogram или python-telegram-bot)
+- [x] Конфиг: `QUESTS_TG_TOKEN`, whitelist `QUESTS_TG_USER_IDS` (один/несколько)
+- [x] Прокси обязателен для вызовов Telegram: дефолт `http://127.0.0.1:12334`; override ключом CLI (`--proxy`) и/или env (`QUESTS_TG_PROXY`)
+- [x] База API: `QUESTS_API` (как у CLI), дефолт `http://127.0.0.1:8765`
+- [x] Точка входа + script; отказ стартовать без token / без доступного прокси (явная ошибка)
+- [x] Игнор апдейтов от чужих user id
+
+### 8.2 Команды и просмотр
+
+- [x] `/start`, `/help` — кратко по командам
+- [x] Активные задачи **по категориям** (команда списка + группировка; без категории — отдельно)
+- [x] Карточка квеста: title, статус, категория, дедлайн/осталось, шаги (кратко)
+
+### 8.3 Управление
+
+- [x] Создание задачи **диалогом** (Conversation: title → опц. категория / дедлайн-длительность → confirm → `POST /api/quests`)
+- [x] Инлайн-клавиатура смены статуса на карточке/в списке: как минимум active / completed / failed / delayed (набор уточнить по UX)
+- [x] Callback’и идемпотентны; после смены — обновить сообщение + клавиатуру
+
+### 8.4 Уведомления
+
+Подписка на события API (WS `/ws` и/или `/api/events` + локальный трекер «уже уведомили»).
+
+- [x] **Старт окна задачи** (есть `deadline_at` + `duration_seconds`): момент `deadline − duration` → пуш «задача началась / таймер пошёл»
+- [x] **Просрочка**: переход в `delayed` / expire
+- [x] **Провал**: статус `failed`
+- [x] **Выполнение**: статус `completed`
+- [x] (желательно) новый инстанс периодики / сюрприз — тем же каналом, что major/appear
+- [x] Дедуп пушей: `(quest_id, kind)` не слать повторно
+
+### 8.5 Потом (бот)
+
+- [x] Чек шагов из TG
+- [ ] Настройки «какие kinds слать»
+- [ ] systemd user-unit рядом с `quests-server`
+
+### 8.6 LLM → квест (текст + голос)
+
+По умолчанию **Cursor Agent API** (`CURSOR_API_KEY`, cloud без репо → JSON). Ollama остаётся опциональным (`QUESTS_LLM_PROVIDER=ollama`).
+Голос: **faster-whisper** `medium` (`QUESTS_WHISPER_*`) → тот же `/new-llm` пайплайн.
+
+- [x] Модуль `quests.llm`: schema / client / draft→API body
+- [x] Провайдер Cursor (`Agent.prompt` + cloud empty workspace)
+- [x] TG: `/new-llm` + кнопка «✨ LLM», уточнение, confirm inline
+- [x] CLI: `quests llm-add "…"` (`-y` без подтверждения)
+- [x] STT: `quests.stt` + TG voice/audio (в диалоге и вне → LLM)
+- [ ] systemd / автоподъём рядом с ботом
+
+
+
+## 9. Потом
 
 - [ ] Плагин noctalia
 - [x] Категории / типы квестов (сюжет, быт, привычка…)

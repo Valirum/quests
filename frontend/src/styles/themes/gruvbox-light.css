@@ -1,0 +1,42 @@
+[data-theme="gruvbox-light"] {
+  --color-bg: #fbf1c7;
+  --color-bg-raised: #f9f5d7;
+  --color-bg-muted: #ebdbb2;
+  --color-bg-hover: #d5c4a1;
+
+  --color-fg: #3c3836;
+  --color-fg-muted: #7c6f64;
+  --color-fg-subtle: #928374;
+
+  --color-accent: #b57614;
+  --color-accent-dim: #af3a03;
+  --color-accent-fg: #fbf1c7;
+
+  --color-border: #d5c4a1;
+  --color-border-strong: #bdae93;
+  --color-success: #79740e;
+  --color-warning: #af3a03;
+  --color-danger: #9d0006;
+  --color-info: #427b58;
+
+  --color-status-active: var(--color-accent);
+  --color-status-delayed: var(--color-warning);
+  --color-status-completed: var(--color-success);
+  --color-status-failed: var(--color-danger);
+  --color-status-archived: var(--color-fg-subtle);
+
+  --color-sig-common: #7c6f64;
+  --color-sig-common-on: #3c3836;
+  --color-sig-uncommon: #79740e;
+  --color-sig-uncommon-on: #98971a;
+  --color-sig-epic: #8f3f71;
+  --color-sig-epic-on: #b16286;
+  --color-sig-legendary: #af3a03;
+  --color-sig-legendary-on: #d65d0e;
+
+  --color-timer-ok: #79740e;
+  --color-timer-warn: #b57614;
+  --color-timer-urgent: #9d0006;
+
+  color-scheme: light;
+}

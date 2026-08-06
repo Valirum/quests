@@ -1,8 +1,8 @@
 /*
  * Copy this file to themes/<your-theme>.css, rename the selector,
  * override only what you need, then:
- *   1. import it from main.js
- *   2. set document.documentElement.dataset.theme = "<your-theme>"
+ *   1. import it from app.css
+ *   2. add an entry to THEMES in lib/theme.js
  *
  * Example: [data-theme="my-parchment"] { --color-bg: #…; }
  */
@@ -27,6 +27,19 @@
   --color-warning: #d29922;
   --color-danger: #f85149;
   --color-info: #39c5cf;
+
+  --color-sig-common: #8b9bab;
+  --color-sig-common-on: #e6edf3;
+  --color-sig-uncommon: #3fb950;
+  --color-sig-uncommon-on: #56d364;
+  --color-sig-epic: #bc8cff;
+  --color-sig-epic-on: #d2a8ff;
+  --color-sig-legendary: #d29922;
+  --color-sig-legendary-on: #e3b341;
+
+  --color-timer-ok: #3fb950;
+  --color-timer-warn: #d29922;
+  --color-timer-urgent: #f85149;
 
   color-scheme: dark;
 }

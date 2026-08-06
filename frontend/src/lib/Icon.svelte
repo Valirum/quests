@@ -4,6 +4,7 @@
   import chevronDown from '../assets/icons/chevron-down.svg?raw'
   import chevronRight from '../assets/icons/chevron-right.svg?raw'
   import close from '../assets/icons/close.svg?raw'
+  import copy from '../assets/icons/copy.svg?raw'
   import deleteIcon from '../assets/icons/delete.svg?raw'
   import document from '../assets/icons/document.svg?raw'
   import edit from '../assets/icons/edit.svg?raw'
@@ -15,8 +16,10 @@
   import renew from '../assets/icons/renew.svg?raw'
   import save from '../assets/icons/save.svg?raw'
   import scroll from '../assets/icons/scroll.svg?raw'
+  import settings from '../assets/icons/settings.svg?raw'
   import subtract from '../assets/icons/subtract.svg?raw'
   import target from '../assets/icons/target.svg?raw'
+  import terminal from '../assets/icons/terminal.svg?raw'
 
   const ICONS = {
     add,
@@ -24,6 +27,7 @@
     'chevron-down': chevronDown,
     'chevron-right': chevronRight,
     close,
+    copy,
     delete: deleteIcon,
     document,
     edit,
@@ -35,8 +39,10 @@
     renew,
     save,
     scroll,
+    settings,
     subtract,
     target,
+    terminal,
   }
 
   /** @type {{ name: string, size?: number, label?: string }} */

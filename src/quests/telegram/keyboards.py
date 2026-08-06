@@ -1,0 +1,200 @@
+"""Keyboards: main reply + quest inline (status / steps / paging)."""
+
+from __future__ import annotations
+
+from aiogram.types import (
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    KeyboardButton,
+    ReplyKeyboardMarkup,
+)
+
+# Reply (общие функции)
+BTN_LIST = "📋 Список"
+BTN_NEW = "➕ Новая"
+BTN_NEW_LLM = "✨ LLM"
+BTN_HELP = "❓ Помощь"
+BTN_CANCEL = "✖ Отмена"
+
+# Inline: statuses — qs:<qid>:<status>
+STATUSES = (
+    ("completed", "✓ Выполнено"),
+    ("failed", "✗ Провал"),
+    ("delayed", "⏳ Просрочено"),
+    ("active", "▶ Активно"),
+)
+
+# Шагов на странице (статусы + refresh + nav уже занимают ряды;
+# лимит Telegram ~100 кнопок, UX важнее).
+STEPS_PER_PAGE = 5
+
+
+def main_reply_keyboard() -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text=BTN_LIST), KeyboardButton(text=BTN_NEW)],
+            [KeyboardButton(text=BTN_NEW_LLM), KeyboardButton(text=BTN_HELP)],
+            [KeyboardButton(text=BTN_CANCEL)],
+        ],
+        resize_keyboard=True,
+        is_persistent=True,
+    )
+
+
+def llm_confirm_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="✓ Создать",
+                    callback_data="llm:ok",
+                ),
+                InlineKeyboardButton(
+                    text="✖ Отмена",
+                    callback_data="llm:no",
+                ),
+            ]
+        ]
+    )
+
+
+def _step_done(step: dict) -> bool:
+    if step.get("done") is True:
+        return True
+    try:
+        return int(step.get("progress_current") or 0) >= int(
+            step.get("progress_total") or 1
+        )
+    except (TypeError, ValueError):
+        return False
+
+
+def _clamp_page(page: int, n_steps: int) -> int:
+    if n_steps <= 0:
+        return 0
+    pages = max(1, (n_steps + STEPS_PER_PAGE - 1) // STEPS_PER_PAGE)
+    return max(0, min(int(page), pages - 1))
+
+
+def quest_keyboard(quest: dict, *, page: int = 0) -> InlineKeyboardMarkup:
+    """Статусы + бинарные шаги (ничего/всё) с листанием."""
+    qid = int(quest["id"])
+    steps = list(quest.get("steps") or [])
+    page = _clamp_page(page, len(steps))
+
+    rows: list[list[InlineKeyboardButton]] = [
+        [
+            InlineKeyboardButton(
+                text=STATUSES[0][1],
+                callback_data=f"qs:{qid}:{STATUSES[0][0]}",
+            ),
+            InlineKeyboardButton(
+                text=STATUSES[1][1],
+                callback_data=f"qs:{qid}:{STATUSES[1][0]}",
+            ),
+        ],
+        [
+            InlineKeyboardButton(
+                text=STATUSES[2][1],
+                callback_data=f"qs:{qid}:{STATUSES[2][0]}",
+            ),
+            InlineKeyboardButton(
+                text=STATUSES[3][1],
+                callback_data=f"qs:{qid}:{STATUSES[3][0]}",
+            ),
+        ],
+    ]
+
+    if steps:
+        start = page * STEPS_PER_PAGE
+        chunk = steps[start : start + STEPS_PER_PAGE]
+        for step in chunk:
+            sid = int(step["id"])
+            title = str(step.get("title") or f"#{sid}")
+            if len(title) > 36:
+                title = title[:33] + "…"
+            mark = "✅" if _step_done(step) else "⬜"
+            rows.append(
+                [
+                    InlineKeyboardButton(
+                        text=f"{mark} {title}",
+                        callback_data=f"qt:{qid}:{sid}:{page}",
+                    )
+                ]
+            )
+
+        pages = max(1, (len(steps) + STEPS_PER_PAGE - 1) // STEPS_PER_PAGE)
+        if pages > 1:
+            nav: list[InlineKeyboardButton] = []
+            if page > 0:
+                nav.append(
+                    InlineKeyboardButton(
+                        text="‹ Назад",
+                        callback_data=f"qp:{qid}:{page - 1}",
+                    )
+                )
+            nav.append(
+                InlineKeyboardButton(
+                    text=f"{page + 1}/{pages}",
+                    callback_data=f"qp:{qid}:{page}",
+                )
+            )
+            if page < pages - 1:
+                nav.append(
+                    InlineKeyboardButton(
+                        text="Вперёд ›",
+                        callback_data=f"qp:{qid}:{page + 1}",
+                    )
+                )
+            rows.append(nav)
+
+    rows.append(
+        [
+            InlineKeyboardButton(
+                text="🔄 Обновить",
+                callback_data=f"qr:{qid}:{page}",
+            ),
+        ]
+    )
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def quest_pick_keyboard(quests: list[dict], *, limit: int = 20) -> InlineKeyboardMarkup:
+    """One button per quest to open card + status controls."""
+    rows: list[list[InlineKeyboardButton]] = []
+    for q in quests[:limit]:
+        qid = int(q["id"])
+        title = str(q.get("title") or "?")
+        if len(title) > 40:
+            title = title[:37] + "…"
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text=f"#{qid} {title}",
+                    callback_data=f"qo:{qid}",
+                )
+            ]
+        )
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def category_pick_keyboard(categories: list[dict]) -> InlineKeyboardMarkup:
+    rows: list[list[InlineKeyboardButton]] = []
+    for c in categories:
+        cid = int(c["id"])
+        label = str(c.get("label") or c.get("slug") or cid)
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text=label,
+                    callback_data=f"cc:{cid}",
+                )
+            ]
+        )
+    rows.append(
+        [InlineKeyboardButton(text="Без раздела", callback_data="cc:0")]
+    )
+    rows.append(
+        [InlineKeyboardButton(text="✖ Отмена", callback_data="cc:cancel")]
+    )
+    return InlineKeyboardMarkup(inline_keyboard=rows)

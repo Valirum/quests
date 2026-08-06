@@ -13,6 +13,7 @@
   import QuestModal from './lib/QuestModal.svelte'
   import QuestlineModal from './lib/QuestlineModal.svelte'
   import TemplatesModal from './lib/TemplatesModal.svelte'
+  import SettingsModal from './lib/SettingsModal.svelte'
   import ConfirmModal from './lib/ConfirmModal.svelte'
   import ContextMenu from './lib/ContextMenu.svelte'
   import HeroPanel from './lib/HeroPanel.svelte'
@@ -45,6 +46,7 @@
     /** @type {{ questline_id?: number | null, category_id?: number | null } | null} */ (null),
   )
   let templatesOpen = $state(false)
+  let settingsOpen = $state(false)
   let lineModalOpen = $state(false)
   let lineModalMode = $state(/** @type {'create' | 'edit'} */ ('create'))
   let lineModalTarget = $state(/** @type {any | null} */ (null))
@@ -288,6 +290,10 @@
 
   function openTemplates() {
     templatesOpen = true
+  }
+
+  function openSettings() {
+    settingsOpen = true
   }
 
   function openCreateQuestline() {
@@ -669,6 +675,10 @@
       </button>
     </div>
     <div class="header-actions">
+      <button type="button" class="btn" onclick={openSettings} aria-label="Настройки">
+        <Icon name="settings" />
+        <span class="btn__text">Настройки</span>
+      </button>
       {#if view === 'journal'}
         <button type="button" class="btn" onclick={openTemplates} aria-label="Шаблоны периодики">
           <Icon name="renew" />
@@ -1048,6 +1058,8 @@
   onClose={() => (templatesOpen = false)}
   onChanged={() => load({ silent: true })}
 />
+
+<SettingsModal open={settingsOpen} onClose={() => (settingsOpen = false)} />
 
 <ContextMenu
   open={ctxOpen}
@@ -1572,18 +1584,6 @@
     color: var(--color-fg-muted, #9a9a9a);
   }
 
-  .row-timer[data-tone='green'] {
-    color: #8ec07c;
-  }
-
-  .row-timer[data-tone='orange'] {
-    color: #fabd2f;
-  }
-
-  .row-timer[data-tone='red'] {
-    color: #fb4934;
-  }
-
   .pin-btn {
     display: inline-flex;
     align-items: center;
@@ -1637,19 +1637,6 @@
     border: 1px solid currentColor;
     border-radius: 2px;
     padding: 0.05rem 0.35rem;
-  }
-
-  .sig-badge[data-sig='common'] {
-    color: #9a9a9a;
-  }
-  .sig-badge[data-sig='uncommon'] {
-    color: #8ec07c;
-  }
-  .sig-badge[data-sig='epic'] {
-    color: #d3869b;
-  }
-  .sig-badge[data-sig='legendary'] {
-    color: #fe8019;
   }
 
   .progress {

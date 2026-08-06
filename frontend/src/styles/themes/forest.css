@@ -1,0 +1,42 @@
+[data-theme="forest"] {
+  --color-bg: #121a14;
+  --color-bg-raised: #1a241c;
+  --color-bg-muted: #243028;
+  --color-bg-hover: #314038;
+
+  --color-fg: #e4efe4;
+  --color-fg-muted: #9bb09c;
+  --color-fg-subtle: #6a7d6c;
+
+  --color-accent: #7cb87c;
+  --color-accent-dim: #5a9a5a;
+  --color-accent-fg: #121a14;
+
+  --color-border: #314038;
+  --color-border-strong: #445548;
+  --color-success: #8fbf6a;
+  --color-warning: #d4a84b;
+  --color-danger: #c45c4a;
+  --color-info: #6aa8a0;
+
+  --color-status-active: var(--color-accent);
+  --color-status-delayed: var(--color-warning);
+  --color-status-completed: var(--color-success);
+  --color-status-failed: var(--color-danger);
+  --color-status-archived: var(--color-fg-subtle);
+
+  --color-sig-common: #9bb09c;
+  --color-sig-common-on: #e4efe4;
+  --color-sig-uncommon: #8fbf6a;
+  --color-sig-uncommon-on: #b0d488;
+  --color-sig-epic: #a88bc4;
+  --color-sig-epic-on: #c4aee0;
+  --color-sig-legendary: #d4a84b;
+  --color-sig-legendary-on: #e8c878;
+
+  --color-timer-ok: #8fbf6a;
+  --color-timer-warn: #d4a84b;
+  --color-timer-urgent: #c45c4a;
+
+  color-scheme: dark;
+}

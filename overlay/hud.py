@@ -203,8 +203,10 @@ def _rule(*, heavy: bool = False) -> Gtk.Box:
     rule.add_css_class("section-rule")
     if heavy:
         rule.add_css_class("section-rule--heavy")
-    rule.set_halign(Gtk.Align.FILL)
-    rule.set_hexpand(True)
+    # Hug CSS min-width; never hexpand — that stretches the layer-shell surface
+    # full-output-wide in passthrough and leaves a ghost separator bar.
+    rule.set_halign(Gtk.Align.END)
+    rule.set_hexpand(False)
     return rule
 
 
@@ -246,6 +248,7 @@ def _append_quest_section(
     title_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
     title_row.add_css_class("hud-row")
     title_row.set_halign(Gtk.Align.END)
+    title_row.set_hexpand(False)
 
     if quest.timer_label and quest.deadline_at is not None:
         tone = quest.timer_tone or "red"
@@ -286,6 +289,7 @@ def _append_quest_section(
         row.add_css_class("quest")
         row.add_css_class("hud-row")
         row.set_halign(Gtk.Align.END)
+        row.set_hexpand(False)
         row.append(_chip(step.progress, "quest-progress"))
         row.append(_chip(step.title, "quest-title"))
         section.append(row)
@@ -304,6 +308,7 @@ def _append_section_heading(root: Gtk.Box, text: str, *, interactive: bool) -> N
     row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
     row.add_css_class("hud-row")
     row.set_halign(Gtk.Align.END)
+    row.set_hexpand(False)
     row.append(_chip(text, "section-heading"))
     block.append(row)
     root.append(block)
@@ -569,6 +574,7 @@ def build_hud(
         title_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
         title_row.add_css_class("hud-row")
         title_row.set_halign(Gtk.Align.END)
+        title_row.set_hexpand(False)
         title_row.append(_chip("Задачи", "title"))
         header.append(title_row)
         root.append(header)
@@ -604,6 +610,7 @@ def build_hud(
     title_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
     title_row.add_css_class("hud-row")
     title_row.set_halign(Gtk.Align.END)
+    title_row.set_hexpand(False)
     title_row.append(_chip("Настройки" if show_settings else "Задачи", "title"))
     # Reserve vertical room: fold/gear are overlaid flush to the corner above the title.
     if controls is not None:
@@ -633,7 +640,7 @@ def build_hud(
             on_passthrough_settings=on_passthrough_settings,
             on_toast_settings=on_toast_settings,
         )
-    elif not favorites and not urgent and not category and not category_slug:
+    elif not favorites and not urgent and not category:
         empty = Gtk.Box(
             orientation=Gtk.Orientation.VERTICAL,
             spacing=0 if not interactive else 4,
@@ -643,6 +650,7 @@ def build_hud(
         hint_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         hint_row.add_css_class("hud-row")
         hint_row.set_halign(Gtk.Align.END)
+        hint_row.set_hexpand(False)
         hint_row.append(_chip("Нет активных шагов", "hint"))
         empty.append(hint_row)
         root.append(empty)
@@ -668,33 +676,21 @@ def build_hud(
                 timers=timers,
             )
 
-        if category_slug or category:
+        # Category lane only when it has something to show (avoid orphan heading
+        # + empty hint that still paints a stray passthrough bar).
+        if category:
             if favorites or urgent:
                 _append_heavy_sep(root)
             heading = (category_label or category_slug or "Раздел").strip()
             _append_section_heading(root, heading, interactive=interactive)
-            if category:
-                for quest in category:
-                    _append_quest_section(
-                        root,
-                        quest,
-                        interactive=interactive,
-                        on_open_quest=on_open_quest,
-                        timers=timers,
-                    )
-            else:
-                empty_cat = Gtk.Box(
-                    orientation=Gtk.Orientation.VERTICAL,
-                    spacing=0 if not interactive else 4,
+            for quest in category:
+                _append_quest_section(
+                    root,
+                    quest,
+                    interactive=interactive,
+                    on_open_quest=on_open_quest,
+                    timers=timers,
                 )
-                empty_cat.add_css_class("hud-section")
-                empty_cat.set_halign(Gtk.Align.END)
-                hint_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-                hint_row.add_css_class("hud-row")
-                hint_row.set_halign(Gtk.Align.END)
-                hint_row.append(_chip("Нет задач в разделе", "hint"))
-                empty_cat.append(hint_row)
-                root.append(empty_cat)
 
     if interactive and (
         on_prepare_drag_handle is not None or controls is not None

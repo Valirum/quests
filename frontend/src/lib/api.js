@@ -158,6 +158,21 @@ export const QUEST_STATUSES = [
   'archived',
 ]
 
+/** @type {Record<string, string>} */
+export const QUEST_STATUS_LABELS = {
+  active: 'активен',
+  delayed: 'отложен',
+  completed: 'выполнен',
+  failed: 'провален',
+  archived: 'архив',
+}
+
+/** @type {Record<string, string>} */
+export const TEMPLATE_FREQ_LABELS = {
+  daily: 'ежедневно',
+  weekly: 'еженедельно',
+}
+
 /** @type {{ id: string, label: string }[]} */
 export const QUEST_SIGNIFICANCES = [
   { id: 'common', label: 'обычное' },

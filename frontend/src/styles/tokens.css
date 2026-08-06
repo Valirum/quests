@@ -36,6 +36,21 @@
   --color-status-failed: var(--color-danger);
   --color-status-archived: var(--color-fg-subtle);
 
+  /* Significance */
+  --color-sig-common: #a89984;
+  --color-sig-common-on: #ebdbb2;
+  --color-sig-uncommon: #8ec07c;
+  --color-sig-uncommon-on: #b8bb26;
+  --color-sig-epic: #d3869b;
+  --color-sig-epic-on: #e9b4c7;
+  --color-sig-legendary: #fe8019;
+  --color-sig-legendary-on: #ffb86c;
+
+  /* Deadline timer tones */
+  --color-timer-ok: #8ec07c;
+  --color-timer-warn: #fabd2f;
+  --color-timer-urgent: #fb4934;
+
   /* Type */
   --font-display: "Literata", "Iowan Old Style", "Palatino Linotype", serif;
   --font-body: "Source Serif 4", "Literata", Georgia, serif;

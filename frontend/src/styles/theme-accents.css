@@ -1,0 +1,61 @@
+/*
+ * Shared theme-driven accents (significance, deadline timer).
+ * Selectors are slightly more specific so they win over scoped component rules.
+ */
+
+.sig-badge.sig-badge[data-sig='common'] {
+  color: var(--color-sig-common);
+}
+.sig-badge.sig-badge[data-sig='uncommon'] {
+  color: var(--color-sig-uncommon);
+}
+.sig-badge.sig-badge[data-sig='epic'] {
+  color: var(--color-sig-epic);
+}
+.sig-badge.sig-badge[data-sig='legendary'] {
+  color: var(--color-sig-legendary);
+}
+
+.row-timer.row-timer[data-tone='green'] {
+  color: var(--color-timer-ok);
+}
+.row-timer.row-timer[data-tone='orange'] {
+  color: var(--color-timer-warn);
+}
+.row-timer.row-timer[data-tone='red'] {
+  color: var(--color-timer-urgent);
+}
+
+.opt-slider__opt.opt-slider__opt--sig[data-sig='common'] {
+  color: var(--color-sig-common);
+  background: color-mix(in srgb, var(--color-sig-common) 12%, transparent);
+}
+.opt-slider__opt.opt-slider__opt--sig[data-sig='uncommon'] {
+  color: var(--color-sig-uncommon);
+  background: color-mix(in srgb, var(--color-sig-uncommon) 12%, transparent);
+}
+.opt-slider__opt.opt-slider__opt--sig[data-sig='epic'] {
+  color: var(--color-sig-epic);
+  background: color-mix(in srgb, var(--color-sig-epic) 12%, transparent);
+}
+.opt-slider__opt.opt-slider__opt--sig[data-sig='legendary'] {
+  color: var(--color-sig-legendary);
+  background: color-mix(in srgb, var(--color-sig-legendary) 12%, transparent);
+}
+
+.opt-slider__opt.opt-slider__opt--sig.opt-slider__opt--on[data-sig='common'] {
+  color: var(--color-sig-common-on);
+  background: color-mix(in srgb, var(--color-sig-common) 32%, var(--color-bg));
+}
+.opt-slider__opt.opt-slider__opt--sig.opt-slider__opt--on[data-sig='uncommon'] {
+  color: var(--color-sig-uncommon-on);
+  background: color-mix(in srgb, var(--color-sig-uncommon) 32%, var(--color-bg));
+}
+.opt-slider__opt.opt-slider__opt--sig.opt-slider__opt--on[data-sig='epic'] {
+  color: var(--color-sig-epic-on);
+  background: color-mix(in srgb, var(--color-sig-epic) 34%, var(--color-bg));
+}
+.opt-slider__opt.opt-slider__opt--sig.opt-slider__opt--on[data-sig='legendary'] {
+  color: var(--color-sig-legendary-on);
+  background: color-mix(in srgb, var(--color-sig-legendary) 34%, var(--color-bg));
+}

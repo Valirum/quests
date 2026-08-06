@@ -142,10 +142,15 @@ window.hud-window--passthrough {{
   border-radius: 0;
   padding: 2px 8px;
 }}
-.hud:not(.hud--interactive) .section-rule {{
+.hud:not(.hud--interactive) .section-rule,
+.hud:not(.hud--interactive) .section-rule--heavy {{
   opacity: 0;
   min-height: 0;
+  min-width: 0;
   margin: 0;
   padding: 0;
+  border: none;
+  background-color: transparent;
+  background-image: none;
 }}
 """

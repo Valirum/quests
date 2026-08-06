@@ -1,9 +1,4 @@
-/*
- * Default theme: dark gruvbox yellow.
- * Apply with <html data-theme="gruvbox-yellow">.
- */
-
-[data-theme="gruvbox-yellow"] {
+[data-theme="gruvbox-green"] {
   --color-bg: #1d2021;
   --color-bg-raised: #282828;
   --color-bg-muted: #3c3836;
@@ -13,16 +8,16 @@
   --color-fg-muted: #a89984;
   --color-fg-subtle: #928374;
 
-  --color-accent: #fabd2f;
-  --color-accent-dim: #d79921;
+  --color-accent: #b8bb26;
+  --color-accent-dim: #98971a;
   --color-accent-fg: #1d2021;
 
   --color-border: #504945;
   --color-border-strong: #665c54;
-  --color-success: #b8bb26;
-  --color-warning: #fe8019;
+  --color-success: #8ec07c;
+  --color-warning: #fabd2f;
   --color-danger: #fb4934;
-  --color-info: #8ec07c;
+  --color-info: #83a598;
 
   --color-status-active: var(--color-accent);
   --color-status-delayed: var(--color-warning);
@@ -34,23 +29,14 @@
   --color-sig-common-on: #ebdbb2;
   --color-sig-uncommon: #8ec07c;
   --color-sig-uncommon-on: #b8bb26;
-  --color-sig-epic: #d3869b;
-  --color-sig-epic-on: #e9b4c7;
-  --color-sig-legendary: #fe8019;
-  --color-sig-legendary-on: #ffb86c;
+  --color-sig-epic: #83a598;
+  --color-sig-epic-on: #a3c0b8;
+  --color-sig-legendary: #fabd2f;
+  --color-sig-legendary-on: #fe8019;
 
   --color-timer-ok: #8ec07c;
   --color-timer-warn: #fabd2f;
   --color-timer-urgent: #fb4934;
-
-  --font-display: "Literata", "Iowan Old Style", Palatino, serif;
-  --font-body: "Source Serif 4", Georgia, serif;
-  --font-ui: "IBM Plex Sans", sans-serif;
-  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
-
-  --radius-sm: 2px;
-  --radius-md: 3px;
-  --radius-lg: 12px;
 
   color-scheme: dark;
 }

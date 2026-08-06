@@ -1,28 +1,23 @@
-/*
- * Default theme: dark gruvbox yellow.
- * Apply with <html data-theme="gruvbox-yellow">.
- */
-
-[data-theme="gruvbox-yellow"] {
-  --color-bg: #1d2021;
-  --color-bg-raised: #282828;
-  --color-bg-muted: #3c3836;
-  --color-bg-hover: #504945;
+[data-theme="gruvbox-dark"] {
+  --color-bg: #282828;
+  --color-bg-raised: #3c3836;
+  --color-bg-muted: #504945;
+  --color-bg-hover: #665c54;
 
   --color-fg: #ebdbb2;
   --color-fg-muted: #a89984;
   --color-fg-subtle: #928374;
 
-  --color-accent: #fabd2f;
-  --color-accent-dim: #d79921;
+  --color-accent: #fe8019;
+  --color-accent-dim: #d65d0e;
   --color-accent-fg: #1d2021;
 
-  --color-border: #504945;
-  --color-border-strong: #665c54;
+  --color-border: #665c54;
+  --color-border-strong: #7c6f64;
   --color-success: #b8bb26;
-  --color-warning: #fe8019;
+  --color-warning: #fabd2f;
   --color-danger: #fb4934;
-  --color-info: #8ec07c;
+  --color-info: #83a598;
 
   --color-status-active: var(--color-accent);
   --color-status-delayed: var(--color-warning);
@@ -42,15 +37,6 @@
   --color-timer-ok: #8ec07c;
   --color-timer-warn: #fabd2f;
   --color-timer-urgent: #fb4934;
-
-  --font-display: "Literata", "Iowan Old Style", Palatino, serif;
-  --font-body: "Source Serif 4", Georgia, serif;
-  --font-ui: "IBM Plex Sans", sans-serif;
-  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
-
-  --radius-sm: 2px;
-  --radius-md: 3px;
-  --radius-lg: 12px;
 
   color-scheme: dark;
 }

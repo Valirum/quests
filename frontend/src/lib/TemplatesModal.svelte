@@ -1,6 +1,7 @@
 <script>
   import {
     TEMPLATE_FREQS,
+    TEMPLATE_FREQ_LABELS,
     TEMPLATE_EMIT_MODES,
     WEEKDAY_LABELS,
     QUEST_SIGNIFICANCES,
@@ -372,7 +373,7 @@
   async function onSubmit(event) {
     event.preventDefault()
     if (!title.trim()) {
-      formError = 'Нужен title'
+      formError = 'Нужен заголовок'
       return
     }
     const payload = buildPayload()
@@ -481,7 +482,7 @@
             {/if}
           </span>
         </h2>
-        <button type="button" class="btn btn--ghost btn--icon" onclick={onClose} aria-label="Закрыть">
+        <button type="button" class="btn btn--ghost btn--icon btn--close" onclick={onClose} aria-label="Закрыть">
           <Icon name="close" size={14} />
         </button>
       </header>
@@ -513,27 +514,42 @@
                       {#if t.questline_title}· {t.questline_title}{/if}
                       {#if t.category_label}· {t.category_label}{/if}
                       · {sigLabel(t.significance)}
-                      {#if t.pinned}· pin{/if}
+                      {#if t.pinned}· закреплён{/if}
                       · {t.steps?.length ?? 0} шаг.
                     </span>
                   </button>
-                  <button
-                    type="button"
-                    class="btn btn--ghost tpl-row__action"
-                    onclick={(e) => onCopy(t, e)}
-                    title="Копировать (копия будет выключена)"
-                    aria-label="Копировать шаблон"
-                  >
-                    <Icon name="document" size={14} />
-                  </button>
-                  <button
-                    type="button"
-                    class="btn btn--ghost tpl-row__toggle"
-                    onclick={() => onToggleEnabled(t)}
-                    title={t.enabled ? 'Выключить' : 'Включить'}
-                  >
-                    {t.enabled ? 'on' : 'off'}
-                  </button>
+                  <div class="tpl-row__actions">
+                    <button
+                      type="button"
+                      class="btn btn--ghost btn--icon tpl-row__action"
+                      onclick={() => openEdit(t)}
+                      title="Редактировать"
+                      aria-label="Редактировать шаблон"
+                    >
+                      <Icon name="edit" size={14} />
+                    </button>
+                    <button
+                      type="button"
+                      class="btn btn--ghost btn--icon tpl-row__action"
+                      onclick={(e) => onCopy(t, e)}
+                      title="Копировать (копия будет выключена)"
+                      aria-label="Копировать шаблон"
+                    >
+                      <Icon name="copy" size={14} />
+                    </button>
+                    <button
+                      type="button"
+                      class="switch"
+                      class:switch--on={t.enabled}
+                      role="switch"
+                      aria-checked={t.enabled}
+                      onclick={() => onToggleEnabled(t)}
+                      title={t.enabled ? 'Выключить' : 'Включить'}
+                      aria-label={t.enabled ? 'Выключить шаблон' : 'Включить шаблон'}
+                    >
+                      <span class="switch__knob"></span>
+                    </button>
+                  </div>
                 </li>
               {/each}
             </ul>
@@ -545,11 +561,11 @@
         {/if}
         <form class="modal__form" onsubmit={onSubmit}>
           <label class="field">
-            <span class="label">Title</span>
+            <span class="label">Заголовок</span>
             <input type="text" bind:value={title} required />
           </label>
           <label class="field">
-            <span class="label">Description</span>
+            <span class="label">Описание</span>
             <textarea rows="2" bind:value={description}></textarea>
           </label>
 
@@ -565,7 +581,7 @@
                   aria-checked={freq === f}
                   onclick={() => (freq = f)}
                 >
-                  {f}
+                  {TEMPLATE_FREQ_LABELS[f] ?? f}
                 </button>
               {/each}
             </div>
@@ -815,25 +831,25 @@
 
           <label class="check">
             <input type="checkbox" bind:checked={pinned} />
-            Pinned (в оверлее)
+            Закрепить (в оверлее)
           </label>
           <label class="check">
             <input type="checkbox" bind:checked={enabled} />
-            Enabled (создавать инстансы)
+            Включён (создавать инстансы)
           </label>
 
           <div class="steps">
             <div class="steps__head">
               <span class="label">Шаги</span>
-              <button type="button" class="btn btn--ghost" onclick={addStep}>
-                <Icon name="add" size={14} />
-                <span class="btn__text">Шаг</span>
+              <button type="button" class="btn btn--ghost btn--add-step" onclick={addStep}>
+                <Icon name="add" size={16} />
+                <span class="btn__text">шаг</span>
               </button>
             </div>
             {#each steps as s (s.key)}
               <div class="step-block">
                 <div class="step-row">
-                  <input type="text" placeholder="Title" bind:value={s.title} />
+                  <input type="text" placeholder="Название шага" bind:value={s.title} />
                   <input
                     type="text"
                     inputmode="numeric"
@@ -847,18 +863,18 @@
                     class="btn btn--ghost btn--icon"
                     class:btn--check-on={s.check_open}
                     onclick={() => (s.check_open = !s.check_open)}
-                    aria-label="Check-команда"
-                    title="Check-команда"
+                    aria-label="Команда проверки"
+                    title="Команда проверки"
                   >
-                    <Icon name="renew" size={14} />
+                    <Icon name="terminal" size={14} />
                   </button>
                   <button
                     type="button"
-                    class="btn btn--ghost btn--icon"
+                    class="btn btn--ghost btn--icon btn--step-remove"
                     onclick={() => removeStep(s.key)}
                     aria-label="Удалить шаг"
                   >
-                    <Icon name="subtract" size={14} />
+                    <Icon name="delete" size={14} />
                   </button>
                 </div>
                 {#if s.check_open}
@@ -866,7 +882,7 @@
                     <input
                       type="text"
                       class="step-check__cmd"
-                      placeholder="check-команда (опц.)"
+                      placeholder="команда проверки (опц.)"
                       bind:value={s.check_command}
                       spellcheck="false"
                     />
@@ -897,7 +913,7 @@
                   disabled={saving || deleting}
                   title="Копировать (копия будет выключена)"
                 >
-                  <Icon name="document" size={14} />
+                  <Icon name="copy" size={14} />
                   <span class="btn__text">Копировать</span>
                 </button>
                 <button
@@ -1024,7 +1040,7 @@
   .tpl-row {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
+    gap: 0.35rem;
     padding-right: 0.55rem;
     border: 1px solid var(--color-border, #333);
     border-radius: var(--radius-sm, 2px);
@@ -1058,15 +1074,59 @@
     color: var(--color-fg-muted, #9a9a9a);
   }
 
-  .tpl-row__toggle {
+  .tpl-row__actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.2rem;
     flex-shrink: 0;
-    min-width: 2.75rem;
-    justify-content: center;
   }
 
   .tpl-row__action {
     flex-shrink: 0;
-    padding: 0.35rem;
+    width: 1.75rem;
+    height: 1.75rem;
+    padding: 0;
+    border: 0;
+    justify-content: center;
+  }
+
+  .switch {
+    position: relative;
+    flex-shrink: 0;
+    width: 2.25rem;
+    height: 1.25rem;
+    margin: 0;
+    padding: 0;
+    border: 1px solid var(--color-border-strong, #4a4a4a);
+    border-radius: 999px;
+    background: var(--color-bg-muted, #242424);
+    cursor: pointer;
+    transition:
+      background 0.15s ease,
+      border-color 0.15s ease;
+  }
+
+  .switch__knob {
+    position: absolute;
+    top: 1px;
+    left: 1px;
+    width: calc(1.25rem - 4px);
+    height: calc(1.25rem - 4px);
+    border-radius: 999px;
+    background: var(--color-fg-muted, #9a9a9a);
+    transition:
+      transform 0.15s ease,
+      background 0.15s ease;
+  }
+
+  .switch--on {
+    border-color: color-mix(in srgb, var(--color-accent, #c9a227) 55%, var(--color-border, #333));
+    background: color-mix(in srgb, var(--color-accent, #c9a227) 28%, var(--color-bg-muted, #242424));
+  }
+
+  .switch--on .switch__knob {
+    transform: translateX(1rem);
+    background: var(--color-accent, #c9a227);
   }
 
   .field {
@@ -1212,7 +1272,7 @@
     align-items: center;
     gap: 0.35rem;
     border: 1px solid var(--color-border, #333);
-    border-radius: var(--radius-sm, 2px);
+    border-radius: var(--radius-lg, 12px);
     background: color-mix(in srgb, var(--color-bg-raised, #1a1a1a) 80%, transparent);
     color: var(--color-fg, #e8e8e8);
     padding: 0.4rem 0.65rem;
@@ -1226,24 +1286,69 @@
   }
 
   .btn--ghost {
+    border-color: transparent;
     background: transparent;
   }
 
   .btn--danger {
-    border-color: var(--color-danger, #b54a3a);
+    border-color: transparent;
+    background: transparent;
+    color: color-mix(in srgb, var(--color-danger, #b54a3a) 78%, var(--color-fg, #e8e8e8));
+  }
+
+  .btn--danger:hover:not(:disabled) {
     color: var(--color-danger, #b54a3a);
+    background: color-mix(in srgb, var(--color-danger, #b54a3a) 10%, transparent);
+  }
+
+  .btn--close {
+    border: 0;
+    background: transparent;
+  }
+
+  .btn--add-step {
+    align-items: center;
+    line-height: 1;
+    gap: 0.2rem;
+    padding: 0.2rem 0.35rem;
+  }
+
+  .btn--add-step :global(.icon) {
+    display: block;
+  }
+
+  .btn--add-step .btn__text {
+    line-height: 1;
+    display: inline-flex;
+    align-items: center;
+  }
+
+  .btn--add-step:hover {
+    background: transparent;
+    color: var(--color-fg, #e8e8e8);
+  }
+
+  .btn--close {
+    border: 0;
+    background: transparent;
   }
 
   .btn--icon {
     padding: 0.35rem;
   }
 
+  .btn--step-remove:hover {
+    color: var(--color-danger, #b54a3a);
+    background: color-mix(in srgb, var(--color-danger, #b54a3a) 10%, transparent);
+  }
+
   .opt-slider {
     display: flex;
     flex-wrap: nowrap;
-    gap: 0;
+    gap: 2px;
+    padding: 3px;
     border: 1px solid var(--color-border, #333);
-    border-radius: var(--radius-sm, 2px);
+    border-radius: var(--radius-lg, 12px);
     overflow: hidden;
     background: var(--color-bg-muted, #242424);
   }
@@ -1255,7 +1360,7 @@
   .opt-slider__opt {
     flex: 1 1 auto;
     border: 0;
-    border-right: 1px solid var(--color-border, #333);
+    border-radius: calc(var(--radius-lg, 12px) - 2px);
     background: transparent;
     color: var(--color-fg-muted, #9a9a9a);
     padding: 0.4rem 0.55rem;
@@ -1308,46 +1413,6 @@
 
   .opt-slider--locked .opt-slider__opt:disabled {
     cursor: default;
-  }
-
-  .opt-slider__opt--sig[data-sig='common'] {
-    color: #a89984;
-    background: color-mix(in srgb, #a89984 12%, transparent);
-  }
-
-  .opt-slider__opt--sig[data-sig='uncommon'] {
-    color: #8ec07c;
-    background: color-mix(in srgb, #8ec07c 12%, transparent);
-  }
-
-  .opt-slider__opt--sig[data-sig='epic'] {
-    color: #d3869b;
-    background: color-mix(in srgb, #d3869b 12%, transparent);
-  }
-
-  .opt-slider__opt--sig[data-sig='legendary'] {
-    color: #fe8019;
-    background: color-mix(in srgb, #fe8019 12%, transparent);
-  }
-
-  .opt-slider__opt--sig.opt-slider__opt--on[data-sig='common'] {
-    color: #ebdbb2;
-    background: color-mix(in srgb, #a89984 32%, var(--color-bg, #121212));
-  }
-
-  .opt-slider__opt--sig.opt-slider__opt--on[data-sig='uncommon'] {
-    color: #b8bb26;
-    background: color-mix(in srgb, #8ec07c 32%, var(--color-bg, #121212));
-  }
-
-  .opt-slider__opt--sig.opt-slider__opt--on[data-sig='epic'] {
-    color: #e9b4c7;
-    background: color-mix(in srgb, #d3869b 34%, var(--color-bg, #121212));
-  }
-
-  .opt-slider__opt--sig.opt-slider__opt--on[data-sig='legendary'] {
-    color: #ffb86c;
-    background: color-mix(in srgb, #fe8019 34%, var(--color-bg, #121212));
   }
 
   .btn--check-on {

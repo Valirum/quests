@@ -83,7 +83,7 @@
   async function onSubmit(event) {
     event.preventDefault()
     if (!title.trim()) {
-      formError = 'Нужен title'
+      formError = 'Нужен заголовок'
       return
     }
     saving = true
@@ -166,12 +166,12 @@
 
       <form class="modal__form" onsubmit={onSubmit}>
         <label class="field">
-          <span class="label">Title</span>
+          <span class="label">Заголовок</span>
           <input type="text" bind:value={title} required />
         </label>
 
         <label class="field">
-          <span class="label">Description</span>
+          <span class="label">Описание</span>
           <textarea rows="2" bind:value={description}></textarea>
         </label>
 
@@ -355,9 +355,10 @@
   .opt-slider {
     display: flex;
     flex-wrap: nowrap;
-    gap: 0;
+    gap: 2px;
+    padding: 3px;
     border: 1px solid var(--color-border, #333);
-    border-radius: var(--radius-sm, 2px);
+    border-radius: var(--radius-lg, 12px);
     overflow: hidden;
     background: var(--color-bg-muted, #242424);
   }
@@ -369,7 +370,7 @@
   .opt-slider__opt {
     flex: 1 1 auto;
     border: 0;
-    border-right: 1px solid var(--color-border, #333);
+    border-radius: calc(var(--radius-lg, 12px) - 2px);
     background: transparent;
     color: var(--color-fg-muted, #9a9a9a);
     padding: 0.4rem 0.55rem;
@@ -467,7 +468,7 @@
     align-items: center;
     gap: 0.35rem;
     border: 1px solid var(--color-border-strong, #4a4a4a);
-    border-radius: var(--radius-sm, 2px);
+    border-radius: var(--radius-lg, 12px);
     background: var(--color-bg-muted, #242424);
     color: var(--color-fg, #e8e8e8);
     padding: 0.4rem 0.65rem;

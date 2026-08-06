@@ -16,6 +16,11 @@ uv run quests hook --help
 |-----|---------|------------|
 | `QUESTS_API` | `http://127.0.0.1:8765` | база API |
 | `QUESTS_HOOKS` | `data/hooks.json` | хранилище хуков |
+| `QUESTS_LLM_PROVIDER` | `cursor` | `cursor` \| `ollama` |
+| `CURSOR_API_KEY` | — | ключ Cursor (Dashboard → API Keys) |
+| `QUESTS_LLM_MODEL` | `composer-2.5` | модель Cursor / Ollama |
+| `QUESTS_LLM_BASE` | `http://127.0.0.1:11434` | только для `ollama` |
+| `QUESTS_LLM_TIMEOUT` | `180` | таймаут сек |
 
 ## `--json` / `-h`
 
@@ -35,6 +40,7 @@ quests show 3 --json | jq .title
 | `list` / `ls` | список (`--status`, `--pinned` / `--unpinned`, `--category`, `--questline`) |
 | `show` / `get ID` | детали + шаги (+ раздел / квестлайн) |
 | `add TITLE` | создать (`-d`, `--pin`, `--significance`, `--step`×N, `--category`, `--questline`) |
+| `llm-add TEXT…` | свободный текст → Cursor/Ollama → квест (`-y` без confirm) |
 | `set ID` | поля: `--title` / `-d` / `--category` / `--questline` / `--significance` (`none` снимает) |
 | `pin ID` / `unpin ID` | булавки (`pin --off`) |
 | `status ID STATUS` | `active\|delayed\|completed\|failed\|archived` |

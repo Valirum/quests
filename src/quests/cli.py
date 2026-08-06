@@ -296,6 +296,74 @@ def cmd_add(ns: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_llm_add(ns: argparse.Namespace) -> int:
+    """Free-form text → local LLM draft → POST /api/quests."""
+    from quests.llm import (
+        LlmError,
+        draft_to_create_body,
+        extract_quest_draft_sync,
+        format_draft_preview,
+    )
+    from quests.llm.config import load_llm_settings
+
+    text = " ".join(ns.text).strip() if isinstance(ns.text, list) else str(ns.text).strip()
+    if not text:
+        raise CliError("нужен текст описания")
+
+    settings = load_llm_settings()
+    if not _want_json(ns):
+        if settings.provider == "cursor":
+            print(
+                f"Cursor ({settings.model})…",
+                file=sys.stderr,
+            )
+        else:
+            print(
+                f"Ollama ({settings.model} @ {settings.base_url})…",
+                file=sys.stderr,
+            )
+    try:
+        draft = extract_quest_draft_sync(text, settings=settings)
+    except LlmError as e:
+        raise CliError(str(e)) from e
+
+    if draft.needs_clarification and (draft.clarify_question or "").strip():
+        if _want_json(ns):
+            emit(
+                {
+                    "ok": False,
+                    "needs_clarification": True,
+                    "question": draft.clarify_question,
+                    "draft": draft.model_dump(),
+                },
+                as_json=True,
+            )
+            return 2
+        print(format_draft_preview(draft))
+        print(f"\nуточнение: {draft.clarify_question}", file=sys.stderr)
+        return 2
+
+    cats = api_request("GET", "/api/categories") or []
+    body = draft_to_create_body(draft, categories=cats)
+
+    if not bool(getattr(ns, "yes", False)) and not _want_json(ns):
+        print(format_draft_preview(draft))
+        try:
+            ans = input("создать? [y/N] ").strip().lower()
+        except EOFError:
+            ans = ""
+        if ans not in {"y", "yes", "д", "да"}:
+            print("отменено")
+            return 1
+
+    q = api_request("POST", "/api/quests", body=body)
+    if _want_json(ns):
+        emit({"ok": True, "draft": draft.model_dump(), "quest": q}, as_json=True)
+    else:
+        print(f"создан #{q['id']}: {q['title']}")
+    return 0
+
+
 def cmd_set(ns: argparse.Namespace) -> int:
     body: dict[str, Any] = {}
     if ns.title is not None:
@@ -715,6 +783,26 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.set_defaults(func=cmd_add)
 
+    # llm-add — свободный текст через локальную модель
+    p = sub.add_parser(
+        "llm-add",
+        help="создать квест из свободного текста (Cursor API / опц. Ollama)",
+        aliases=["add-llm", "new-llm"],
+        parents=[json_parent],
+    )
+    p.add_argument(
+        "text",
+        nargs="+",
+        help="описание задачи свободным текстом",
+    )
+    p.add_argument(
+        "-y",
+        "--yes",
+        action="store_true",
+        help="не спрашивать подтверждение",
+    )
+    p.set_defaults(func=cmd_llm_add)
+
     # set (patch fields)
     p = sub.add_parser(
         "set",
@@ -927,6 +1015,9 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    from quests.envload import load_dotenv_files
+
+    load_dotenv_files()
     parser = build_parser()
     argv_list = list(sys.argv[1:] if argv is None else argv)
     args = parser.parse_args(argv_list)

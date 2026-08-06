@@ -2,6 +2,7 @@
   import {
     QUEST_SIGNIFICANCES,
     QUEST_STATUSES,
+    QUEST_STATUS_LABELS,
     createQuest,
     updateQuest,
     deleteQuest,
@@ -243,7 +244,7 @@
   async function onSubmit(event) {
     event.preventDefault()
     if (!title.trim()) {
-      formError = 'Нужен title'
+      formError = 'Нужен заголовок'
       return
     }
     const stepsPayload = buildStepsPayload()
@@ -330,7 +331,7 @@
           <Icon name={mode === 'create' ? 'document' : 'edit'} size={18} />
           <span>{heading}</span>
         </h2>
-        <button type="button" class="btn btn--ghost btn--icon" onclick={onClose} aria-label="Закрыть">
+        <button type="button" class="btn btn--ghost btn--icon btn--close" onclick={onClose} aria-label="Закрыть">
           <Icon name="close" size={14} />
         </button>
       </header>
@@ -341,18 +342,18 @@
 
       <form class="modal__form" onsubmit={onSubmit}>
         <label class="field">
-          <span class="label">Title</span>
+          <span class="label">Заголовок</span>
           <input type="text" bind:value={title} required />
         </label>
 
         <label class="field">
-          <span class="label">Description</span>
+          <span class="label">Описание</span>
           <textarea rows="3" bind:value={description}></textarea>
         </label>
 
         <div class="field">
-          <span class="label">Status</span>
-          <div class="opt-slider" role="radiogroup" aria-label="Status">
+          <span class="label">Статус</span>
+          <div class="opt-slider" role="radiogroup" aria-label="Статус">
             {#each QUEST_STATUSES as s}
               <button
                 type="button"
@@ -362,7 +363,7 @@
                 aria-checked={status === s}
                 onclick={() => (status = s)}
               >
-                {s}
+                {QUEST_STATUS_LABELS[s] ?? s}
               </button>
             {/each}
           </div>
@@ -456,7 +457,7 @@
 
         <label class="check">
           <input type="checkbox" bind:checked={pinned} />
-          Pinned (показывать в оверлее)
+          Закрепить (показывать в оверлее)
         </label>
 
         <div class="deadline-block">
@@ -521,9 +522,9 @@
 
         <div class="steps-block">
           <div class="steps-block__head">
-            <span class="label">Steps</span>
-            <button type="button" class="btn btn--ghost" onclick={addStep}>
-              <Icon name="add" size={14} />
+            <span class="label">Шаги</span>
+            <button type="button" class="btn btn--ghost btn--add-step" onclick={addStep}>
+              <Icon name="add" size={16} />
               <span class="btn__text">шаг</span>
             </button>
           </div>
@@ -540,7 +541,7 @@
                   type="number"
                   class="step-edit__num"
                   min="0"
-                  title="current"
+                  title="текущее"
                   bind:value={step.progress_current}
                 />
                 <span class="step-edit__slash">/</span>
@@ -548,7 +549,7 @@
                   type="number"
                   class="step-edit__num"
                   min="1"
-                  title="total"
+                  title="всего"
                   bind:value={step.progress_total}
                 />
                 <button
@@ -556,18 +557,18 @@
                   class="btn btn--ghost btn--icon"
                   class:btn--check-on={step.check_open}
                   onclick={() => (step.check_open = !step.check_open)}
-                  aria-label="Check-команда"
-                  title="Check-команда"
+                  aria-label="Команда проверки"
+                  title="Команда проверки"
                 >
-                  <Icon name="renew" size={14} />
+                  <Icon name="terminal" size={14} />
                 </button>
                 <button
                   type="button"
-                  class="btn btn--ghost btn--icon"
+                  class="btn btn--ghost btn--icon btn--step-remove"
                   onclick={() => removeStep(step.key)}
                   aria-label="Удалить шаг"
                 >
-                  <Icon name="subtract" size={16} />
+                  <Icon name="delete" size={14} />
                 </button>
               </div>
               {#if step.check_open}
@@ -575,7 +576,7 @@
                   <input
                     type="text"
                     class="step-edit__cmd"
-                    placeholder="check-команда (stdout → число), напр. find ~/docs -type f | wc -l"
+                    placeholder="команда проверки (stdout → число), напр. find ~/docs -type f | wc -l"
                     bind:value={step.check_command}
                     spellcheck="false"
                   />
@@ -594,8 +595,8 @@
             </div>
           {/each}
           <p class="hint">
-            Пустые шаги отбрасываются. Check-команда — по кнопке ↻ у шага: сервер раз в N сек читает
-            число из stdout и пишет в current.
+            Пустые шаги отбрасываются. Команда проверки — по кнопке терминала у шага: сервер раз в N сек
+            читает число из stdout и пишет в текущее значение.
           </p>
         </div>
 
@@ -827,7 +828,7 @@
     gap: 2px;
     padding: 3px;
     border: 1px solid var(--color-border, #333);
-    border-radius: var(--radius-sm, 2px);
+    border-radius: var(--radius-lg, 12px);
     background: var(--color-bg-muted, #242424);
     overflow-x: auto;
   }
@@ -837,7 +838,7 @@
     margin: 0;
     padding: 0.45rem 0.5rem;
     border: 0;
-    border-radius: 2px;
+    border-radius: calc(var(--radius-lg, 12px) - 2px);
     background: transparent;
     color: var(--color-fg-muted, #9a9a9a);
     font: inherit;
@@ -856,40 +857,6 @@
     background: color-mix(in srgb, var(--color-accent, #c9a227) 22%, var(--color-bg, #121212));
     color: var(--color-accent, #c9a227);
     font-weight: 600;
-  }
-
-  .opt-slider__opt--sig[data-sig='common'] {
-    color: #a89984;
-    background: color-mix(in srgb, #a89984 12%, transparent);
-  }
-  .opt-slider__opt--sig[data-sig='uncommon'] {
-    color: #8ec07c;
-    background: color-mix(in srgb, #8ec07c 12%, transparent);
-  }
-  .opt-slider__opt--sig[data-sig='epic'] {
-    color: #d3869b;
-    background: color-mix(in srgb, #d3869b 12%, transparent);
-  }
-  .opt-slider__opt--sig[data-sig='legendary'] {
-    color: #fe8019;
-    background: color-mix(in srgb, #fe8019 12%, transparent);
-  }
-
-  .opt-slider__opt--sig.opt-slider__opt--on[data-sig='common'] {
-    color: #ebdbb2;
-    background: color-mix(in srgb, #a89984 32%, var(--color-bg, #121212));
-  }
-  .opt-slider__opt--sig.opt-slider__opt--on[data-sig='uncommon'] {
-    color: #b8bb26;
-    background: color-mix(in srgb, #8ec07c 32%, var(--color-bg, #121212));
-  }
-  .opt-slider__opt--sig.opt-slider__opt--on[data-sig='epic'] {
-    color: #e9b4c7;
-    background: color-mix(in srgb, #d3869b 34%, var(--color-bg, #121212));
-  }
-  .opt-slider__opt--sig.opt-slider__opt--on[data-sig='legendary'] {
-    color: #ffb86c;
-    background: color-mix(in srgb, #fe8019 34%, var(--color-bg, #121212));
   }
 
   .opt-slider--wrap {
@@ -1043,7 +1010,7 @@
     font-size: var(--text-sm, 0.875rem);
     padding: var(--space-2, 0.5rem) var(--space-3, 0.75rem);
     border: 1px solid var(--color-border-strong, #4a4a4a);
-    border-radius: var(--radius-sm, 2px);
+    border-radius: var(--radius-lg, 12px);
     background: var(--color-bg-muted, #242424);
     color: var(--color-fg, #e8e8e8);
     cursor: pointer;
@@ -1065,9 +1032,14 @@
   }
 
   .btn--danger {
-    border-color: color-mix(in srgb, var(--color-danger, #b54a3a) 50%, var(--color-border, #333));
+    border-color: transparent;
+    background: transparent;
+    color: color-mix(in srgb, var(--color-danger, #b54a3a) 78%, var(--color-fg, #e8e8e8));
+  }
+
+  .btn--danger:hover:not(:disabled) {
     color: var(--color-danger, #b54a3a);
-    background: color-mix(in srgb, var(--color-danger, #b54a3a) 12%, var(--color-bg-muted, #242424));
+    background: color-mix(in srgb, var(--color-danger, #b54a3a) 10%, transparent);
   }
 
   .btn--ghost {
@@ -1081,8 +1053,40 @@
     background: var(--color-bg-hover, #2a2a2a);
   }
 
+  .btn--add-step {
+    align-items: center;
+    line-height: 1;
+    gap: 0.2rem;
+    padding: 0.2rem 0.35rem;
+  }
+
+  .btn--add-step :global(.icon) {
+    display: block;
+  }
+
+  .btn--add-step .btn__text {
+    line-height: 1;
+    display: inline-flex;
+    align-items: center;
+  }
+
+  .btn--add-step:hover {
+    background: transparent;
+    color: var(--color-fg, #e8e8e8);
+  }
+
+  .btn--close {
+    border: 0;
+    background: transparent;
+  }
+
   .btn--icon {
     padding: var(--space-2, 0.5rem);
+  }
+
+  .btn--step-remove:hover {
+    color: var(--color-danger, #b54a3a);
+    background: color-mix(in srgb, var(--color-danger, #b54a3a) 10%, transparent);
   }
 
   .btn--check-on {
