@@ -1,16 +1,19 @@
 [Unit]
 Description=Quests API + SPA (:8765)
-Documentation=file://%h/Documents/projects/Quests/README.md
+Documentation=file://%h/Quests/deploy/SERVER.md
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-WorkingDirectory=%h/Documents/projects/Quests
+WorkingDirectory=%h/Quests
 Environment=PYTHONUNBUFFERED=1
 # uv often lives in ~/.local/bin
 Environment=PATH=%h/.local/bin:%h/.cargo/bin:/usr/local/bin:/usr/bin
-ExecStart=%h/Documents/projects/Quests/scripts/run-server.sh
+# Local-only by default. For remote HUD/bot:
+# Environment=QUESTS_HOST=0.0.0.0
+# Environment=QUESTS_CORS_ORIGINS=http://127.0.0.1:5173,http://LAN_IP:5173
+ExecStart=%h/Quests/scripts/run-server.sh
 Restart=on-failure
 RestartSec=3
 

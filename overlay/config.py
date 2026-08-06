@@ -25,6 +25,8 @@ DEFAULTS: dict[str, Any] = {
     "toasts_minor": True,
     # HUD category lane (slug from /api/categories); empty → first available.
     "hud_category": "",
+    # Optional Quests API base (overridden by QUESTS_API env).
+    "api_base": "",
 }
 
 
@@ -89,6 +91,8 @@ def load() -> dict[str, Any]:
                 cfg["toasts_minor"] = _as_bool(data["toasts_minor"], DEFAULTS["toasts_minor"])
             if "hud_category" in data and isinstance(data["hud_category"], str):
                 cfg["hud_category"] = data["hud_category"].strip()
+            if "api_base" in data and isinstance(data["api_base"], str):
+                cfg["api_base"] = data["api_base"].strip().rstrip("/")
     except (OSError, json.JSONDecodeError, TypeError, ValueError):
         pass
 
@@ -112,6 +116,7 @@ def save(cfg: dict[str, Any]) -> None:
         "toasts_major": _as_bool(cfg.get("toasts_major"), DEFAULTS["toasts_major"]),
         "toasts_minor": _as_bool(cfg.get("toasts_minor"), DEFAULTS["toasts_minor"]),
         "hud_category": str(cfg.get("hud_category") or "").strip(),
+        "api_base": str(cfg.get("api_base") or "").strip().rstrip("/"),
     }
     try:
         CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)

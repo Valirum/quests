@@ -85,3 +85,10 @@ class QuestsApi:
     async def sync_revision(self) -> int:
         data = await self.request("GET", "/api/sync")
         return int((data or {}).get("revision") or 0)
+
+    async def heartbeat(self, *, component: str = "telegram", detail: str = "") -> None:
+        await self.request(
+            "POST",
+            "/api/health/heartbeat",
+            body={"component": component, "detail": detail},
+        )

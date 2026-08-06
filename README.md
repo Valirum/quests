@@ -61,4 +61,5 @@ layer-rule {
 
 SQLite: `data/quests.db`.
 
-User systemd units (не автозапуск из репо): [`deploy/systemd/`](deploy/systemd/).
+User systemd units: [`deploy/systemd/`](deploy/systemd/).  
+Деплой на сервер после клона: [`deploy/SERVER.md`](deploy/SERVER.md).

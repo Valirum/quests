@@ -248,6 +248,10 @@ async def events_loop(
             payload = await api.events_since(since)
             events = list(payload.get("events") or [])
             since = int(payload.get("revision") or since)
+            try:
+                await api.heartbeat(component="telegram")
+            except ApiError:
+                pass
             for ev in events:
                 if not isinstance(ev, dict):
                     continue

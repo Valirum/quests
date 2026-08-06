@@ -36,6 +36,11 @@ export function listQuests(params = {}) {
   return request(`/api/quests${qs ? `?${qs}` : ''}`)
 }
 
+/** Aggregated liveness: API + overlay/telegram heartbeats. */
+export function fetchHealth() {
+  return request('/api/health')
+}
+
 export function createQuest(payload) {
   return request('/api/quests', {
     method: 'POST',

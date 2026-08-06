@@ -10,7 +10,7 @@ from fastapi.staticfiles import StaticFiles
 
 from quests.api import categories, events, health, hero, questlines, quests, templates
 from quests.checks import run_due_step_checks
-from quests.config import HOST, PORT, ROOT
+from quests.config import CORS_ORIGINS, HOST, PORT, ROOT
 from quests.db import init_db
 from quests.events import hub
 from quests.expire import expire_overdue_quests
@@ -60,10 +60,7 @@ async def lifespan(_app: FastAPI):
 app = FastAPI(title="Quests", version="0.1.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://127.0.0.1:5173",
-        "http://localhost:5173",
-    ],
+    allow_origins=CORS_ORIGINS,
     allow_methods=["*"],
     allow_headers=["*"],
 )

@@ -1,6 +1,6 @@
 <script>
   import { onMount } from 'svelte'
-  import { deleteQuest, deleteQuestline, listCategories, listQuestlines, listQuests, updateQuest, updateQuestStep, QUEST_SIGNIFICANCES } from './lib/api.js'
+  import { deleteQuest, deleteQuestline, listCategories, listQuestlines, listQuests, updateQuest, updateQuestStep, fetchHealth, QUEST_SIGNIFICANCES } from './lib/api.js'
   import { subscribeQuestEvents } from './lib/live.js'
   import { applyTheme, loadSavedTheme } from './lib/theme.js'
   import {
@@ -25,6 +25,8 @@
   let loading = $state(true)
   let error = $state('')
   let liveStatus = $state('off')
+  /** @type {{ api: string, overlay: string, telegram: string, detail?: Record<string, any> }} */
+  let health = $state({ api: 'unknown', overlay: 'unknown', telegram: 'unknown' })
   let searchQuery = $state('')
   /** @type {'journal' | 'hero'} */
   let view = $state('journal')
@@ -600,6 +602,21 @@
     }
   }
 
+  async function refreshHealth() {
+    try {
+      const data = await fetchHealth()
+      const comps = data?.components || {}
+      health = {
+        api: data?.api?.status === 'ok' ? 'ok' : 'offline',
+        overlay: comps.overlay?.status === 'ok' ? 'ok' : 'offline',
+        telegram: comps.telegram?.status === 'ok' ? 'ok' : 'offline',
+        detail: data,
+      }
+    } catch {
+      health = { api: 'offline', overlay: 'unknown', telegram: 'unknown' }
+    }
+  }
+
   onMount(() => {
     applyTheme(loadSavedTheme())
     const fromUrl = questIdFromUrl()
@@ -608,9 +625,11 @@
       selectedId = fromUrl
     }
     load()
+    refreshHealth()
     const tick = setInterval(() => {
       nowMs = Date.now()
     }, 1000)
+    const healthTick = setInterval(refreshHealth, 5000)
     const stop = subscribeQuestEvents(
       (msg) => {
         if (msg?.type === 'hello' && msg.pending_focus != null) {
@@ -630,6 +649,7 @@
     )
     return () => {
       clearInterval(tick)
+      clearInterval(healthTick)
       stop()
     }
   })
@@ -651,6 +671,20 @@
         <span class="live__dot" aria-hidden="true"></span>
         <span class="live__text">{liveStatus}</span>
       </span>
+      <div class="health" role="status" aria-label="Состояние сервисов">
+        <span class="health__chip" data-status={health.api} title="API">
+          <span class="health__dot" aria-hidden="true"></span>
+          <span class="health__label">API</span>
+        </span>
+        <span class="health__chip" data-status={health.overlay} title="HUD / оверлей">
+          <span class="health__dot" aria-hidden="true"></span>
+          <span class="health__label">HUD</span>
+        </span>
+        <span class="health__chip" data-status={health.telegram} title="Telegram-бот">
+          <span class="health__dot" aria-hidden="true"></span>
+          <span class="health__label">Bot</span>
+        </span>
+      </div>
     </div>
     <div class="view-tabs" role="tablist" aria-label="Раздел">
       <button
@@ -1059,7 +1093,12 @@
   onChanged={() => load({ silent: true })}
 />
 
-<SettingsModal open={settingsOpen} onClose={() => (settingsOpen = false)} />
+<SettingsModal
+  open={settingsOpen}
+  onClose={() => (settingsOpen = false)}
+  health={health}
+  liveStatus={liveStatus}
+/>
 
 <ContextMenu
   open={ctxOpen}
@@ -1121,6 +1160,7 @@
   .header-left {
     display: flex;
     align-items: center;
+    flex-wrap: wrap;
     gap: var(--space-3, 0.75rem);
     min-width: 0;
     justify-self: start;
@@ -1230,6 +1270,49 @@
   }
 
   .live[data-status='off'] {
+    color: var(--color-fg-subtle, #6e6e6e);
+  }
+
+  .health {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    flex-shrink: 0;
+  }
+
+  .health__chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    height: 1.65rem;
+    padding: 0 0.45rem;
+    border: 1px solid var(--color-border, #333);
+    border-radius: 999px;
+    font-family: var(--font-mono, monospace);
+    font-size: 0.65rem;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--color-fg-muted, #9a9a9a);
+  }
+
+  .health__dot {
+    width: 0.45rem;
+    height: 0.45rem;
+    border-radius: 50%;
+    background: currentColor;
+  }
+
+  .health__chip[data-status='ok'] {
+    color: var(--color-success, #7a9e3a);
+    border-color: color-mix(in srgb, var(--color-success, #7a9e3a) 40%, var(--color-border, #333));
+  }
+
+  .health__chip[data-status='offline'] {
+    color: var(--color-danger, #b54a3a);
+    border-color: color-mix(in srgb, var(--color-danger, #b54a3a) 40%, var(--color-border, #333));
+  }
+
+  .health__chip[data-status='unknown'] {
     color: var(--color-fg-subtle, #6e6e6e);
   }
 
@@ -1943,7 +2026,8 @@
     }
 
     .btn__text,
-    .live__text {
+    .live__text,
+    .health__label {
       position: absolute;
       width: 1px;
       height: 1px;
@@ -1970,6 +2054,10 @@
     .live__dot {
       width: 0.65rem;
       height: 0.65rem;
+    }
+
+    .health__chip {
+      padding: 0 0.35rem;
     }
   }
 </style>

@@ -31,7 +31,7 @@ gi.require_version("Gtk4LayerShell", "1.0")
 
 from gi.repository import Gdk, GLib, Gtk, Gtk4LayerShell as LayerShell
 
-from .api_client import fetch_categories, fetch_events, fetch_quests
+from .api_client import fetch_categories, fetch_events, fetch_quests, post_heartbeat
 from .browser import focus_quest
 from . import config as overlay_config
 from .drag import NUDGE_STEP, attach_drag_handle, nudge_hud
@@ -159,6 +159,7 @@ def on_activate(app: Gtk.Application) -> None:
         "toasts_major": bool(saved.get("toasts_major", True)),
         "toasts_minor": bool(saved.get("toasts_minor", True)),
         "hud_category": str(saved.get("hud_category") or ""),
+        "api_base": str(saved.get("api_base") or ""),
         "input_gen": 0,
         "dragging": False,
         "margin_top": int(saved.get("margin_top", 24)),
@@ -186,6 +187,7 @@ def on_activate(app: Gtk.Application) -> None:
                 "toasts_major": bool(state["toasts_major"]),
                 "toasts_minor": bool(state["toasts_minor"]),
                 "hud_category": str(state.get("hud_category") or ""),
+                "api_base": str(state.get("api_base") or ""),
             }
         )
 
@@ -641,6 +643,7 @@ def on_activate(app: Gtk.Application) -> None:
     def poll_events() -> bool:
         try:
             revision, events = fetch_events(state["revision"])
+            post_heartbeat()
         except (urllib.error.URLError, TimeoutError, ValueError, TypeError, KeyError):
             return True
 

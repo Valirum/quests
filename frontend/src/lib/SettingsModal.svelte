@@ -2,8 +2,13 @@
   import { THEMES, applyTheme, currentThemeId } from './theme.js'
   import Icon from './Icon.svelte'
 
-  /** @type {{ open?: boolean, onClose: () => void }} */
-  let { open = false, onClose } = $props()
+  /** @type {{ open?: boolean, onClose: () => void, health?: { api: string, overlay: string, telegram: string, detail?: any }, liveStatus?: string }} */
+  let {
+    open = false,
+    onClose,
+    health = { api: 'unknown', overlay: 'unknown', telegram: 'unknown' },
+    liveStatus = 'off',
+  } = $props()
 
   let themeId = $state(currentThemeId())
 
@@ -31,6 +36,20 @@
   function selectTheme(id) {
     themeId = applyTheme(id)
   }
+
+  function statusLabel(s) {
+    if (s === 'ok' || s === 'live') return 'онлайн'
+    if (s === 'offline' || s === 'off') return 'офлайн'
+    if (s === 'connecting' || s === 'reconnect') return 'переподключение'
+    return 'неизвестно'
+  }
+
+  function ageLabel(comp) {
+    const age = health?.detail?.components?.[comp]?.age_seconds
+    if (age == null) return 'нет heartbeat'
+    if (age < 2) return 'только что'
+    return `${age} с назад`
+  }
 </script>
 
 {#if open}
@@ -55,6 +74,31 @@
       </header>
 
       <div class="modal__body">
+        <section class="block">
+          <h3 class="block__title">Сервисы</h3>
+          <p class="block__hint">API отвечает сам; HUD и бот шлют heartbeat раз в несколько секунд.</p>
+          <ul class="svc-list">
+            <li class="svc" data-status={health.api}>
+              <span class="svc__dot" aria-hidden="true"></span>
+              <span class="svc__name">API</span>
+              <span class="svc__status">{statusLabel(health.api)}</span>
+              <span class="svc__meta">HTTP · WS {statusLabel(liveStatus)}</span>
+            </li>
+            <li class="svc" data-status={health.overlay}>
+              <span class="svc__dot" aria-hidden="true"></span>
+              <span class="svc__name">HUD</span>
+              <span class="svc__status">{statusLabel(health.overlay)}</span>
+              <span class="svc__meta">{ageLabel('overlay')}</span>
+            </li>
+            <li class="svc" data-status={health.telegram}>
+              <span class="svc__dot" aria-hidden="true"></span>
+              <span class="svc__name">Telegram</span>
+              <span class="svc__status">{statusLabel(health.telegram)}</span>
+              <span class="svc__meta">{ageLabel('telegram')}</span>
+            </li>
+          </ul>
+        </section>
+
         <section class="block">
           <h3 class="block__title">Тема приложения</h3>
           <p class="block__hint">Выбор палитры интерфейса. Сохраняется в этом браузере.</p>
@@ -135,6 +179,8 @@
 
   .modal__body {
     padding: var(--space-4, 1rem);
+    display: grid;
+    gap: var(--space-5, 1.5rem);
   }
 
   .block__title {
@@ -150,6 +196,75 @@
     font-family: var(--font-body, Georgia, serif);
     font-size: var(--text-sm, 0.875rem);
     color: var(--color-fg-subtle, #6e6e6e);
+  }
+
+  .svc-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 0.35rem;
+  }
+
+  .svc {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    grid-template-areas:
+      "dot name status"
+      "dot meta meta";
+    column-gap: 0.55rem;
+    row-gap: 0.1rem;
+    align-items: center;
+    padding: 0.55rem 0.7rem;
+    border: 1px solid var(--color-border, #333);
+    border-radius: var(--radius-lg, 12px);
+    background: color-mix(in srgb, var(--color-bg, #121212) 70%, transparent);
+  }
+
+  .svc__dot {
+    grid-area: dot;
+    width: 0.5rem;
+    height: 0.5rem;
+    border-radius: 50%;
+    background: currentColor;
+  }
+
+  .svc__name {
+    grid-area: name;
+    font-weight: 600;
+    font-size: var(--text-sm, 0.875rem);
+  }
+
+  .svc__status {
+    grid-area: status;
+    font-family: var(--font-mono, monospace);
+    font-size: var(--text-xs, 0.75rem);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+
+  .svc__meta {
+    grid-area: meta;
+    font-size: var(--text-xs, 0.75rem);
+    color: var(--color-fg-muted, #9a9a9a);
+  }
+
+  .svc[data-status='ok'] {
+    color: var(--color-success, #7a9e3a);
+  }
+
+  .svc[data-status='offline'] {
+    color: var(--color-danger, #b54a3a);
+  }
+
+  .svc[data-status='unknown'] {
+    color: var(--color-fg-subtle, #6e6e6e);
+  }
+
+  .svc[data-status='ok'] .svc__name,
+  .svc[data-status='offline'] .svc__name,
+  .svc[data-status='unknown'] .svc__name {
+    color: var(--color-fg, #e8e8e8);
   }
 
   .theme-list {
