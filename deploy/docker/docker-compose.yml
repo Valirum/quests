@@ -14,7 +14,7 @@ services:
       context: ../..
       dockerfile: deploy/docker/Dockerfile
       target: api
-    image: quests-api:local
+    image: ${QUESTS_API_IMAGE:-quests-api:local}
     container_name: quests-api
     restart: unless-stopped
     env_file:
@@ -43,7 +43,7 @@ services:
       context: ../..
       dockerfile: deploy/docker/Dockerfile
       target: bot
-    image: quests-bot:local
+    image: ${QUESTS_BOT_IMAGE:-quests-bot:local}
     container_name: quests-bot
     restart: unless-stopped
     network_mode: host

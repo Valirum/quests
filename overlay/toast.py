@@ -48,7 +48,9 @@ def _cap_wrap_label(lbl: Gtk.Label, width_px: int) -> None:
     except Exception:
         pass
 
-MAJOR_KINDS = frozenset({"quest_created", "quest_completed", "quest_failed"})
+MAJOR_KINDS = frozenset(
+    {"quest_created", "quest_appeared", "quest_completed", "quest_failed"}
+)
 
 # After this long on-screen while still waiting for activity, pulse the border.
 AFK_BORDER_ALERT_MS = 30_000
@@ -130,7 +132,7 @@ def _afk_glow_css(
 def major_eyebrow_parts(kind: str, significance: str) -> tuple[str, str, str]:
     """Prefix, colored significance word, suffix for major eyebrow."""
     word = SIGNIFICANCE_LABEL_RU.get(significance, SIGNIFICANCE_LABEL_RU["common"])
-    if kind == "quest_created":
+    if kind in {"quest_created", "quest_appeared"}:
         return "Получено ", word, " задание"
     if kind == "quest_completed":
         return "Завершено ", word, " задание"
@@ -141,6 +143,7 @@ def major_eyebrow_parts(kind: str, significance: str) -> tuple[str, str, str]:
 
 MAJOR_EYEBROW = {
     "quest_created": "Получено задание",
+    "quest_appeared": "Получено задание",
     "quest_completed": "Задание завершено",
     "quest_failed": "Задание провалено",
 }
@@ -153,7 +156,6 @@ MINOR_CHANGE = {
     "step_progress": "Прогресс",
     "pin_changed": "Закрепление",
     "quest_updated": "Обновлено",
-    "quest_appeared": "Периодика",
 }
 
 

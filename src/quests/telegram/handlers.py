@@ -175,6 +175,23 @@ async def _purge_dialog(
         )
 
 
+async def _on_quest_callback_error(query: CallbackQuery, e: ApiError) -> None:
+    """Alert; if quest gone (404), drop the stale inline message."""
+    await query.answer(str(e), show_alert=True)
+    if e.status != 404:
+        return
+    msg = query.message
+    if msg is None or query.bot is None:
+        return
+    chat = msg.chat
+    if chat is None or msg.message_id is None:
+        return
+    await tg_soft(
+        lambda: query.bot.delete_message(int(chat.id), int(msg.message_id)),
+        label="missing-quest-del",
+    )
+
+
 def build_router(
     *,
     api: QuestsApi,
@@ -301,7 +318,7 @@ def build_router(
         try:
             q = await api.get_quest(qid)
         except ApiError as e:
-            await query.answer(str(e), show_alert=True)
+            await _on_quest_callback_error(query, e)
             return
         await query.message.answer(  # type: ignore[union-attr]
             format_quest_card(q),
@@ -320,7 +337,7 @@ def build_router(
         try:
             q = await api.get_quest(qid)
         except ApiError as e:
-            await query.answer(str(e), show_alert=True)
+            await _on_quest_callback_error(query, e)
             return
         await _edit_quest_card(query, q, page=page)
         await query.answer("обновлено")
@@ -336,7 +353,7 @@ def build_router(
         try:
             q = await api.get_quest(qid)
         except ApiError as e:
-            await query.answer(str(e), show_alert=True)
+            await _on_quest_callback_error(query, e)
             return
         await _edit_quest_card(query, q, page=page)
         await query.answer()
@@ -355,7 +372,7 @@ def build_router(
         try:
             q = await api.patch_quest(qid, {"status": new_status})
         except ApiError as e:
-            await query.answer(str(e), show_alert=True)
+            await _on_quest_callback_error(query, e)
             return
         await _edit_quest_card(query, q, page=0)
         await query.answer(f"→ {new_status}")
@@ -378,7 +395,7 @@ def build_router(
         try:
             q = await api.get_quest(qid)
         except ApiError as e:
-            await query.answer(str(e), show_alert=True)
+            await _on_quest_callback_error(query, e)
             return
         step = next((s for s in (q.get("steps") or []) if int(s["id"]) == sid), None)
         if step is None:
@@ -389,7 +406,7 @@ def build_router(
         try:
             q = await api.patch_step(qid, sid, {"progress_current": new_cur})
         except ApiError as e:
-            await query.answer(str(e), show_alert=True)
+            await _on_quest_callback_error(query, e)
             return
         await _edit_quest_card(query, q, page=page)
         await query.answer("✓" if new_cur >= total else "сброс")
@@ -685,33 +702,17 @@ def build_router(
         history = list(data.get("llm_history") or [])
         await _run_llm(message, state, text, history=history)
 
-    @router.message(StateFilter(CreateLlm.text), F.voice | F.audio)
-    async def llm_text_voice(message: Message, state: FSMContext) -> None:
-        text = await _voice_to_text(message, state)
-        if text:
-            await _run_llm(message, state, text)
-
-    @router.message(StateFilter(CreateLlm.clarify), F.voice | F.audio)
-    async def llm_clarify_voice(message: Message, state: FSMContext) -> None:
-        text = await _voice_to_text(message, state)
-        if not text:
-            return
-        data = await state.get_data()
-        history = list(data.get("llm_history") or [])
-        await _run_llm(message, state, text, history=history)
-
     @router.message(F.voice | F.audio)
     async def voice_start_llm(message: Message, state: FSMContext) -> None:
-        """Voice outside dialog → сразу /new-llm пайплайн."""
-        current = await state.get_state()
-        if current is not None:
-            # Other FSM (confirm / create quest) — не перехватываем.
-            return
+        """Any voice/audio: reset dialog and run /new-llm on the transcript."""
         await _purge_dialog(message.bot, state, message.chat.id if message.chat else None)
+        await state.set_state(CreateLlm.text)
         text = await _voice_to_text(message, state)
         if not text:
+            await _purge_dialog(
+                message.bot, state, message.chat.id if message.chat else None
+            )
             return
-        await state.set_state(CreateLlm.text)
         await _run_llm(message, state, text)
 
     @router.callback_query(StateFilter(CreateLlm.confirm), F.data == "llm:no")
@@ -766,6 +767,12 @@ def build_router(
                 label="llm-created",
             )
         await query.answer("создано")
+
+    @router.message(F.text)
+    async def unhandled_text(message: Message, state: FSMContext) -> None:
+        """Any unmatched text → help (FSM / commands registered above take priority)."""
+        await _purge_dialog(message.bot, state, message.chat.id if message.chat else None)
+        await do_help(message)
 
     return router
 

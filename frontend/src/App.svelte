@@ -66,6 +66,8 @@
   let statusBusy = $state(false)
   let pinBusyId = $state(/** @type {number | null} */ (null))
   let stepBusyId = $state(/** @type {number | null} */ (null))
+  let stepEditId = $state(/** @type {number | null} */ (null))
+  let stepEditValue = $state('')
   /** Prefer this id across in-flight load() (URL / HUD focus). */
   let pendingSelectId = $state(/** @type {number | null} */ (null))
   /** When false — only active/delayed; when true — all statuses. */
@@ -538,10 +540,14 @@
     }
   }
 
-  async function bumpStep(step, delta) {
+  async function setStepProgress(step, value) {
     if (!selected || stepBusyId != null) return
-    const next = Math.max(0, Math.min(step.progress_total, step.progress_current + delta))
-    if (next === step.progress_current) return
+    const total = Math.max(0, Number(step.progress_total) || 0)
+    const next = Math.max(0, Math.min(total, Math.round(Number(value))))
+    if (!Number.isFinite(next) || next === step.progress_current) {
+      stepEditId = null
+      return
+    }
     stepBusyId = step.id
     error = ''
     try {
@@ -551,7 +557,37 @@
       error = e.message || String(e)
     } finally {
       stepBusyId = null
+      stepEditId = null
     }
+  }
+
+  async function bumpStep(step, delta) {
+    await setStepProgress(step, step.progress_current + delta)
+  }
+
+  function beginEditStep(step) {
+    if (stepBusyId != null) return
+    stepEditId = step.id
+    stepEditValue = String(step.progress_current)
+  }
+
+  function cancelEditStep() {
+    stepEditId = null
+  }
+
+  function onStepEditKeydown(event, step) {
+    if (event.key === 'Enter') {
+      event.preventDefault()
+      setStepProgress(step, stepEditValue)
+    } else if (event.key === 'Escape') {
+      event.preventDefault()
+      cancelEditStep()
+    }
+  }
+
+  function onStepEditBlur(step) {
+    if (stepEditId !== step.id) return
+    setStepProgress(step, stepEditValue)
   }
 
   function applyQuest(quest) {
@@ -1007,9 +1043,34 @@
                     >
                       <Icon name="subtract" size={14} />
                     </button>
-                    <span class="step__progress"
-                      >{step.progress_current}/{step.progress_total}</span
-                    >
+                    {#if stepEditId === step.id}
+                      <input
+                        class="step__progress-input"
+                        type="number"
+                        min="0"
+                        max={step.progress_total}
+                        step="1"
+                        value={stepEditValue}
+                        disabled={stepBusyId != null}
+                        aria-label="Прогресс шага"
+                        autofocus
+                        oninput={(e) => (stepEditValue = e.currentTarget.value)}
+                        onkeydown={(e) => onStepEditKeydown(e, step)}
+                        onblur={() => onStepEditBlur(step)}
+                        onfocus={(e) => e.currentTarget.select()}
+                      />
+                      <span class="step__progress-total">/{step.progress_total}</span>
+                    {:else}
+                      <button
+                        type="button"
+                        class="step__progress"
+                        title="Двойной клик — задать значение"
+                        disabled={stepBusyId != null}
+                        ondblclick={() => beginEditStep(step)}
+                      >
+                        {step.progress_current}/{step.progress_total}
+                      </button>
+                    {/if}
                     <button
                       type="button"
                       class="step__btn"
@@ -1905,6 +1966,40 @@
   .step__progress {
     min-width: 2.75rem;
     text-align: center;
+    font-family: var(--font-mono, monospace);
+    font-size: var(--text-xs, 0.75rem);
+    color: var(--color-fg-muted, #9a9a9a);
+    font-variant-numeric: tabular-nums;
+    padding: 0;
+    border: none;
+    background: transparent;
+    cursor: text;
+  }
+
+  .step__progress:disabled {
+    cursor: not-allowed;
+    opacity: 0.6;
+  }
+
+  .step__progress-input {
+    width: 3.25rem;
+    min-width: 0;
+    text-align: center;
+    font-family: var(--font-mono, monospace);
+    font-size: var(--text-xs, 0.75rem);
+    font-variant-numeric: tabular-nums;
+    color: var(--color-fg, #e8e8e8);
+    background: var(--color-bg-muted, #242424);
+    border: 1px solid var(--color-accent, #c9a227);
+    border-radius: var(--radius-sm, 2px);
+    padding: 0.1rem 0.2rem;
+  }
+
+  .step__progress-input:focus {
+    outline: none;
+  }
+
+  .step__progress-total {
     font-family: var(--font-mono, monospace);
     font-size: var(--text-xs, 0.75rem);
     color: var(--color-fg-muted, #9a9a9a);

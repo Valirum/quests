@@ -1,0 +1,165 @@
+name: main
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "tests/**"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".github/workflows/main.yml"
+  workflow_dispatch:
+    inputs:
+      force_api:
+        description: Force rebuild/push quests-api
+        type: boolean
+        default: false
+      force_bot:
+        description: Force rebuild/push quests-bot
+        type: boolean
+        default: false
+
+concurrency:
+  group: main-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  changes:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    outputs:
+      api: ${{ steps.filter.outputs.api }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+      bot: ${{ steps.filter.outputs.bot }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            frontend:
+              - 'frontend/**'
+            api:
+              - 'src/quests/**'
+              - '!src/quests/telegram/**'
+              - 'alembic/**'
+              - 'alembic.ini'
+              - 'pyproject.toml'
+              - 'uv.lock'
+              - 'README.md'
+              - 'deploy/docker/Dockerfile'
+              - 'deploy/docker/entrypoint-api.sh'
+              - 'deploy/docker/nginx.conf'
+              - 'deploy/docker/docker-compose.yml'
+            bot:
+              - 'src/quests/**'
+              - 'pyproject.toml'
+              - 'uv.lock'
+              - 'deploy/docker/Dockerfile'
+              - 'deploy/docker/entrypoint-bot.sh'
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Sync + pytest
+        run: |
+          uv sync --locked --group dev
+          uv run pytest
+
+  build-api:
+    needs: [changes, test]
+    if: |
+      github.event_name != 'pull_request' &&
+      needs.test.result == 'success' &&
+      (
+        needs.changes.outputs.api == 'true' ||
+        needs.changes.outputs.frontend == 'true' ||
+        (github.event_name == 'workflow_dispatch' && inputs.force_api)
+      )
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      actions: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Image name (lowercase)
+        run: |
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          echo "API_IMAGE=ghcr.io/${owner}/quests-api" >> "$GITHUB_ENV"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/docker/Dockerfile
+          target: api
+          push: true
+          tags: |
+            ${{ env.API_IMAGE }}:main
+            ${{ env.API_IMAGE }}:${{ github.sha }}
+          cache-from: type=gha,scope=quests-api
+          cache-to: type=gha,mode=max,scope=quests-api
+
+  build-bot:
+    needs: [changes, test]
+    if: |
+      github.event_name != 'pull_request' &&
+      needs.test.result == 'success' &&
+      (
+        needs.changes.outputs.bot == 'true' ||
+        (github.event_name == 'workflow_dispatch' && inputs.force_bot)
+      )
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      actions: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Image name (lowercase)
+        run: |
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          echo "BOT_IMAGE=ghcr.io/${owner}/quests-bot" >> "$GITHUB_ENV"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/docker/Dockerfile
+          target: bot
+          push: true
+          tags: |
+            ${{ env.BOT_IMAGE }}:main
+            ${{ env.BOT_IMAGE }}:${{ github.sha }}
+          cache-from: type=gha,scope=quests-bot
+          cache-to: type=gha,mode=max,scope=quests-bot

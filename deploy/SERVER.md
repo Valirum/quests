@@ -17,13 +17,19 @@ cp .env.example .env
 $EDITOR .env   # QUESTS_TG_* ; прокси см. ниже
 
 # HTTP-прокси для Telegram на хосте :12334 (свой стек), затем:
+# либо локальная сборка:
 docker compose -f deploy/docker/docker-compose.yml up -d --build
+# либо образы из GHCR после CI (см. docker/README.md → CI / GHCR):
+# QUESTS_API_IMAGE=ghcr.io/<owner>/quests-api:main
+# QUESTS_BOT_IMAGE=ghcr.io/<owner>/quests-bot:main
+# docker compose -f deploy/docker/docker-compose.yml pull && \
+#   docker compose -f deploy/docker/docker-compose.yml up -d
 
 curl -sS http://127.0.0.1:8765/api/health
 # UI: http://SERVER_IP:8765  или  :8080 (nginx)
 ```
 
-Подробнее: [`docker/README.md`](docker/README.md).
+Подробнее: [`docker/README.md`](docker/README.md) (CI → GHCR; на сервере pull вручную или Watchtower).
 
 Дальше — firewall на `8765`/`8080`, на ПК HUD: `QUESTS_API=http://SERVER_IP:8765`.
 

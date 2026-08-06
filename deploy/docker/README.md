@@ -24,6 +24,42 @@ curl -sS http://127.0.0.1:8080/api/health
 
 Логи: `docker compose -f deploy/docker/docker-compose.yml logs -f`
 
+### CI / GHCR (ветка `main`)
+
+GitHub Actions (`.github/workflows/main.yml`) только собирает и пушит образы
+(без SSH-деплоя):
+
+1. `pytest` на push/PR
+2. Path-filter: отдельно `quests-api` (api + frontend SPA) и `quests-bot`
+3. Push в `ghcr.io/<owner>/quests-api:main` / `quests-bot:main` (BuildKit cache `type=gha`)
+
+На сервере в `.env`:
+
+```bash
+QUESTS_API_IMAGE=ghcr.io/<owner>/quests-api:main
+QUESTS_BOT_IMAGE=ghcr.io/<owner>/quests-bot:main
+```
+
+Один раз: `echo $CR_PAT | docker login ghcr.io -u USER --password-stdin`
+(пакеты GitHub часто private — нужен PAT с `read:packages`).
+
+Обновление контейнеров — вручную (`compose pull && up -d`) или Watchtower,
+который сам подтягивает новый `:main`:
+
+```bash
+docker run -d --name watchtower --restart unless-stopped \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -v "$HOME/.docker/config.json:/config.json:ro" \
+  containrrr/watchtower \
+  --interval 60 quests-api quests-bot
+```
+
+(`config.json` после `docker login ghcr.io`; имена — `container_name` из compose.)
+
+Ручной прогон сборки: Actions → **main** → Run workflow (`force_api` / `force_bot`).
+
+Локально по-прежнему: без `QUESTS_*_IMAGE` → `quests-*:local` и `up --build`.
+
 ### Прокси для бота
 
 Бот в `network_mode: host`, чтобы достучаться до прокси на `127.0.0.1`
@@ -54,5 +90,6 @@ SQLite — volume `quests-data` (`/app/data`).
 См. `.env.example`. В compose:
 
 - `QUESTS_HOST=0.0.0.0`
-- `QUESTS_API=http://api:8765` (бот)
+- `QUESTS_API` у бота: `http://127.0.0.1:8765` (host network)
 - `QUESTS_RELOAD=0`
+- `QUESTS_API_IMAGE` / `QUESTS_BOT_IMAGE` — опционально GHCR
