@@ -22,15 +22,30 @@ def _probe(url: str, timeout: float = 0.35) -> bool:
         return False
 
 
+def _is_loopback(url: str) -> bool:
+    u = url.casefold()
+    return "127.0.0.1" in u or "localhost" in u or "[::1]" in u
+
+
 def resolve_web_base() -> str:
-    """Prefer Vite dev (:5173) when running; else API-served SPA (:8765)."""
+    """SPA base for opening a quest from the HUD.
+
+    Order:
+    1. ``QUESTS_WEB_URL`` if set
+    2. Remote ``API_BASE`` (SPA is served by the same API host)
+    3. Local Vite (:5173) / API SPA (:8765) when the HUD talks to localhost
+    """
     env = (os.environ.get("QUESTS_WEB_URL") or "").strip().rstrip("/")
     if env:
         return env
+    api = API_BASE.rstrip("/")
+    # HUD pointed at a remote server → open that host, not a leftover local :8765.
+    if api and not _is_loopback(api):
+        return api
     for base in ("http://127.0.0.1:5173", "http://127.0.0.1:8765"):
         if _probe(base):
             return base
-    return API_BASE.rstrip("/")
+    return api or "http://127.0.0.1:8765"
 
 
 def quest_url(quest_id: int, base: str | None = None) -> str:
