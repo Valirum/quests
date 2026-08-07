@@ -58,6 +58,24 @@ def llm_confirm_keyboard() -> InlineKeyboardMarkup:
     )
 
 
+def stt_confirm_keyboard() -> InlineKeyboardMarkup:
+    """Confirm Whisper transcript before spending an LLM call."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="✓ В LLM",
+                    callback_data="stt:ok",
+                ),
+                InlineKeyboardButton(
+                    text="✖ Отмена",
+                    callback_data="stt:no",
+                ),
+            ]
+        ]
+    )
+
+
 def _step_done(step: dict) -> bool:
     if step.get("done") is True:
         return True
