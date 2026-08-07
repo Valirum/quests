@@ -10,22 +10,22 @@
     updateQuest,
     updateQuestStep,
     fetchHealth,
-  } from './lib/api.js'
-  import { subscribeQuestEvents } from './lib/live.js'
-  import { applyTheme, loadSavedTheme } from './lib/theme.js'
-  import { questMatchesQuery } from './lib/search.js'
-  import { OPEN_STATUSES } from './lib/questFormat.js'
-  import { groupQuestsByCategory } from './lib/questGroups.js'
-  import QuestModal from './lib/QuestModal.svelte'
-  import QuestlineModal from './lib/QuestlineModal.svelte'
-  import TemplatesModal from './lib/TemplatesModal.svelte'
-  import SettingsModal from './lib/SettingsModal.svelte'
-  import ConfirmModal from './lib/ConfirmModal.svelte'
-  import ContextMenu from './lib/ContextMenu.svelte'
-  import HeroPanel from './lib/HeroPanel.svelte'
-  import JournalHeader from './lib/JournalHeader.svelte'
-  import QuestSidebar from './lib/QuestSidebar.svelte'
-  import QuestDetail from './lib/QuestDetail.svelte'
+  } from './lib/js/api.js'
+  import { subscribeQuestEvents } from './lib/js/live.js'
+  import { applyTheme, loadSavedTheme } from './lib/js/theme.js'
+  import { questMatchesQuery } from './lib/js/search.js'
+  import { OPEN_STATUSES } from './lib/js/questFormat.js'
+  import { groupQuestsByCategory } from './lib/js/questGroups.js'
+  import QuestModal from './lib/modals/QuestModal.svelte'
+  import QuestlineModal from './lib/modals/QuestlineModal.svelte'
+  import TemplatesModal from './lib/modals/TemplatesModal.svelte'
+  import SettingsModal from './lib/modals/SettingsModal.svelte'
+  import ConfirmModal from './lib/modals/ConfirmModal.svelte'
+  import ContextMenu from './lib/ui/ContextMenu.svelte'
+  import HeroPanel from './lib/blocks/HeroPanel.svelte'
+  import JournalHeader from './lib/blocks/JournalHeader.svelte'
+  import QuestSidebar from './lib/blocks/QuestSidebar.svelte'
+  import QuestDetail from './lib/blocks/QuestDetail.svelte'
 
   let quests = $state([])
   let selectedId = $state(null)

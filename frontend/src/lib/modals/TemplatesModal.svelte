@@ -12,9 +12,9 @@
     listQuestlines,
     listTemplates,
     updateTemplate,
-  } from '../lib/api.js'
-  import { defaultLocalDeadlineParts, localTimeZone } from '../lib/time.js'
-  import Icon from './Icon.svelte'
+  } from '../js/api.js'
+  import { defaultLocalDeadlineParts, localTimeZone } from '../js/time.js'
+  import Icon from '../ui/Icon.svelte'
   import ConfirmModal from './ConfirmModal.svelte'
   import { untrack } from 'svelte'
 
