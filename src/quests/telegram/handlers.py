@@ -35,6 +35,7 @@ from quests.telegram.keyboards import (
     BTN_NEW_LLM,
     category_pick_keyboard,
     llm_confirm_keyboard,
+    stt_confirm_keyboard,
     main_reply_keyboard,
     quest_keyboard,
     quest_pick_keyboard,
@@ -67,6 +68,7 @@ class CreateQuest(StatesGroup):
 
 class CreateLlm(StatesGroup):
     text = State()
+    stt_confirm = State()
     clarify = State()
     confirm = State()
 
@@ -676,12 +678,25 @@ def build_router(
                     tmp.unlink(missing_ok=True)
                 except OSError:
                     pass
+        return text.strip() if text else None
+
+    async def _offer_stt_confirm(
+        message: Message,
+        state: FSMContext,
+        text: str,
+        *,
+        history: list[tuple[str, str]] | None = None,
+    ) -> None:
+        await state.update_data(stt_pending=text, stt_history=list(history or []))
+        await state.set_state(CreateLlm.stt_confirm)
         await _say(
             message,
             state,
-            f"Распознано:\n<i>{_esc_html(text)}</i>",
+            "Распознано (проверь перед LLM):\n"
+            f"<i>{_esc_html(text)}</i>\n\n"
+            "Отправить в LLM или отменить?",
+            reply_markup=stt_confirm_keyboard(),
         )
-        return text
 
     @router.message(StateFilter(CreateLlm.text), F.text)
     async def llm_text(message: Message, state: FSMContext) -> None:
@@ -705,18 +720,91 @@ def build_router(
         history = list(data.get("llm_history") or [])
         await _run_llm(message, state, text, history=history)
 
+    @router.message(StateFilter(CreateLlm.stt_confirm), F.text)
+    async def stt_confirm_text_fix(message: Message, state: FSMContext) -> None:
+        """Typed correction replaces the transcript; still needs ✓ before LLM."""
+        text = (message.text or "").strip()
+        if text in _NAV_BUTTONS:
+            return
+        if not text or text.startswith("/"):
+            await _say(message, state, "Нужен текст или нажми кнопку.")
+            return
+        data = await state.get_data()
+        history = list(data.get("stt_history") or [])
+        await _offer_stt_confirm(message, state, text, history=history)
+
+    @router.callback_query(StateFilter(CreateLlm.stt_confirm), F.data == "stt:no")
+    async def stt_cancel(query: CallbackQuery, state: FSMContext) -> None:
+        chat = query.message.chat if query.message else None  # type: ignore[union-attr]
+        chat_id = chat.id if chat else None
+        if query.message is not None:
+            await _track_bot_msg(state, query.message)  # type: ignore[arg-type]
+        await _purge_dialog(query.bot, state, chat_id)
+        if chat_id is not None:
+            await tg_retry(
+                lambda: query.bot.send_message(  # type: ignore[union-attr]
+                    chat_id,
+                    "Отменено. Можно снова голосом или «✨ LLM».",
+                    reply_markup=reply_kb,
+                ),
+                label="stt-cancel",
+            )
+        await query.answer("отменено")
+
+    @router.callback_query(StateFilter(CreateLlm.stt_confirm), F.data == "stt:ok")
+    async def stt_ok(query: CallbackQuery, state: FSMContext) -> None:
+        data = await state.get_data()
+        text = str(data.get("stt_pending") or "").strip()
+        history_raw = data.get("stt_history") or []
+        history: list[tuple[str, str]] | None = None
+        if isinstance(history_raw, list) and history_raw:
+            history = [(str(a), str(b)) for a, b in history_raw]
+        chat = query.message.chat if query.message else None  # type: ignore[union-attr]
+        chat_id = chat.id if chat else None
+        if query.message is not None:
+            await _track_bot_msg(state, query.message)  # type: ignore[arg-type]
+        if not text:
+            await _purge_dialog(query.bot, state, chat_id)
+            await query.answer("текст потерян", show_alert=True)
+            return
+        await query.answer("в LLM…")
+        # CallbackQuery.message is usable as Message for answers.
+        msg = query.message
+        if msg is None:
+            await _purge_dialog(query.bot, state, chat_id)
+            return
+        await state.update_data(stt_pending=None, stt_history=None)
+        await state.set_state(CreateLlm.text)
+        await _run_llm(msg, state, text, history=history)  # type: ignore[arg-type]
+
     @router.message(F.voice | F.audio)
     async def voice_start_llm(message: Message, state: FSMContext) -> None:
-        """Any voice/audio: reset dialog and run /new-llm on the transcript."""
-        await _purge_dialog(message.bot, state, message.chat.id if message.chat else None)
-        await state.set_state(CreateLlm.text)
-        text = await _voice_to_text(message, state)
-        if not text:
+        """Voice/audio → STT → confirm → LLM (keeps clarify history if mid-dialog)."""
+        current = await state.get_state()
+        history: list[tuple[str, str]] | None = None
+        if current == CreateLlm.clarify.state:
+            data = await state.get_data()
+            history = list(data.get("llm_history") or [])
+        elif current not in {
+            CreateLlm.text.state,
+            CreateLlm.stt_confirm.state,
+        }:
             await _purge_dialog(
                 message.bot, state, message.chat.id if message.chat else None
             )
+
+        text = await _voice_to_text(message, state)
+        if not text:
+            if current not in {
+                CreateLlm.text.state,
+                CreateLlm.clarify.state,
+                CreateLlm.stt_confirm.state,
+            }:
+                await _purge_dialog(
+                    message.bot, state, message.chat.id if message.chat else None
+                )
             return
-        await _run_llm(message, state, text)
+        await _offer_stt_confirm(message, state, text, history=history)
 
     @router.callback_query(StateFilter(CreateLlm.confirm), F.data == "llm:no")
     async def llm_cancel(query: CallbackQuery, state: FSMContext) -> None:
