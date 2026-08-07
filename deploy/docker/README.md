@@ -15,6 +15,7 @@ HUD в Docker нет — на рабочей станции: `./scripts/run-over
 cd /path/to/Quests
 cp -n .env.example .env
 # QUESTS_TG_TOKEN, QUESTS_TG_USER_IDS; прокси на хосте :12334
+# QUESTS_WHISPER_MODEL=small|medium|large (default small — medium ~1 мин/сек на слабом CPU)
 # GHCR: QUESTS_API_IMAGE=ghcr.io/<owner>/quests-api:main  (и BOT)
 
 # --env-file обязателен: иначе ${QUESTS_*_IMAGE} не подхватятся из корневого .env

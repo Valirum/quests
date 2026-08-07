@@ -1,4 +1,4 @@
-"""Speech-to-text via faster-whisper (default: medium, Russian)."""
+"""Speech-to-text via faster-whisper (default: small, Russian)."""
 
 from __future__ import annotations
 
@@ -11,7 +11,19 @@ from pathlib import Path
 
 log = logging.getLogger("quests.stt")
 
-DEFAULT_MODEL = "medium"
+# Short aliases → HuggingFace / faster-whisper model ids.
+MODEL_ALIASES: dict[str, str] = {
+    "tiny": "tiny",
+    "base": "base",
+    "small": "small",
+    "medium": "medium",
+    "large": "large-v3",
+    "large-v2": "large-v2",
+    "large-v3": "large-v3",
+    "distil-large-v3": "distil-large-v3",
+}
+
+DEFAULT_MODEL = "small"
 DEFAULT_DEVICE = "cpu"
 DEFAULT_COMPUTE = "int8"
 DEFAULT_LANGUAGE = "ru"
@@ -25,10 +37,23 @@ class SttSettings:
     language: str | None
 
 
+def normalize_whisper_model(raw: str) -> str:
+    """Map small/medium/large (and friends) to a concrete model id."""
+    key = (raw or DEFAULT_MODEL).strip().lower()
+    if not key:
+        key = DEFAULT_MODEL
+    if key in MODEL_ALIASES:
+        return MODEL_ALIASES[key]
+    # Allow full Systran/faster-whisper-* ids or other HF names as-is.
+    return raw.strip()
+
+
 def load_stt_settings() -> SttSettings:
     lang = (os.environ.get("QUESTS_WHISPER_LANGUAGE") or DEFAULT_LANGUAGE).strip()
     return SttSettings(
-        model=(os.environ.get("QUESTS_WHISPER_MODEL") or DEFAULT_MODEL).strip(),
+        model=normalize_whisper_model(
+            os.environ.get("QUESTS_WHISPER_MODEL") or DEFAULT_MODEL
+        ),
         device=(os.environ.get("QUESTS_WHISPER_DEVICE") or DEFAULT_DEVICE).strip(),
         compute_type=(
             os.environ.get("QUESTS_WHISPER_COMPUTE") or DEFAULT_COMPUTE
@@ -79,19 +104,22 @@ class WhisperStt:
         if not path.is_file():
             raise SttError(f"файл не найден: {path}")
         model = self._ensure_model(settings)
+        # Smaller models on CPU: beam 1 is much faster, quality still OK for short voice notes.
+        beam = 1 if settings.model in {"tiny", "base", "small"} else 5
         try:
             segments, info = model.transcribe(
                 str(path),
                 language=settings.language,
                 vad_filter=True,
-                beam_size=5,
+                beam_size=beam,
             )
             parts = [seg.text.strip() for seg in segments if seg.text and seg.text.strip()]
         except Exception as e:
             raise SttError(f"whisper failed: {e}") from e
         text = " ".join(parts).strip()
         log.info(
-            "stt ok lang=%s duration≈%s chars=%s",
+            "stt ok model=%s lang=%s duration≈%s chars=%s",
+            settings.model,
             getattr(info, "language", "?"),
             getattr(info, "duration", "?"),
             len(text),
