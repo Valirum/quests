@@ -16,6 +16,7 @@
   import { defaultLocalDeadlineParts, localTimeZone } from '../lib/time.js'
   import Icon from './Icon.svelte'
   import ConfirmModal from './ConfirmModal.svelte'
+  import { untrack } from 'svelte'
 
   /** @type {{ open: boolean, onClose: () => void, onChanged: () => void }} */
   let { open = false, onClose, onChanged } = $props()
@@ -83,9 +84,19 @@
     categoryId = line.category_id != null ? String(line.category_id) : ''
   }
 
+  function newStepKey() {
+    try {
+      const id = globalThis.crypto?.randomUUID?.()
+      if (id) return id
+    } catch {
+      /* http://host is not a secure context — randomUUID throws */
+    }
+    return `s-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`
+  }
+
   function blankStep() {
     return {
-      key: crypto.randomUUID(),
+      key: newStepKey(),
       title: '',
       progress_range: '1',
       check_command: '',
@@ -205,7 +216,7 @@
     steps =
       t.steps?.length > 0
         ? t.steps.map((s) => ({
-            key: String(s.id ?? crypto.randomUUID()),
+            key: String(s.id ?? newStepKey()),
             title: s.title ?? '',
             progress_range: formatProgressRange(
               s.progress_min ?? s.progress_total,
@@ -239,18 +250,14 @@
     }
   }
 
-  // Reset list only when the modal opens (false → true). A plain
-  // `if (open) { view = 'list' }` re-runs on parent re-renders and
-  // immediately undoes "Новый шаблон" / edit.
-  let wasOpen = false
+  // Reset list when modal opens. Only track `open` (untrack the rest).
   $effect(() => {
-    const isOpen = open
-    if (isOpen && !wasOpen) {
+    if (!open) return
+    untrack(() => {
       view = 'list'
       editing = null
       void refresh()
-    }
-    wasOpen = isOpen
+    })
   })
 
   $effect(() => {

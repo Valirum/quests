@@ -17,6 +17,7 @@
   } from '../lib/time.js'
   import Icon from './Icon.svelte'
   import ConfirmModal from './ConfirmModal.svelte'
+  import { untrack } from 'svelte'
 
   /** @type {{ open: boolean, mode: 'create' | 'edit', quest?: any, defaults?: { questline_id?: number | null, category_id?: number | null }, onClose: () => void, onSaved: (q: any) => void, onDeleted?: (id: number) => void }} */
   let {
@@ -81,9 +82,19 @@
     categoryId = line.category_id != null ? String(line.category_id) : ''
   }
 
+  function newStepKey() {
+    try {
+      const id = globalThis.crypto?.randomUUID?.()
+      if (id) return id
+    } catch {
+      /* http://host is not a secure context — randomUUID throws */
+    }
+    return `s-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`
+  }
+
   function blankStep() {
     return {
-      key: crypto.randomUUID(),
+      key: newStepKey(),
       title: '',
       progress_current: 0,
       progress_total: 1,
@@ -164,7 +175,7 @@
     steps =
       q.steps?.length > 0
         ? q.steps.map((s) => ({
-            key: String(s.id ?? crypto.randomUUID()),
+            key: String(s.id ?? newStepKey()),
             title: s.title ?? '',
             progress_current: s.progress_current ?? 0,
             progress_total: s.progress_total ?? 1,
@@ -176,12 +187,11 @@
         : [blankStep()]
   }
 
-  // Init only on open false→true. A plain `if (open) { reset… }` re-runs on
-  // parent re-renders (App ticks nowMs / WS refresh) and wipes steps + selects.
-  let wasOpen = false
+  // Init when `open` becomes true. Only track `open` — reading quest/mode
+  // without untrack would re-run this on every silent refresh and wipe steps.
   $effect(() => {
-    const isOpen = open
-    if (isOpen && !wasOpen) {
+    if (!open) return
+    untrack(() => {
       formError = ''
       saving = false
       deleting = false
@@ -199,8 +209,7 @@
           categories = []
           questlines = []
         })
-    }
-    wasOpen = isOpen
+    })
   })
 
   $effect(() => {

@@ -9,6 +9,7 @@
   } from '../lib/api.js'
   import Icon from './Icon.svelte'
   import ConfirmModal from './ConfirmModal.svelte'
+  import { untrack } from 'svelte'
 
   /** @type {{ open: boolean, mode: 'create' | 'edit', line?: any, onClose: () => void, onSaved: (line: any) => void, onDeleted?: (id: number) => void }} */
   let {
@@ -51,11 +52,10 @@
     icon = row.icon || 'document'
   }
 
-  // Init only on open false→true (same as QuestModal / TemplatesModal).
-  let wasOpen = false
+  // Init when `open` becomes true — only track `open`.
   $effect(() => {
-    const isOpen = open
-    if (isOpen && !wasOpen) {
+    if (!open) return
+    untrack(() => {
       formError = ''
       saving = false
       deleting = false
@@ -68,8 +68,7 @@
         .catch(() => {
           categories = []
         })
-    }
-    wasOpen = isOpen
+    })
   })
 
   $effect(() => {
