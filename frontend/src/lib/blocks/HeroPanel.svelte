@@ -1,6 +1,6 @@
 <script>
-  import { getHero } from './api.js'
-  import Icon from './Icon.svelte'
+  import { getHero } from '../js/api.js'
+  import Icon from '../ui/Icon.svelte'
 
   /** @type {{ active?: boolean, nonce?: number }} */
   let { active = true, nonce = 0 } = $props()

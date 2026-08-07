@@ -1,12 +1,12 @@
 <script>
-  import Icon from './Icon.svelte'
-  import { formatLocal, localTimeZone } from './time.js'
+  import Icon from '../ui/Icon.svelte'
+  import { formatLocal, localTimeZone } from '../js/time.js'
   import {
     periodBadge,
     questTimer,
     significanceLabel,
     statusColor,
-  } from './questFormat.js'
+  } from '../js/questFormat.js'
 
   /** @type {{
    *   selected: any | null,

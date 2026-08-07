@@ -1,6 +1,6 @@
 <script>
-  import { THEMES, applyTheme, currentThemeId } from './theme.js'
-  import Icon from './Icon.svelte'
+  import { THEMES, applyTheme, currentThemeId } from '../js/theme.js'
+  import Icon from '../ui/Icon.svelte'
 
   /** @type {{ open?: boolean, onClose: () => void, health?: { api: string, overlay: string, telegram: string, detail?: any }, liveStatus?: string }} */
   let {

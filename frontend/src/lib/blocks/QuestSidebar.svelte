@@ -1,12 +1,12 @@
 <script>
-  import Icon from './Icon.svelte'
+  import Icon from '../ui/Icon.svelte'
   import {
     isQuestInactive,
     periodBadge,
     questTimer,
     significanceLabel,
     statusColor,
-  } from './questFormat.js'
+  } from '../js/questFormat.js'
 
   /** @type {{
    *   loading: boolean,

@@ -6,8 +6,8 @@
     deleteQuestline,
     listCategories,
     updateQuestline,
-  } from '../lib/api.js'
-  import Icon from './Icon.svelte'
+  } from '../js/api.js'
+  import Icon from '../ui/Icon.svelte'
   import ConfirmModal from './ConfirmModal.svelte'
   import { untrack } from 'svelte'
 
