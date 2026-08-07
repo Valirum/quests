@@ -63,6 +63,7 @@ services:
       QUESTS_DATA_DIR: /app/data
       QUESTS_API: http://127.0.0.1:${QUESTS_PUBLISH_PORT:-8765}
       QUESTS_TG_PROXY: ${QUESTS_TG_PROXY:-http://127.0.0.1:12334}
+      # QUESTS_WHISPER_* from env_file (.env): small|medium|large — app default small
     volumes:
       - quests-data:/app/data
 

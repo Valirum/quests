@@ -640,7 +640,10 @@ def build_router(
             if "." in name:
                 suffix = "." + name.rsplit(".", 1)[-1]
         wait = await tg_retry(
-            lambda: message.answer("Слушаю (whisper)…", reply_markup=reply_kb),
+            lambda: message.answer(
+                f"Слушаю (whisper · {load_stt_settings().model})…",
+                reply_markup=reply_kb,
+            ),
             label="stt-wait",
         )
         tmp: Path | None = None

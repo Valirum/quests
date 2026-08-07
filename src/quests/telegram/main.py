@@ -18,6 +18,7 @@ from quests.telegram.handlers import build_router
 from quests.telegram.notify import events_loop, window_start_loop
 from quests.telegram.settings import TgSettings, build_settings
 from quests.telegram.store import ChatRegistry, NotifyDedup
+from quests.stt import load_stt_settings
 
 log = logging.getLogger("quests.telegram")
 
@@ -47,11 +48,15 @@ async def _run(settings: TgSettings) -> None:
         name="tg-windows",
     )
 
+    stt = load_stt_settings()
     log.info(
-        "telegram bot starting (proxy=%s api=%s users=%s)",
+        "telegram bot starting (proxy=%s api=%s users=%s whisper=%s/%s/%s)",
         settings.proxy,
         settings.api_base,
         ",".join(str(u) for u in sorted(settings.user_ids)),
+        stt.model,
+        stt.device,
+        stt.compute_type,
     )
     try:
         # Drop pending updates so restart does not replay old callbacks.

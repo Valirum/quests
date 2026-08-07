@@ -154,7 +154,7 @@
 ### 8.6 LLM → квест (текст + голос)
 
 По умолчанию **Cursor Agent API** (`CURSOR_API_KEY`, cloud без репо → JSON). Ollama остаётся опциональным (`QUESTS_LLM_PROVIDER=ollama`).
-Голос: **faster-whisper** `medium` (`QUESTS_WHISPER_*`) → тот же `/new-llm` пайплайн.
+Голос: **faster-whisper** (`QUESTS_WHISPER_MODEL=small|medium|large`, default **small**) → `/new-llm`.
 
 - [x] Модуль `quests.llm`: schema / client / draft→API body
 - [x] Провайдер Cursor (`Agent.prompt` + cloud empty workspace)
