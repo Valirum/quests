@@ -264,7 +264,7 @@ class QuestRead(QuestBase):
     progress_label: str = "0 / 0"
     # Derived timer fields (UTC-based; clients format for display).
     remaining_seconds: Optional[int] = None
-    timer_tone: Optional[str] = None  # green | orange | red
+    timer_tone: Optional[str] = None  # green | orange | red | overdue
     urgent: bool = False
 
     @field_serializer(

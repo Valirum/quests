@@ -120,6 +120,14 @@ def split_hud_quests(
         urgent_flag = q.get("urgent")
         if urgent_flag is None:
             urgent_flag = is_urgent(q.get("deadline_at"), q.get("duration_seconds"))
+        status = str(q.get("status") or "")
+        # Overdue / delayed: same HUD lane as near-deadline (API may lag expire).
+        if status == "delayed":
+            urgent_flag = True
+        else:
+            rem = remaining_seconds(q.get("deadline_at"))
+            if rem is not None and int(rem) <= 0:
+                urgent_flag = True
         if not urgent_flag:
             continue
         entry = _with_timer(q, steps)

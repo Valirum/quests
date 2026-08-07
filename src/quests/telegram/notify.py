@@ -26,6 +26,7 @@ NOTIFY_KINDS = {
     "quest_completed": "Выполнено",
     "quest_failed": "Провал",
     "quest_delayed": "Просрочено",
+    "quest_started": "Задача началась",
     # периодические инстансы (ручной create через /new уже отвечает в чат)
     "quest_appeared": "Новая задача",
 }

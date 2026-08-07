@@ -16,6 +16,7 @@ from quests.events import hub
 from quests.expire import expire_overdue_quests
 from quests.hero import decay_momentum
 from quests.periodic import materialize_due
+from quests.window_start import notify_window_starts
 
 FRONTEND_DIST = ROOT / "frontend" / "dist"
 EXPIRE_POLL_S = 15
@@ -30,6 +31,10 @@ async def lifespan(_app: FastAPI):
         while True:
             try:
                 await expire_overdue_quests()
+            except Exception:
+                pass
+            try:
+                await notify_window_starts()
             except Exception:
                 pass
             try:

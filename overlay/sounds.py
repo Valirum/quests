@@ -13,6 +13,7 @@ SOUNDS_DIR = Path(__file__).resolve().parent / "assets" / "sounds"
 CUE_FOLDERS = {
     "quest_created": "quest_appeared",
     "quest_appeared": "quest_appeared",
+    "quest_started": "quest_appeared",
     "quest_completed": "quest_completed",
     "quest_failed": "quest_failed",
     "quest_delayed": "quest_delayed",
@@ -23,7 +24,16 @@ CUE_FOLDERS = {
     "quest_updated": "fallback",
 }
 
-MAJOR_CUES = frozenset({"quest_created", "quest_appeared", "quest_completed", "quest_failed"})
+MAJOR_CUES = frozenset(
+    {
+        "quest_created",
+        "quest_appeared",
+        "quest_started",
+        "quest_completed",
+        "quest_failed",
+        "quest_delayed",
+    }
+)
 
 
 @dataclass
@@ -40,6 +50,7 @@ class SoundBus:
             "quest_appeared",
             "quest_completed",
             "quest_failed",
+            "quest_delayed",
         }:
             return
 

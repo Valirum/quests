@@ -419,6 +419,14 @@ button.hud-drag:selected {{
   color: rgba(251, 73, 52, 0.95);
 }}
 
+.major--quest_delayed .major__eyebrow:not(.major__significance) {{
+  color: rgba(251, 73, 52, 0.95);
+}}
+
+.major--quest_started .major__eyebrow:not(.major__significance) {{
+  color: rgba(250, 189, 47, 0.95);
+}}
+
 .major__title {{
   font-family: {FONT_TOAST};
   font-size: 44pt;
