@@ -32,6 +32,10 @@ def remaining_seconds(deadline_at, *, now: datetime | None = None) -> int | None
 
 
 def is_urgent(deadline_at, duration_seconds, *, now: datetime | None = None) -> bool:
+    """True in the active window [deadline−duration, deadline] or after deadline."""
+    rem = remaining_seconds(deadline_at, now=now)
+    if rem is not None and rem <= 0:
+        return True
     deadline = _parse_utc(deadline_at)
     if deadline is None or not duration_seconds:
         return False

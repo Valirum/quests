@@ -53,11 +53,15 @@ def quest_to_read(quest: Quest) -> QuestRead:
     steps_done, steps_total, label = quest_progress(steps)
     deadline = ensure_utc(quest.deadline_at)
     rem = remaining_seconds(deadline)
-    # Expired: no countdown (no negatives); not urgent for HUD.
-    if rem is not None and rem <= 0:
-        rem = None
-        tone = None
-        urgent = False
+    status_val = (
+        quest.status.value if hasattr(quest.status, "value") else str(quest.status or "")
+    )
+    overdue = status_val == "delayed" or (rem is not None and rem <= 0)
+    # Overdue / delayed: still urgent for HUD (same lane as near-deadline).
+    if overdue:
+        rem = None  # no negative countdown in API
+        tone = "overdue"
+        urgent = True
     else:
         tone = timer_tone(deadline, quest.duration_seconds)
         urgent = is_in_urgent_window(deadline, quest.duration_seconds)

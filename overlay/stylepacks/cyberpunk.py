@@ -483,6 +483,14 @@ button.hud-drag:selected {{
   color: {RED_HOT};
 }}
 
+.major--quest_delayed .major__eyebrow:not(.major__significance) {{
+  color: {RED_HOT};
+}}
+
+.major--quest_started .major__eyebrow:not(.major__significance) {{
+  color: {CYAN};
+}}
+
 .major__title {{
   font-family: {FONT_TOAST};
   font-size: 36pt;

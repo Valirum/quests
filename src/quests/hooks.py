@@ -53,12 +53,16 @@ EVENT_ALIASES: dict[str, tuple[str, ...]] = {
     "created": ("quest_created",),
     "deleted": ("quest_deleted",),
     "appear": ("quest_appeared", "quest_created"),
+    "start": ("quest_started",),
+    "window": ("quest_started",),
+    "delay": ("quest_delayed",),
 }
 
 KNOWN_KINDS = frozenset(
     {
         "quest_created",
         "quest_appeared",
+        "quest_started",
         "quest_completed",
         "quest_failed",
         "quest_delayed",

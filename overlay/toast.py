@@ -49,7 +49,14 @@ def _cap_wrap_label(lbl: Gtk.Label, width_px: int) -> None:
         pass
 
 MAJOR_KINDS = frozenset(
-    {"quest_created", "quest_appeared", "quest_completed", "quest_failed"}
+    {
+        "quest_created",
+        "quest_appeared",
+        "quest_started",
+        "quest_completed",
+        "quest_failed",
+        "quest_delayed",
+    }
 )
 
 # After this long on-screen while still waiting for activity, pulse the border.
@@ -134,25 +141,30 @@ def major_eyebrow_parts(kind: str, significance: str) -> tuple[str, str, str]:
     word = SIGNIFICANCE_LABEL_RU.get(significance, SIGNIFICANCE_LABEL_RU["common"])
     if kind in {"quest_created", "quest_appeared"}:
         return "Получено ", word, " задание"
+    if kind == "quest_started":
+        return "Началось ", word, " задание"
     if kind == "quest_completed":
         return "Завершено ", word, " задание"
     if kind == "quest_failed":
         return "Провалено ", word, " задание"
+    if kind == "quest_delayed":
+        return "Просрочено ", word, " задание"
     return "", MAJOR_EYEBROW.get(kind, kind), ""
 
 
 MAJOR_EYEBROW = {
     "quest_created": "Получено задание",
     "quest_appeared": "Получено задание",
+    "quest_started": "Началось задание",
     "quest_completed": "Задание завершено",
     "quest_failed": "Задание провалено",
+    "quest_delayed": "Задание просрочено",
 }
 
 MINOR_CHANGE = {
     "step_completed": "Шаг выполнен",
     "status_changed": "Статус изменён",
     "quest_deleted": "Удалено",
-    "quest_delayed": "Задерживается",
     "step_progress": "Прогресс",
     "pin_changed": "Закрепление",
     "quest_updated": "Обновлено",
