@@ -13,6 +13,7 @@
 @import "./styles/themes/parchment.css";
 @import "./styles/themes/solarized-light.css";
 @import "./styles/theme-accents.css";
+@import "./styles/journal.css";
 
 *,
 *::before,

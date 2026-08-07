@@ -176,8 +176,12 @@
         : [blankStep()]
   }
 
+  // Init only on open false→true. A plain `if (open) { reset… }` re-runs on
+  // parent re-renders (App ticks nowMs / WS refresh) and wipes steps + selects.
+  let wasOpen = false
   $effect(() => {
-    if (open) {
+    const isOpen = open
+    if (isOpen && !wasOpen) {
       formError = ''
       saving = false
       deleting = false
@@ -196,6 +200,7 @@
           questlines = []
         })
     }
+    wasOpen = isOpen
   })
 
   $effect(() => {

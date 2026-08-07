@@ -51,8 +51,11 @@
     icon = row.icon || 'document'
   }
 
+  // Init only on open false→true (same as QuestModal / TemplatesModal).
+  let wasOpen = false
   $effect(() => {
-    if (open) {
+    const isOpen = open
+    if (isOpen && !wasOpen) {
       formError = ''
       saving = false
       deleting = false
@@ -66,6 +69,7 @@
           categories = []
         })
     }
+    wasOpen = isOpen
   })
 
   $effect(() => {
