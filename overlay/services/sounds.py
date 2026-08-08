@@ -7,7 +7,7 @@ import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
-SOUNDS_DIR = Path(__file__).resolve().parent / "assets" / "sounds"
+SOUNDS_DIR = Path(__file__).resolve().parents[1] / "assets" / "sounds"
 
 # Event kind / sound cue → folder under assets/sounds/
 CUE_FOLDERS = {

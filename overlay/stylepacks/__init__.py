@@ -90,24 +90,24 @@ def build_passthrough_css(
     *,
     mode: str = "chips",
     alpha: float = 0.6,
-    hud_alpha: float | None = None,
+    text_alpha: float = 0.92,
     name: str | None = None,
 ) -> str:
-    """Override CSS for HUD backgrounds (passthrough chips/full + interactive alpha)."""
+    """Override CSS for HUD: passthrough bg + overall text/content opacity."""
     meta = pack_meta(name)
     r, g, b = meta["passthrough_bg_rgb"]
     radius = int(meta.get("passthrough_radius") or 8)
     a = max(0.0, min(1.0, float(alpha)))
-    ha = max(0.0, min(1.0, float(hud_alpha if hud_alpha is not None else a)))
+    ta = max(0.0, min(1.0, float(text_alpha)))
     mode_key = "full" if str(mode).strip().lower() in {"full", "panel", "solid"} else "chips"
-    interactive = f"""
-window.hud-window--interactive {{
-  background-color: rgba({r}, {g}, {b}, {ha:.3f});
+    text = f"""
+.hud {{
+  opacity: {ta:.3f};
 }}
 """
     if mode_key == "full":
         border_a = min(1.0, a + 0.12)
-        return interactive + f"""
+        return text + f"""
 window.hud-window--passthrough {{
   background-color: rgba({r}, {g}, {b}, {a:.3f});
   border: 1px solid rgba({r}, {g}, {b}, {border_a:.3f});
@@ -125,7 +125,7 @@ window.hud-window--passthrough {{
 }}
 """
     # Per-row bars: each .hud-row hugs its content width.
-    return interactive + f"""
+    return text + f"""
 window.hud-window--passthrough {{
   background-color: transparent;
   border: none;
@@ -167,6 +167,8 @@ def build_minor_log_css(
     mode: str = "full",
     bg_alpha: float = 0.72,
     text_alpha: float = 0.92,
+    width: int = 520,
+    height: int = 280,
     name: str | None = None,
 ) -> str:
     """Override CSS for the persistent minor event-log panel."""
@@ -175,6 +177,8 @@ def build_minor_log_css(
     radius = int(meta.get("passthrough_radius") or 8)
     ba = max(0.0, min(1.0, float(bg_alpha)))
     ta = max(0.0, min(1.0, float(text_alpha)))
+    w = max(280, min(1200, int(width)))
+    h = max(100, min(1200, int(height)))
     mode_key = "full" if str(mode).strip().lower() in {"full", "panel", "solid"} else "chips"
     border_a = min(1.0, ba + 0.14)
 
@@ -194,9 +198,13 @@ window.minor-log-window {{
   background-color: {panel_bg};
   border: {win_border};
   border-radius: {win_radius};
+  min-width: {w}px;
+  min-height: {h}px;
 }}
 .minor-log {{
   opacity: {ta:.3f};
+  min-width: {w}px;
+  min-height: {h}px;
 }}
 .minor-log__row {{
   background-color: {row_bg};

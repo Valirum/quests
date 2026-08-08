@@ -33,8 +33,10 @@ GitHub Actions (`.github/workflows/main.yml`, workflow **CI**) только со
 (без SSH-деплоя):
 
 1. `pytest` на push/PR
-2. Path-filter: отдельно `quests-api` (api + frontend SPA) и `quests-bot`
-3. Push в `ghcr.io/<owner>/quests-api:main` / `quests-bot:main` (BuildKit cache `type=gha`)
+2. Path-filter: `api` (+ frontend SPA) и узкий `bot` (telegram/llm/stt + deps)
+3. Один job **`build-images`**: `docker buildx bake` (`deploy/docker/docker-bake.hcl`) —
+   если нужны оба target’а, `python-base` собирается один раз → общие layer digests на GHCR
+4. Push `ghcr.io/<owner>/quests-api:main` / `quests-bot:main` (BuildKit cache `scope=quests`)
 
 На сервере в `.env`:
 

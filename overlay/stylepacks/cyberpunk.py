@@ -588,11 +588,11 @@ button.hud-drag:selected {{
   color: {YELLOW};
 }}
 
-/* —— Minor event log —— */
+/* —— Minor event log (one line) —— */
 .minor-log {{
-  min-width: 300px;
-  max-width: 380px;
-  padding: 10px 12px 10px 14px;
+  min-width: 0;
+  max-width: none;
+  padding: 8px 10px 8px 12px;
   font-family: {FONT_TOAST};
 }}
 
@@ -604,77 +604,88 @@ button.hud-drag:selected {{
 }}
 
 .minor-log__row {{
-  padding: 5px 8px;
+  padding: 1px 6px;
   margin: 0;
-  border-left: 2px solid rgba(252, 238, 10, 0.35);
+  border-left: 2px solid rgba(252, 238, 10, 0.28);
 }}
 
 .minor-log__ts {{
-  font-size: 8pt;
+  font-size: 9pt;
   font-family: {FONT_BODY};
-  color: rgba(220, 220, 222, 0.55);
-  letter-spacing: 0.06em;
+  color: rgba(220, 220, 222, 0.85);
+  letter-spacing: 0.04em;
 }}
 
-.minor-log__change {{
-  font-size: 8pt;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: {RED};
+.minor-log__sep {{
+  font-size: 9pt;
+  color: rgba(220, 220, 222, 0.85);
 }}
 
 .minor-log__title {{
-  font-size: 11pt;
+  font-size: 9pt;
   font-weight: 700;
   color: {YELLOW};
-  margin-top: 1px;
-  letter-spacing: 0.01em;
 }}
 
-.minor-log__detail {{
-  font-size: 8pt;
-  color: rgba(220, 220, 222, 0.7);
-  margin-top: 1px;
+.minor-log__title--common {{
+  color: rgba(168, 168, 168, 0.95);
 }}
 
-.minor-log__row--step_completed .minor-log__change {{
+.minor-log__title--uncommon {{
   color: #3dff9a;
 }}
 
-.minor-log__row--step_completed {{
-  border-left-color: #3dff9a;
+.minor-log__title--epic {{
+  color: #ff6ec7;
 }}
 
-.minor-log__row--quest_deleted .minor-log__change,
-.minor-log__row--quest_failed .minor-log__change {{
+.minor-log__title--legendary {{
+  color: #ff8a1f;
+}}
+
+.minor-log__msg {{
+  font-size: 9pt;
+  color: rgba(220, 220, 222, 0.7);
+}}
+
+.minor-log__msg--step_completed,
+.minor-log__msg--quest_completed {{
+  color: #3dff9a;
+}}
+
+.minor-log__msg--quest_deleted,
+.minor-log__msg--quest_failed {{
   color: {RED_HOT};
+}}
+
+.minor-log__msg--quest_delayed {{
+  color: {YELLOW};
+}}
+
+.minor-log__msg--pin_changed {{
+  color: {CYAN};
+}}
+
+.minor-log__msg--status_changed {{
+  color: #ff6ec7;
+}}
+
+.minor-log__msg--quest_created,
+.minor-log__msg--quest_appeared {{
+  color: {YELLOW};
+}}
+
+.minor-log__msg--quest_updated {{
+  color: rgba(220, 220, 222, 0.72);
+}}
+
+.minor-log__row--step_completed,
+.minor-log__row--quest_completed {{
+  border-left-color: #3dff9a;
 }}
 
 .minor-log__row--quest_deleted,
 .minor-log__row--quest_failed {{
   border-left-color: {RED_HOT};
-}}
-
-.minor-log__row--quest_delayed .minor-log__change {{
-  color: {YELLOW};
-}}
-
-.minor-log__row--pin_changed .minor-log__change {{
-  color: {CYAN};
-}}
-
-.minor-log__row--status_changed .minor-log__change {{
-  color: #ff6ec7;
-}}
-
-.minor-log__row--quest_completed .minor-log__change,
-.minor-log__row--step_completed .minor-log__change {{
-  color: #3dff9a;
-}}
-
-.minor-log__row--quest_created .minor-log__change,
-.minor-log__row--quest_appeared .minor-log__change {{
-  color: {YELLOW};
 }}
 """
