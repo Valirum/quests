@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from quests.api import categories, events, health, hero, questlines, quests, templates
+from quests.api import categories, context, events, health, hero, questlines, quests, templates
 from quests.checks import run_due_step_checks
 from quests.config import CORS_ORIGINS, HOST, PORT, RELOAD, ROOT
 from quests.db import init_db
@@ -76,6 +76,7 @@ app.include_router(templates.router)
 app.include_router(hero.router)
 app.include_router(categories.router)
 app.include_router(questlines.router)
+app.include_router(context.router)
 
 
 def _mount_spa() -> None:

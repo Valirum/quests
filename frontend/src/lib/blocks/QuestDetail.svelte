@@ -30,6 +30,9 @@
    *   onStepEditBlur: (step: any) => void,
    *   onStepEditInput: (value: string) => void,
    *   onSelectQuest?: (id: number) => void,
+   *   onQuestTitleContextMenu?: (event: MouseEvent, quest: any) => void,
+   *   onLineHeadContextMenu?: (event: MouseEvent) => void,
+   *   onStepContextMenu?: (event: MouseEvent, step: any) => void,
    * }} */
   let {
     selected,
@@ -50,6 +53,9 @@
     onStepEditBlur,
     onStepEditInput,
     onSelectQuest,
+    onQuestTitleContextMenu,
+    onLineHeadContextMenu,
+    onStepContextMenu,
   } = $props()
 
   const tzLabel = localTimeZone()
@@ -149,7 +155,11 @@
   {#if q.steps?.length}
     <ol class="step-list">
       {#each q.steps as step (step.id)}
-        <li class="step" class:step--done={step.done}>
+        <li
+          class="step"
+          class:step--done={step.done}
+          oncontextmenu={(e) => onStepContextMenu?.(e, step)}
+        >
           <span class="step__mark">{step.done ? '✓' : '○'}</span>
           <span class="step__main">
             <span class="step__title">{step.title}</span>
@@ -266,6 +276,7 @@
     <header
       class="detail__line-head"
       style="--line-color: {lineMeta.color}"
+      oncontextmenu={(e) => onLineHeadContextMenu?.(e)}
     >
       <span class="detail__line-icon" aria-hidden="true">
         <Icon name={lineMeta.icon} size={18} />
@@ -285,7 +296,10 @@
               {@render questEyebrow(q)}
               {@render questActions(q)}
             </div>
-            <h3 class="detail__subtitle">{q.title}</h3>
+            <h3
+              class="detail__subtitle"
+              oncontextmenu={(e) => onQuestTitleContextMenu?.(e, q)}
+            >{q.title}</h3>
           </header>
           {@render questBody(q)}
         </article>
@@ -297,7 +311,10 @@
         {@render questEyebrow(selected)}
         {@render questActions(selected)}
       </div>
-      <h2 class="detail__title">{selected.title}</h2>
+      <h2
+        class="detail__title"
+        oncontextmenu={(e) => onQuestTitleContextMenu?.(e, selected)}
+      >{selected.title}</h2>
     </header>
     {@render questBody(selected)}
   {/if}

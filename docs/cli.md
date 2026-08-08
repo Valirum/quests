@@ -12,9 +12,9 @@ uv run quests hook --help
 
 Нужен запущенный API (`./scripts/run-server.sh`), кроме команд `hook *` — они работают с файлом напрямую.
 
-| Env | Default | Назначение |
+| Env / флаг | Default | Назначение |
 |-----|---------|------------|
-| `QUESTS_API` | `http://127.0.0.1:8765` | база API |
+| `QUESTS_API` / `--api URL` | `http://127.0.0.1:8765` | база API (`--api` перекрывает env) |
 | `QUESTS_HOOKS` | `data/hooks.json` | хранилище хуков |
 | `QUESTS_LLM_PROVIDER` | `cursor` | `cursor` \| `ollama` |
 | `CURSOR_API_KEY` | — | ключ Cursor (Dashboard → API Keys) |
@@ -22,14 +22,16 @@ uv run quests hook --help
 | `QUESTS_LLM_BASE` | `http://127.0.0.1:11434` | только для `ollama` |
 | `QUESTS_LLM_TIMEOUT` | `180` | таймаут сек |
 
-## `--json` / `-h`
+## `--json` / `--api` / `-h`
 
 - `-h` / `--help` — у корня и у каждой подкоманды (argparse).
 - `--json` — машиночитаемый ответ в stdout (ошибки тоже JSON в stderr: `{"ok":false,"error":"…"}`).
+- `--api URL` — база API (перекрывает `QUESTS_API`); можно до или после подкоманды.
 
 ```bash
 quests --json list
 quests list --json
+quests --api http://192.168.1.11:8765 list
 quests show 3 --json | jq .title
 ```
 

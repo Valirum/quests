@@ -41,29 +41,34 @@ export function fetchHealth() {
   return request('/api/health')
 }
 
-export function createQuest(payload) {
-  return request('/api/quests', {
+function quietQs(quiet) {
+  return quiet ? '?quiet=1' : ''
+}
+
+/** Manual web edits are quiet by default (no overlay toasts). */
+export function createQuest(payload, { quiet = true } = {}) {
+  return request(`/api/quests${quietQs(quiet)}`, {
     method: 'POST',
     body: JSON.stringify(payload),
   })
 }
 
-export function updateQuest(id, payload) {
-  return request(`/api/quests/${id}`, {
+export function updateQuest(id, payload, { quiet = true } = {}) {
+  return request(`/api/quests/${id}${quietQs(quiet)}`, {
     method: 'PATCH',
     body: JSON.stringify(payload),
   })
 }
 
-export function updateQuestStep(questId, stepId, payload) {
-  return request(`/api/quests/${questId}/steps/${stepId}`, {
+export function updateQuestStep(questId, stepId, payload, { quiet = true } = {}) {
+  return request(`/api/quests/${questId}/steps/${stepId}${quietQs(quiet)}`, {
     method: 'PATCH',
     body: JSON.stringify(payload),
   })
 }
 
-export function deleteQuest(id) {
-  return request(`/api/quests/${id}`, { method: 'DELETE' })
+export function deleteQuest(id, { quiet = true } = {}) {
+  return request(`/api/quests/${id}${quietQs(quiet)}`, { method: 'DELETE' })
 }
 
 export function listTemplates(params = {}) {
