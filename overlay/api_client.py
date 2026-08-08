@@ -79,6 +79,16 @@ def fetch_events(since: int) -> tuple[int, list[dict]]:
     return int(data.get("revision", since)), list(data.get("events") or [])
 
 
+def fetch_quest_log(*, limit: int = 16, quest_id: int | None = None) -> list[dict]:
+    """Durable quest activity from /api/quest-log (newest first)."""
+    params: dict[str, int] = {"limit": max(1, min(500, int(limit)))}
+    if quest_id is not None:
+        params["quest_id"] = int(quest_id)
+    q = urllib.parse.urlencode(params)
+    data = fetch_json(f"{API_BASE}/api/quest-log?{q}", timeout=min(DEFAULT_TIMEOUT, 2.5))
+    return list(data) if isinstance(data, list) else []
+
+
 def post_heartbeat(*, detail: str = "") -> None:
     """Best-effort liveness ping so the web UI can show HUD status."""
     try:

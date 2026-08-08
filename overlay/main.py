@@ -10,9 +10,9 @@ Input mode (HUD):
     Esc → passthrough · Space → monitor · arrows/hjkl → nudge
     Backspace / − → collapse (also exits interactive)
     z / x → cycle HUD category lane (by keycode; works on RU layout)
-  gear → settings panel (monitors / style / category / bg / alpha); list icon → quests
+  gear → settings (общее / HUD / мажор / минор); list icon → quests
   toggle  = python -m overlay toggle
-  Settings: data/overlay.json (style, monitor, margins, passthrough bg, category)
+  Settings: data/overlay.json (style, monitor, HUD look, toast modes, category)
 """
 
 from __future__ import annotations
@@ -156,8 +156,12 @@ def on_activate(app: Gtk.Application) -> None:
         "style_pack": pack_id,
         "passthrough_bg_mode": str(saved.get("passthrough_bg_mode") or "chips"),
         "passthrough_bg_alpha": float(saved.get("passthrough_bg_alpha", 0.6)),
+        "hud_bg_alpha": float(saved.get("hud_bg_alpha", 0.72)),
         "toasts_major": bool(saved.get("toasts_major", True)),
-        "toasts_minor": bool(saved.get("toasts_minor", True)),
+        "toasts_minor_mode": str(saved.get("toasts_minor_mode") or "toast"),
+        "minor_bg_mode": str(saved.get("minor_bg_mode") or "full"),
+        "minor_bg_alpha": float(saved.get("minor_bg_alpha", 0.72)),
+        "minor_text_alpha": float(saved.get("minor_text_alpha", 0.92)),
         "hud_category": str(saved.get("hud_category") or ""),
         "api_base": str(saved.get("api_base") or ""),
         "input_gen": 0,
@@ -184,8 +188,12 @@ def on_activate(app: Gtk.Application) -> None:
                 "margin_right": int(state["margin_right"]),
                 "passthrough_bg_mode": state["passthrough_bg_mode"],
                 "passthrough_bg_alpha": state["passthrough_bg_alpha"],
+                "hud_bg_alpha": float(state["hud_bg_alpha"]),
                 "toasts_major": bool(state["toasts_major"]),
-                "toasts_minor": bool(state["toasts_minor"]),
+                "toasts_minor_mode": str(state["toasts_minor_mode"]),
+                "minor_bg_mode": str(state["minor_bg_mode"]),
+                "minor_bg_alpha": float(state["minor_bg_alpha"]),
+                "minor_text_alpha": float(state["minor_text_alpha"]),
                 "hud_category": str(state.get("hud_category") or ""),
                 "api_base": str(state.get("api_base") or ""),
             }
@@ -193,16 +201,28 @@ def on_activate(app: Gtk.Application) -> None:
 
     def apply_passthrough_look() -> None:
         alpha_raw = state.get("passthrough_bg_alpha", 0.6)
+        hud_raw = state.get("hud_bg_alpha", 0.72)
         try:
             alpha = max(0.0, min(1.0, float(alpha_raw)))
         except (TypeError, ValueError):
             alpha = 0.6
+        try:
+            hud_a = max(0.0, min(1.0, float(hud_raw)))
+        except (TypeError, ValueError):
+            hud_a = 0.72
         passthrough_css.load_from_string(
             build_passthrough_css(
                 mode=str(state.get("passthrough_bg_mode") or "chips"),
                 alpha=alpha,
+                hud_alpha=hud_a,
                 name=str(state.get("style_pack") or pack_id),
             )
+        )
+        notices.set_minor_look(
+            bg_mode=str(state.get("minor_bg_mode") or "full"),
+            bg_alpha=float(state.get("minor_bg_alpha", 0.72)),
+            text_alpha=float(state.get("minor_text_alpha", 0.92)),
+            style_pack=str(state.get("style_pack") or pack_id),
         )
 
     def reload_css() -> None:
@@ -314,7 +334,8 @@ def on_activate(app: Gtk.Application) -> None:
             state["style_pack"],
             state["passthrough_bg_mode"],
             bool(state["toasts_major"]),
-            bool(state["toasts_minor"]),
+            str(state["toasts_minor_mode"]),
+            str(state["minor_bg_mode"]),
         )
         if not force and fingerprint == state["fingerprint"]:
             return
@@ -363,15 +384,18 @@ def on_activate(app: Gtk.Application) -> None:
             category_label=cat_label,
             passthrough_bg_mode=str(state["passthrough_bg_mode"]),
             passthrough_bg_alpha=float(state["passthrough_bg_alpha"]),
+            hud_bg_alpha=float(state["hud_bg_alpha"]),
             toasts_major=bool(state["toasts_major"]),
-            toasts_minor=bool(state["toasts_minor"]),
+            toasts_minor_mode=str(state["toasts_minor_mode"]),
+            minor_bg_mode=str(state["minor_bg_mode"]),
+            minor_bg_alpha=float(state["minor_bg_alpha"]),
+            minor_text_alpha=float(state["minor_text_alpha"]),
             on_select_monitor=select_monitor if state["interactive"] else None,
             on_select_style=set_style_pack if state["interactive"] else None,
             on_select_category=set_hud_category if state["interactive"] else None,
-            on_passthrough_settings=set_passthrough_settings
-            if state["interactive"]
-            else None,
-            on_toast_settings=set_toast_settings if state["interactive"] else None,
+            on_hud_look=set_hud_look if state["interactive"] else None,
+            on_major_toasts=set_major_toasts if state["interactive"] else None,
+            on_minor_toasts=set_minor_toasts if state["interactive"] else None,
             on_toggle_collapsed=toggle_collapsed,
             on_toggle_settings=toggle_settings if state["interactive"] else None,
             on_prepare_drag_handle=prepare_drag if state["interactive"] else None,
@@ -489,30 +513,63 @@ def on_activate(app: Gtk.Application) -> None:
         refresh_hud(force=True)
         return f"style: {pack}"
 
-    def set_passthrough_settings(mode: str, alpha: float) -> None:
+    def set_hud_look(mode: str, alpha: float, hud_alpha: float) -> None:
         mode_key = "full" if str(mode).strip().lower() in {"full", "panel", "solid"} else "chips"
         try:
             a = max(0.0, min(1.0, float(alpha)))
         except (TypeError, ValueError):
-            try:
-                a = max(0.0, min(1.0, float(state.get("passthrough_bg_alpha", 0.6))))
-            except (TypeError, ValueError):
-                a = 0.6
+            a = float(state.get("passthrough_bg_alpha", 0.6))
+        try:
+            ha = max(0.0, min(1.0, float(hud_alpha)))
+        except (TypeError, ValueError):
+            ha = float(state.get("hud_bg_alpha", 0.72))
         prev_mode = str(state.get("passthrough_bg_mode") or "")
         state["passthrough_bg_mode"] = mode_key
         state["passthrough_bg_alpha"] = a
+        state["hud_bg_alpha"] = ha
         apply_passthrough_look()
         persist()
         # Rebuild so mode chips update; skip on alpha-only (scale must stay mounted).
         if mode_key != prev_mode:
             refresh_hud(force=True)
 
-    def set_toast_settings(major: bool, minor: bool) -> None:
+    def set_major_toasts(major: bool) -> None:
         state["toasts_major"] = bool(major)
-        state["toasts_minor"] = bool(minor)
-        notices.set_enabled(major=state["toasts_major"], minor=state["toasts_minor"])
+        notices.set_enabled(major=state["toasts_major"])
         persist()
         refresh_hud(force=True)
+
+    def set_minor_toasts(
+        mode: str, bg_mode: str, bg_alpha: float, text_alpha: float
+    ) -> None:
+        mode_key = str(mode or "").strip().lower()
+        if mode_key not in {"off", "toast", "log"}:
+            mode_key = "toast"
+        bg_key = "full" if str(bg_mode).strip().lower() in {"full", "panel", "solid"} else "chips"
+        try:
+            ba = max(0.0, min(1.0, float(bg_alpha)))
+        except (TypeError, ValueError):
+            ba = float(state.get("minor_bg_alpha", 0.72))
+        try:
+            ta = max(0.0, min(1.0, float(text_alpha)))
+        except (TypeError, ValueError):
+            ta = float(state.get("minor_text_alpha", 0.92))
+        prev_mode = str(state.get("toasts_minor_mode") or "")
+        prev_bg = str(state.get("minor_bg_mode") or "")
+        state["toasts_minor_mode"] = mode_key
+        state["minor_bg_mode"] = bg_key
+        state["minor_bg_alpha"] = ba
+        state["minor_text_alpha"] = ta
+        notices.set_enabled(minor_mode=mode_key)
+        notices.set_minor_look(
+            bg_mode=bg_key,
+            bg_alpha=ba,
+            text_alpha=ta,
+            style_pack=str(state.get("style_pack") or pack_id),
+        )
+        persist()
+        if mode_key != prev_mode or bg_key != prev_bg:
+            refresh_hud(force=True)
 
     def set_hud_category(slug: str) -> str:
         state["hud_category"] = str(slug or "").strip()
@@ -638,6 +695,7 @@ def on_activate(app: Gtk.Application) -> None:
         every = max(1, DATA_SYNC_MS // TIMER_TICK_MS)
         if state["sync_ticks"] % every == 0:
             refresh_hud(force=False)
+            notices.refresh_log()
         return True
 
     def poll_events() -> bool:
@@ -672,11 +730,18 @@ def on_activate(app: Gtk.Application) -> None:
     apply_passthrough_look()
     notices.set_enabled(
         major=bool(state["toasts_major"]),
-        minor=bool(state["toasts_minor"]),
+        minor_mode=str(state["toasts_minor_mode"]),
+    )
+    notices.set_minor_look(
+        bg_mode=str(state["minor_bg_mode"]),
+        bg_alpha=float(state["minor_bg_alpha"]),
+        text_alpha=float(state["minor_text_alpha"]),
+        style_pack=str(state["style_pack"]),
     )
     # Best-effort: major toasts wait for seat activity via ext-idle-notify-v1.
     get_idle_monitor().start()
     refresh_hud(force=True)
+    notices.refresh_log()
     try:
         revision, _ = fetch_events(0)
         state["revision"] = revision

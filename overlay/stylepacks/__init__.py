@@ -90,17 +90,24 @@ def build_passthrough_css(
     *,
     mode: str = "chips",
     alpha: float = 0.6,
+    hud_alpha: float | None = None,
     name: str | None = None,
 ) -> str:
-    """Override CSS for non-interactive HUD (full panel vs per-row bars)."""
+    """Override CSS for HUD backgrounds (passthrough chips/full + interactive alpha)."""
     meta = pack_meta(name)
     r, g, b = meta["passthrough_bg_rgb"]
     radius = int(meta.get("passthrough_radius") or 8)
     a = max(0.0, min(1.0, float(alpha)))
+    ha = max(0.0, min(1.0, float(hud_alpha if hud_alpha is not None else a)))
     mode_key = "full" if str(mode).strip().lower() in {"full", "panel", "solid"} else "chips"
+    interactive = f"""
+window.hud-window--interactive {{
+  background-color: rgba({r}, {g}, {b}, {ha:.3f});
+}}
+"""
     if mode_key == "full":
         border_a = min(1.0, a + 0.12)
-        return f"""
+        return interactive + f"""
 window.hud-window--passthrough {{
   background-color: rgba({r}, {g}, {b}, {a:.3f});
   border: 1px solid rgba({r}, {g}, {b}, {border_a:.3f});
@@ -118,8 +125,7 @@ window.hud-window--passthrough {{
 }}
 """
     # Per-row bars: each .hud-row hugs its content width.
-    # Chips stay transparent so gaps inside a row are covered by the row bg.
-    return f"""
+    return interactive + f"""
 window.hud-window--passthrough {{
   background-color: transparent;
   border: none;
@@ -151,6 +157,49 @@ window.hud-window--passthrough {{
   padding: 0;
   border: none;
   background-color: transparent;
+  background-image: none;
+}}
+"""
+
+
+def build_minor_log_css(
+    *,
+    mode: str = "full",
+    bg_alpha: float = 0.72,
+    text_alpha: float = 0.92,
+    name: str | None = None,
+) -> str:
+    """Override CSS for the persistent minor event-log panel."""
+    meta = pack_meta(name)
+    r, g, b = meta["passthrough_bg_rgb"]
+    radius = int(meta.get("passthrough_radius") or 8)
+    ba = max(0.0, min(1.0, float(bg_alpha)))
+    ta = max(0.0, min(1.0, float(text_alpha)))
+    mode_key = "full" if str(mode).strip().lower() in {"full", "panel", "solid"} else "chips"
+    border_a = min(1.0, ba + 0.14)
+
+    if mode_key == "full":
+        panel_bg = f"rgba({r}, {g}, {b}, {ba:.3f})"
+        row_bg = "transparent"
+        win_border = f"1px solid rgba({r}, {g}, {b}, {border_a:.3f})"
+        win_radius = f"{radius}px"
+    else:
+        panel_bg = "transparent"
+        row_bg = f"rgba({r}, {g}, {b}, {ba:.3f})"
+        win_border = "none"
+        win_radius = "0"
+
+    return f"""
+window.minor-log-window {{
+  background-color: {panel_bg};
+  border: {win_border};
+  border-radius: {win_radius};
+}}
+.minor-log {{
+  opacity: {ta:.3f};
+}}
+.minor-log__row {{
+  background-color: {row_bg};
   background-image: none;
 }}
 """

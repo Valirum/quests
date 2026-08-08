@@ -6,7 +6,9 @@ import json
 from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
 
+from quests.changelog import list_changes
 from quests.events import hub
+from quests.models import QuestChangeLogRead
 
 router = APIRouter(tags=["events"])
 
@@ -29,6 +31,16 @@ async def list_events(since: int = Query(default=0, ge=0)) -> dict:
     """Events with revision > since (for overlay toasts + HUD refresh)."""
     events = hub.events_since(since)
     return {"revision": hub.revision, "events": events}
+
+
+@router.get("/api/quest-log", response_model=list[QuestChangeLogRead])
+async def quest_change_log(
+    limit: int = Query(default=100, ge=1, le=500),
+    quest_id: int | None = Query(default=None, ge=1),
+    before_id: int | None = Query(default=None, ge=1),
+) -> list[QuestChangeLogRead]:
+    """Durable quest activity (create/status/steps/edits). Skips step_progress."""
+    return await list_changes(limit=limit, quest_id=quest_id, before_id=before_id)
 
 
 @router.post("/api/ui/focus-quest")

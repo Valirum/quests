@@ -223,7 +223,7 @@ button.hud-icon-btn:focus {{
 }}
 
 .hud-settings-panel {{
-  min-width: 260px;
+  min-width: 280px;
   padding: 2px 0 4px;
 }}
 
@@ -233,6 +233,17 @@ button.hud-icon-btn:focus {{
   font-size: 9pt;
   font-weight: 600;
   letter-spacing: 0.04em;
+}}
+
+.hud-settings-section {{
+  color: #f0e6d2;
+  font-family: {FONT_DISPLAY};
+  font-size: 10pt;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin-top: 6px;
+  opacity: 0.95;
 }}
 
 .hud-settings-hint {{
@@ -495,5 +506,87 @@ button.hud-drag:selected {{
 
 .minor--quest_delayed .minor__change {{
   color: rgba(254, 128, 25, 0.95);
+}}
+
+/* —— Minor event log (persistent) —— */
+.minor-log {{
+  min-width: 280px;
+  max-width: 360px;
+  padding: 10px 12px;
+  font-family: {FONT_TOAST};
+}}
+
+.minor-log__empty {{
+  font-size: 9pt;
+  color: rgba(196, 165, 116, 0.7);
+  font-style: italic;
+}}
+
+.minor-log__row {{
+  padding: 4px 6px;
+  margin: 0;
+  border-radius: 0;
+}}
+
+.minor-log__ts {{
+  font-size: 8pt;
+  font-family: {FONT_BODY};
+  color: rgba(196, 165, 116, 0.75);
+  letter-spacing: 0.04em;
+}}
+
+.minor-log__change {{
+  font-size: 8pt;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(250, 189, 47, 0.9);
+}}
+
+.minor-log__title {{
+  font-size: 10pt;
+  font-weight: 700;
+  color: #f0e6d2;
+  margin-top: 1px;
+}}
+
+.minor-log__detail {{
+  font-size: 8pt;
+  color: rgba(196, 165, 116, 0.85);
+  margin-top: 1px;
+}}
+
+.minor-log__row--step_completed .minor-log__change {{
+  color: rgba(142, 192, 124, 0.95);
+}}
+
+.minor-log__row--quest_deleted .minor-log__change {{
+  color: rgba(251, 73, 52, 0.9);
+}}
+
+.minor-log__row--quest_delayed .minor-log__change {{
+  color: rgba(254, 128, 25, 0.95);
+}}
+
+.minor-log__row--pin_changed .minor-log__change {{
+  color: rgba(131, 165, 152, 0.95);
+}}
+
+.minor-log__row--status_changed .minor-log__change {{
+  color: rgba(211, 134, 155, 0.95);
+}}
+
+.minor-log__row--quest_completed .minor-log__change,
+.minor-log__row--step_completed .minor-log__change {{
+  color: rgba(142, 192, 124, 0.95);
+}}
+
+.minor-log__row--quest_failed .minor-log__change,
+.minor-log__row--quest_deleted .minor-log__change {{
+  color: rgba(251, 73, 52, 0.9);
+}}
+
+.minor-log__row--quest_created .minor-log__change,
+.minor-log__row--quest_appeared .minor-log__change {{
+  color: rgba(250, 189, 47, 0.95);
 }}
 """

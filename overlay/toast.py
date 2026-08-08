@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 from collections import deque
+from datetime import datetime
 
 import cairo
 from gi.repository import Gdk, GLib, Gtk, Gtk4LayerShell as LayerShell, Pango
@@ -11,7 +12,9 @@ from gi.repository import Gdk, GLib, Gtk, Gtk4LayerShell as LayerShell, Pango
 from .idle_notify import get_idle_monitor
 from .monitors import apply_monitor, list_monitors
 from .sounds import sounds
-from .stylepacks import _load_pack, active_pack
+from .stylepacks import _load_pack, active_pack, build_minor_log_css
+
+MINOR_LOG_MAX = 16
 
 
 def _toast_wrap_width(window: Gtk.Window) -> int:
@@ -169,6 +172,35 @@ MINOR_CHANGE = {
     "pin_changed": "Закрепление",
     "quest_updated": "Обновлено",
 }
+
+# Labels for durable /api/quest-log rows (majors + minors).
+LOG_KIND_LABEL = {
+    **MINOR_CHANGE,
+    "quest_created": "Создано",
+    "quest_appeared": "Появилось",
+    "quest_started": "Началось",
+    "quest_completed": "Завершено",
+    "quest_failed": "Провалено",
+    "quest_delayed": "Просрочено",
+}
+
+
+def _format_log_ts(raw: object) -> str:
+    """API ``at`` (UTC ISO) → local HH:MM:SS."""
+    if raw is None or raw == "":
+        return datetime.now().strftime("%H:%M:%S")
+    text = str(raw).strip()
+    try:
+        if text.endswith("Z"):
+            text = text[:-1] + "+00:00"
+        dt = datetime.fromisoformat(text)
+        if dt.tzinfo is not None:
+            dt = dt.astimezone()
+        return dt.strftime("%H:%M:%S")
+    except ValueError:
+        if len(text) >= 8 and text[2] == ":" and text[5] == ":":
+            return text[:8]
+        return datetime.now().strftime("%H:%M:%S")
 
 
 def _pack_timing():
@@ -496,6 +528,12 @@ class MinorHost:
         self._queue.append(event)
         self._pump()
 
+    def hide(self) -> None:
+        self._queue.clear()
+        self._busy = False
+        _clear(self._slot)
+        self._window.hide()
+
     def _pump(self) -> None:
         if self._busy or not self._queue:
             return
@@ -551,33 +589,261 @@ class MinorHost:
         _animate_opacity(card, 0.0, 1.0, fade_in, done=after_in)
 
 
+class MinorLogHost:
+    """Persistent bottom-right event log (backed by /api/quest-log)."""
+
+    def __init__(self, app: Gtk.Application) -> None:
+        self._app = app
+        self._entries: deque[dict] = deque(maxlen=MINOR_LOG_MAX)
+        self._fp: tuple = ()
+        self._bg_mode = "full"
+        self._bg_alpha = 0.72
+        self._text_alpha = 0.92
+        self._css = Gtk.CssProvider()
+        display = Gdk.Display.get_default()
+        if display is not None:
+            Gtk.StyleContext.add_provider_for_display(
+                display, self._css, Gtk.STYLE_PROVIDER_PRIORITY_USER
+            )
+        self._window = self._build()
+        self._apply_look()
+
+    def _build(self) -> Gtk.ApplicationWindow:
+        window = Gtk.ApplicationWindow(application=self._app, title="Quests Event Log")
+        window.set_decorated(False)
+        window.set_default_size(340, -1)
+        window.add_css_class("minor-log-window")
+        LayerShell.init_for_window(window)
+        LayerShell.set_namespace(window, "quests-minor-log")
+        LayerShell.set_layer(window, LayerShell.Layer.TOP)
+        LayerShell.set_anchor(window, LayerShell.Edge.BOTTOM, True)
+        LayerShell.set_anchor(window, LayerShell.Edge.RIGHT, True)
+        LayerShell.set_margin(window, LayerShell.Edge.BOTTOM, 24)
+        LayerShell.set_margin(window, LayerShell.Edge.RIGHT, 24)
+        LayerShell.set_keyboard_mode(window, LayerShell.KeyboardMode.NONE)
+        LayerShell.set_exclusive_zone(window, 0)
+
+        self._root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        self._root.add_css_class("minor-log")
+        self._root.set_halign(Gtk.Align.END)
+        window.set_child(self._root)
+        _clickthrough(window)
+        return window
+
+    def set_look(
+        self,
+        *,
+        bg_mode: str | None = None,
+        bg_alpha: float | None = None,
+        text_alpha: float | None = None,
+        style_pack: str | None = None,
+    ) -> None:
+        if bg_mode is not None:
+            key = str(bg_mode).strip().lower()
+            self._bg_mode = "full" if key in {"full", "panel", "solid"} else "chips"
+        if bg_alpha is not None:
+            try:
+                self._bg_alpha = max(0.0, min(1.0, float(bg_alpha)))
+            except (TypeError, ValueError):
+                pass
+        if text_alpha is not None:
+            try:
+                self._text_alpha = max(0.0, min(1.0, float(text_alpha)))
+            except (TypeError, ValueError):
+                pass
+        self._apply_look(style_pack=style_pack)
+
+    def _apply_look(self, *, style_pack: str | None = None) -> None:
+        self._css.load_from_string(
+            build_minor_log_css(
+                mode=self._bg_mode,
+                bg_alpha=self._bg_alpha,
+                text_alpha=self._text_alpha,
+                name=style_pack or active_pack(),
+            )
+        )
+
+    def load_from_api(self, rows: list[dict]) -> None:
+        """Replace panel contents from /api/quest-log (newest first)."""
+        fp = tuple(int(r["id"]) for r in rows if r.get("id") is not None)
+        if fp == self._fp:
+            if self._entries:
+                self._window.present()
+            return
+        self._fp = fp
+        self._entries.clear()
+        for row in rows[:MINOR_LOG_MAX]:
+            kind = str(row.get("kind") or "quest_updated")
+            self._entries.append(
+                {
+                    "ts": _format_log_ts(row.get("at")),
+                    "kind": kind,
+                    "title": row.get("title") or "—",
+                    "change": LOG_KIND_LABEL.get(kind, kind.replace("_", " ")),
+                    "detail": (row.get("detail") or "").strip(),
+                }
+            )
+        self._rebuild()
+        self._window.present()
+
+    def hide(self) -> None:
+        self._window.hide()
+
+    def clear(self) -> None:
+        self._entries.clear()
+        self._fp = ()
+        _clear(self._root)
+        self._window.hide()
+
+    def _rebuild(self) -> None:
+        _clear(self._root)
+        if not self._entries:
+            empty = Gtk.Label(label="нет событий", xalign=1)
+            empty.add_css_class("minor-log__empty")
+            empty.set_halign(Gtk.Align.END)
+            self._root.append(empty)
+            return
+
+        for entry in self._entries:
+            row = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+            row.add_css_class("minor-log__row")
+            row.add_css_class(f"minor-log__row--{entry['kind']}")
+            row.set_halign(Gtk.Align.END)
+
+            head = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+            head.set_halign(Gtk.Align.END)
+            ts = Gtk.Label(label=entry["ts"], xalign=1)
+            ts.add_css_class("minor-log__ts")
+            change = Gtk.Label(label=entry["change"], xalign=1)
+            change.add_css_class("minor-log__change")
+            head.append(change)
+            head.append(ts)
+            row.append(head)
+
+            title = Gtk.Label(label=entry["title"], xalign=1)
+            title.add_css_class("minor-log__title")
+            title.set_wrap(True)
+            title.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
+            title.set_max_width_chars(36)
+            title.set_halign(Gtk.Align.END)
+            row.append(title)
+
+            detail = entry.get("detail") or ""
+            if detail:
+                det = Gtk.Label(label=detail, xalign=1)
+                det.add_css_class("minor-log__detail")
+                det.set_wrap(True)
+                det.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
+                det.set_max_width_chars(36)
+                det.set_halign(Gtk.Align.END)
+                row.append(det)
+
+            self._root.append(row)
+
+
 class NoticeRouter:
     """Split events into major / minor presentation lanes."""
 
     def __init__(self, app: Gtk.Application) -> None:
         self.major = MajorHost(app)
         self.minor = MinorHost(app)
+        self.log = MinorLogHost(app)
         self.major_enabled = True
-        self.minor_enabled = True
+        self.minor_mode = "toast"  # off | toast | log
+        self._log_refresh_pending = False
 
     def set_monitor(self, monitor: Gdk.Monitor | None) -> None:
         apply_monitor(self.major._window, monitor)
         apply_monitor(self.minor._window, monitor)
+        apply_monitor(self.log._window, monitor)
 
-    def set_enabled(self, *, major: bool | None = None, minor: bool | None = None) -> None:
+    def set_enabled(
+        self,
+        *,
+        major: bool | None = None,
+        minor: bool | None = None,
+        minor_mode: str | None = None,
+    ) -> None:
         if major is not None:
             self.major_enabled = bool(major)
-        if minor is not None:
-            self.minor_enabled = bool(minor)
+        # Prefer explicit mode; legacy ``minor`` bool maps to toast/off.
+        if minor_mode is not None:
+            mode = str(minor_mode).strip().lower()
+            self.minor_mode = mode if mode in {"off", "toast", "log"} else "toast"
+        elif minor is not None:
+            self.minor_mode = "toast" if minor else "off"
+        self._sync_minor_hosts()
+
+    def set_minor_look(
+        self,
+        *,
+        bg_mode: str | None = None,
+        bg_alpha: float | None = None,
+        text_alpha: float | None = None,
+        style_pack: str | None = None,
+    ) -> None:
+        self.log.set_look(
+            bg_mode=bg_mode,
+            bg_alpha=bg_alpha,
+            text_alpha=text_alpha,
+            style_pack=style_pack,
+        )
+
+    def refresh_log(self) -> None:
+        """Pull durable /api/quest-log into the log panel (no-op unless mode=log)."""
+        if self.minor_mode != "log":
+            return
+        try:
+            from .api_client import fetch_quest_log
+
+            rows = fetch_quest_log(limit=MINOR_LOG_MAX)
+        except Exception:
+            return
+        self.log.load_from_api(rows)
+
+    def schedule_refresh_log(self, *, delay_ms: int = 200) -> None:
+        """Debounced refresh after live events (DB write is async)."""
+        if self.minor_mode != "log":
+            return
+        if self._log_refresh_pending:
+            return
+        self._log_refresh_pending = True
+
+        def _go() -> bool:
+            self._log_refresh_pending = False
+            self.refresh_log()
+            return False
+
+        GLib.timeout_add(max(0, int(delay_ms)), _go)
+
+    def _sync_minor_hosts(self) -> None:
+        if self.minor_mode == "toast":
+            self.log.hide()
+        elif self.minor_mode == "log":
+            self.minor.hide()
+            self.refresh_log()
+            self.log._window.present()
+        else:
+            self.minor.hide()
+            self.log.hide()
 
     def enqueue(self, event: dict) -> None:
         kind = event.get("kind") or ""
+        # Kinds that never land in QuestChangeLog — no panel refresh.
+        log_skip = kind in {"step_progress", "startup", "quest_started"}
         if event.get("toast") is False and kind not in MAJOR_KINDS:
+            if self.minor_mode == "log" and not log_skip:
+                self.schedule_refresh_log()
             return
         if kind in MAJOR_KINDS:
             if self.major_enabled:
                 self.major.enqueue(event)
+            if self.minor_mode == "log":
+                self.schedule_refresh_log()
             return
-        # Quiet kinds stay off-screen unless explicitly toasted.
-        if self.minor_enabled and event.get("toast", True):
+        if not event.get("toast", True):
+            return
+        if self.minor_mode == "toast":
             self.minor.enqueue(event)
+        elif self.minor_mode == "log":
+            self.schedule_refresh_log()

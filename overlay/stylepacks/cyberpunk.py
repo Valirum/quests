@@ -270,7 +270,7 @@ button.hud-icon-btn:focus {{
 }}
 
 .hud-settings-panel {{
-  min-width: 260px;
+  min-width: 280px;
   padding: 2px 0 4px;
 }}
 
@@ -281,6 +281,17 @@ button.hud-icon-btn:focus {{
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
+}}
+
+.hud-settings-section {{
+  color: {YELLOW};
+  font-family: {FONT_DISPLAY};
+  font-size: 10pt;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  margin-top: 6px;
+  text-shadow: 0 0 8px rgba(252, 238, 10, 0.25);
 }}
 
 .hud-settings-hint {{
@@ -574,6 +585,96 @@ button.hud-drag:selected {{
 }}
 
 .minor--quest_delayed .minor__change {{
+  color: {YELLOW};
+}}
+
+/* —— Minor event log —— */
+.minor-log {{
+  min-width: 300px;
+  max-width: 380px;
+  padding: 10px 12px 10px 14px;
+  font-family: {FONT_TOAST};
+}}
+
+.minor-log__empty {{
+  font-size: 9pt;
+  color: rgba(220, 220, 222, 0.55);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}}
+
+.minor-log__row {{
+  padding: 5px 8px;
+  margin: 0;
+  border-left: 2px solid rgba(252, 238, 10, 0.35);
+}}
+
+.minor-log__ts {{
+  font-size: 8pt;
+  font-family: {FONT_BODY};
+  color: rgba(220, 220, 222, 0.55);
+  letter-spacing: 0.06em;
+}}
+
+.minor-log__change {{
+  font-size: 8pt;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: {RED};
+}}
+
+.minor-log__title {{
+  font-size: 11pt;
+  font-weight: 700;
+  color: {YELLOW};
+  margin-top: 1px;
+  letter-spacing: 0.01em;
+}}
+
+.minor-log__detail {{
+  font-size: 8pt;
+  color: rgba(220, 220, 222, 0.7);
+  margin-top: 1px;
+}}
+
+.minor-log__row--step_completed .minor-log__change {{
+  color: #3dff9a;
+}}
+
+.minor-log__row--step_completed {{
+  border-left-color: #3dff9a;
+}}
+
+.minor-log__row--quest_deleted .minor-log__change,
+.minor-log__row--quest_failed .minor-log__change {{
+  color: {RED_HOT};
+}}
+
+.minor-log__row--quest_deleted,
+.minor-log__row--quest_failed {{
+  border-left-color: {RED_HOT};
+}}
+
+.minor-log__row--quest_delayed .minor-log__change {{
+  color: {YELLOW};
+}}
+
+.minor-log__row--pin_changed .minor-log__change {{
+  color: {CYAN};
+}}
+
+.minor-log__row--status_changed .minor-log__change {{
+  color: #ff6ec7;
+}}
+
+.minor-log__row--quest_completed .minor-log__change,
+.minor-log__row--step_completed .minor-log__change {{
+  color: #3dff9a;
+}}
+
+.minor-log__row--quest_created .minor-log__change,
+.minor-log__row--quest_appeared .minor-log__change {{
   color: {YELLOW};
 }}
 """
