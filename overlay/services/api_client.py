@@ -15,7 +15,7 @@ def resolve_api_base() -> str:
     if env:
         return env
     try:
-        from .config import CONFIG_PATH
+        from ..config import CONFIG_PATH
 
         if CONFIG_PATH.is_file():
             data = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))

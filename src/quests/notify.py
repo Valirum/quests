@@ -79,7 +79,7 @@ def quest_change_events(before: QuestRead, after: QuestRead) -> list[dict]:
                         "kind": "quest_completed",
                         "title": after.title,
                         "description": desc,
-                        "detail": after.progress_label,
+                        "detail": "завершено",
                         "sound": "quest_completed",
                         "toast": True,
                     },
@@ -93,7 +93,7 @@ def quest_change_events(before: QuestRead, after: QuestRead) -> list[dict]:
                         "kind": "quest_failed",
                         "title": after.title,
                         "description": desc,
-                        "detail": after.progress_label,
+                        "detail": "провалено",
                         "sound": "quest_failed",
                         "toast": True,
                     },
@@ -106,9 +106,7 @@ def quest_change_events(before: QuestRead, after: QuestRead) -> list[dict]:
                     {
                         "kind": "quest_delayed",
                         "title": after.title,
-                        "detail": (
-                            f"{_status_value(before.status)} → delayed"
-                        ),
+                        "detail": "просрочено",
                         "sound": "quest_delayed",
                         "toast": True,
                     },
@@ -181,7 +179,7 @@ def quest_change_events(before: QuestRead, after: QuestRead) -> list[dict]:
                 {
                     "kind": "pin_changed",
                     "title": after.title,
-                    "detail": "Pinned" if after.pinned else "Unpinned",
+                    "detail": "закреплено" if after.pinned else "откреплено",
                     "sound": "pin_changed",
                     "toast": False,
                 },
@@ -209,7 +207,7 @@ def quest_change_events(before: QuestRead, after: QuestRead) -> list[dict]:
                 {
                     "kind": "quest_updated",
                     "title": after.title,
-                    "detail": after.progress_label,
+                    "detail": "изменено",
                     "sound": "quest_updated",
                     "toast": False,
                 },

@@ -17,10 +17,10 @@ DEFAULTS: dict[str, Any] = {
     "monitor_connector": "",
     "margin_top": 24,
     "margin_right": 24,
-    # HUD look (passthrough chips/full + shared bg alpha for HUD window).
+    # HUD look (passthrough chips/full + text opacity).
     "passthrough_bg_mode": "chips",  # chips | full
     "passthrough_bg_alpha": 0.6,
-    "hud_bg_alpha": 0.72,
+    "hud_text_alpha": 0.92,
     # Major toasts on/off.
     "toasts_major": True,
     # Minor: off | toast | log (+ look when log).
@@ -28,6 +28,9 @@ DEFAULTS: dict[str, Any] = {
     "minor_bg_mode": "full",  # chips | full (выделение)
     "minor_bg_alpha": 0.72,
     "minor_text_alpha": 0.92,
+    "minor_log_width": 520,
+    "minor_log_height": 280,
+    "minor_log_line_mode": "clip",  # clip | wrap
     # HUD category lane (slug from /api/categories); empty → first available.
     "hud_category": "",
     # Optional Quests API base (overridden by QUESTS_API env).
@@ -73,6 +76,20 @@ def _normalize_minor_mode(value: Any, *, legacy_bool: Any = None) -> str:
     return str(DEFAULTS["toasts_minor_mode"])
 
 
+def _clamp_int(value: Any, default: int, *, lo: int, hi: int) -> int:
+    try:
+        return max(lo, min(hi, int(value)))
+    except (TypeError, ValueError):
+        return default
+
+
+def _normalize_line_mode(value: Any) -> str:
+    mode = str(value or "").strip().lower()
+    if mode in {"wrap", "перенос", "word"}:
+        return "wrap"
+    return "clip"
+
+
 def load() -> dict[str, Any]:
     cfg = dict(DEFAULTS)
     try:
@@ -100,14 +117,14 @@ def load() -> dict[str, Any]:
                 cfg["passthrough_bg_alpha"] = _clamp_alpha(
                     data["passthrough_bg_alpha"], DEFAULTS["passthrough_bg_alpha"]
                 )
-            if "hud_bg_alpha" in data:
-                cfg["hud_bg_alpha"] = _clamp_alpha(
-                    data["hud_bg_alpha"], DEFAULTS["hud_bg_alpha"]
+            if "hud_text_alpha" in data:
+                cfg["hud_text_alpha"] = _clamp_alpha(
+                    data["hud_text_alpha"], DEFAULTS["hud_text_alpha"]
                 )
-            elif "passthrough_bg_alpha" in data:
-                # First migrate: interactive HUD alpha tracks passthrough.
-                cfg["hud_bg_alpha"] = _clamp_alpha(
-                    data["passthrough_bg_alpha"], DEFAULTS["hud_bg_alpha"]
+            elif "hud_bg_alpha" in data:
+                # Old interactive-bg slider → treat as text alpha fallback.
+                cfg["hud_text_alpha"] = _clamp_alpha(
+                    data["hud_bg_alpha"], DEFAULTS["hud_text_alpha"]
                 )
             if "toasts_major" in data:
                 cfg["toasts_major"] = _as_bool(data["toasts_major"], DEFAULTS["toasts_major"])
@@ -126,6 +143,16 @@ def load() -> dict[str, Any]:
                 cfg["minor_text_alpha"] = _clamp_alpha(
                     data["minor_text_alpha"], DEFAULTS["minor_text_alpha"]
                 )
+            if "minor_log_width" in data:
+                cfg["minor_log_width"] = _clamp_int(
+                    data["minor_log_width"], DEFAULTS["minor_log_width"], lo=280, hi=1200
+                )
+            if "minor_log_height" in data:
+                cfg["minor_log_height"] = _clamp_int(
+                    data["minor_log_height"], DEFAULTS["minor_log_height"], lo=100, hi=1200
+                )
+            if "minor_log_line_mode" in data:
+                cfg["minor_log_line_mode"] = _normalize_line_mode(data["minor_log_line_mode"])
             if "hud_category" in data and isinstance(data["hud_category"], str):
                 cfg["hud_category"] = data["hud_category"].strip()
             if "api_base" in data and isinstance(data["api_base"], str):
@@ -150,7 +177,7 @@ def save(cfg: dict[str, Any]) -> None:
         "passthrough_bg_alpha": _clamp_alpha(
             cfg.get("passthrough_bg_alpha"), DEFAULTS["passthrough_bg_alpha"]
         ),
-        "hud_bg_alpha": _clamp_alpha(cfg.get("hud_bg_alpha"), DEFAULTS["hud_bg_alpha"]),
+        "hud_text_alpha": _clamp_alpha(cfg.get("hud_text_alpha"), DEFAULTS["hud_text_alpha"]),
         "toasts_major": _as_bool(cfg.get("toasts_major"), DEFAULTS["toasts_major"]),
         "toasts_minor_mode": _normalize_minor_mode(cfg.get("toasts_minor_mode")),
         "minor_bg_mode": _normalize_bg_mode(cfg.get("minor_bg_mode")),
@@ -160,6 +187,13 @@ def save(cfg: dict[str, Any]) -> None:
         "minor_text_alpha": _clamp_alpha(
             cfg.get("minor_text_alpha"), DEFAULTS["minor_text_alpha"]
         ),
+        "minor_log_width": _clamp_int(
+            cfg.get("minor_log_width"), DEFAULTS["minor_log_width"], lo=280, hi=1200
+        ),
+        "minor_log_height": _clamp_int(
+            cfg.get("minor_log_height"), DEFAULTS["minor_log_height"], lo=100, hi=1200
+        ),
+        "minor_log_line_mode": _normalize_line_mode(cfg.get("minor_log_line_mode")),
         "hud_category": str(cfg.get("hud_category") or "").strip(),
         "api_base": str(cfg.get("api_base") or "").strip().rstrip("/"),
     }

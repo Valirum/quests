@@ -1,1 +1,1 @@
-"""Wayland overlay package: HUD + toast notifications."""
+"""Wayland overlay package: HUD + notices (major/minor/event log)."""

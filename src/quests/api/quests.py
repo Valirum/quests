@@ -129,7 +129,7 @@ async def create_quest(
             quest_id=read.id,
             title=read.title,
             description=read.description or "",
-            detail=read.progress_label,
+            detail="создано задание",
             sound="quest_created",
             toast=True,
             significance=(
@@ -285,7 +285,7 @@ async def delete_quest(
         quest_id=quest_id,
         title=title,
         description=description,
-        detail="Запись удалена из журнала",
+        detail="удалено",
         sound="quest_deleted",
         toast=True,
     )
