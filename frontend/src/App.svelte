@@ -16,6 +16,7 @@
   import { questMatchesQuery } from './lib/js/search.js'
   import { OPEN_STATUSES } from './lib/js/questFormat.js'
   import { groupQuestsByCategory } from './lib/js/questGroups.js'
+  import { copyText } from './lib/js/clipboard.js'
   import QuestModal from './lib/modals/QuestModal.svelte'
   import QuestlineModal from './lib/modals/QuestlineModal.svelte'
   import TemplatesModal from './lib/modals/TemplatesModal.svelte'
@@ -267,7 +268,7 @@
   async function copyIdToClipboard(kind, id) {
     if (id == null) return
     try {
-      await navigator.clipboard.writeText(`${kind}=${id}`)
+      await copyText(`${kind}=${id}`)
     } catch (e) {
       error = e?.message || String(e)
     }
