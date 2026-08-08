@@ -1,5 +1,6 @@
 <script>
   import Icon from '../ui/Icon.svelte'
+  import ActivityCalendar from './ActivityCalendar.svelte'
   import { formatLocal, localTimeZone } from '../js/time.js'
   import {
     periodBadge,
@@ -10,6 +11,7 @@
 
   /** @type {{
    *   selected: any | null,
+   *   quests?: any[],
    *   nowMs: number,
    *   statusBusy: boolean,
    *   deleting: boolean,
@@ -24,9 +26,11 @@
    *   onStepEditKeydown: (event: KeyboardEvent, step: any) => void,
    *   onStepEditBlur: (step: any) => void,
    *   onStepEditInput: (value: string) => void,
+   *   onSelectQuest?: (id: number) => void,
    * }} */
   let {
     selected,
+    quests = [],
     nowMs,
     statusBusy,
     deleting,
@@ -41,6 +45,7 @@
     onStepEditKeydown,
     onStepEditBlur,
     onStepEditInput,
+    onSelectQuest,
   } = $props()
 
   const tzLabel = localTimeZone()
@@ -49,8 +54,8 @@
 
 <section class="detail" aria-live="polite">
   {#if !selected}
-    <div class="detail__empty">
-      <p>Выбери квест слева — или создай новый.</p>
+    <div class="detail__empty detail__empty--cal">
+      <ActivityCalendar {quests} {onSelectQuest} />
     </div>
   {:else}
     <header class="detail__head">

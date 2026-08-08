@@ -21,6 +21,16 @@
     onOpenCreateQuestline,
     onOpenCreateQuest,
   } = $props()
+
+  /** Map WS states onto the same chip palette as API/HUD/Bot. */
+  let liveChip = $derived.by(() => {
+    const s = String(liveStatus || 'off')
+    if (s === 'live') return { status: 'ok', title: 'WebSocket: live' }
+    if (s === 'connecting' || s === 'reconnect') {
+      return { status: 'unknown', title: `WebSocket: ${s}` }
+    }
+    return { status: 'offline', title: `WebSocket: ${s}` }
+  })
 </script>
 
 <header class="journal__header">
@@ -29,16 +39,16 @@
       <span class="brand__mark" aria-hidden="true">◈</span>
       <h1 class="brand__title">{view === 'hero' ? 'Лист' : 'Задачи'}</h1>
     </div>
-    <span
-      class="live"
-      data-status={liveStatus}
-      title={`Live sync: ${liveStatus}`}
-      aria-label={`Live sync: ${liveStatus}`}
-    >
-      <span class="live__dot" aria-hidden="true"></span>
-      <span class="live__text">{liveStatus}</span>
-    </span>
     <div class="health" role="status" aria-label="Состояние сервисов">
+      <span
+        class="health__chip"
+        data-status={liveChip.status}
+        title={liveChip.title}
+        aria-label={liveChip.title}
+      >
+        <span class="health__dot" aria-hidden="true"></span>
+        <span class="health__label">Live</span>
+      </span>
       <span class="health__chip" data-status={health.api} title="API">
         <span class="health__dot" aria-hidden="true"></span>
         <span class="health__label">API</span>

@@ -153,10 +153,11 @@
       if (prefer != null && next.some((q) => q.id === prefer)) {
         selectedId = prefer
         pendingSelectId = null
-      } else if (!next.some((q) => q.id === selectedId)) {
-        const visible = next.filter((q) => questMatchesQuery(q, searchQuery))
-        selectedId = visible[0]?.id ?? next[0]?.id ?? null
+      } else if (selectedId != null && !next.some((q) => q.id === selectedId)) {
+        // Selected quest gone — show calendar, don't force another pick.
+        selectedId = null
       }
+      // selectedId === null: keep empty detail (activity calendar)
     } catch (e) {
       if (!silent) {
         error = e.message || String(e)
@@ -513,6 +514,20 @@
     }
   }
 
+  function clearSelectedQuest({ pushUrl = true } = {}) {
+    selectedId = null
+    pendingSelectId = null
+    if (pushUrl) {
+      try {
+        const url = new URL(location.href)
+        url.searchParams.delete('quest')
+        history.replaceState(null, '', url)
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+
   async function refreshHealth() {
     try {
       const data = await fetchHealth()
@@ -564,6 +579,29 @@
       stop()
     }
   })
+
+  // Esc in journal (no modal): collapse selected quest → activity calendar.
+  $effect(() => {
+    const onKey = (event) => {
+      if (event.key !== 'Escape') return
+      if (view !== 'journal') return
+      if (modalOpen || lineModalOpen || templatesOpen || settingsOpen) return
+      if (deleteConfirmOpen || lineDeleteConfirmOpen || ctxOpen) return
+      if (selectedId == null) return
+      const t = event.target
+      if (
+        t instanceof HTMLElement &&
+        (t.closest('input, textarea, select, [contenteditable="true"]') ||
+          t.isContentEditable)
+      ) {
+        return
+      }
+      event.preventDefault()
+      clearSelectedQuest()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  })
 </script>
 
 <div class="journal">
@@ -600,7 +638,7 @@
         {categoryOpen}
         {lineOpen}
         {nowMs}
-        onSelect={(id) => (selectedId = id)}
+        onSelect={(id) => selectQuestFromUi(id)}
         onTogglePin={togglePin}
         onQuestContextMenu={openQuestContextMenu}
         onLineContextMenu={openLineContextMenu}
@@ -609,6 +647,7 @@
       />
       <QuestDetail
         {selected}
+        {quests}
         {nowMs}
         {statusBusy}
         {deleting}
@@ -623,6 +662,7 @@
         onStepEditKeydown={onStepEditKeydown}
         onStepEditBlur={onStepEditBlur}
         onStepEditInput={(v) => (stepEditValue = v)}
+        onSelectQuest={(id) => selectQuestFromUi(id)}
       />
     </div>
   {/if}

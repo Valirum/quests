@@ -116,11 +116,17 @@ class EventHub:
             }
             self._recent.append(payload)
             await self._prune_and_send(json.dumps(payload))
-        # Outside the lock — hooks may I/O; don't block other publishes longer than needed.
+        # Outside the lock — hooks / durable log may I/O.
         try:
             from quests.hooks import dispatch_hooks
 
             asyncio.create_task(dispatch_hooks(payload))
+        except Exception:
+            pass
+        try:
+            from quests.changelog import persist_event
+
+            asyncio.create_task(persist_event(payload))
         except Exception:
             pass
         return payload

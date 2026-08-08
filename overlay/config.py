@@ -17,12 +17,17 @@ DEFAULTS: dict[str, Any] = {
     "monitor_connector": "",
     "margin_top": 24,
     "margin_right": 24,
-    # Passthrough (non-interactive) look only.
+    # HUD look (passthrough chips/full + shared bg alpha for HUD window).
     "passthrough_bg_mode": "chips",  # chips | full
     "passthrough_bg_alpha": 0.6,
-    # Toast lanes (major = fullscreen center, minor = small corner).
+    "hud_bg_alpha": 0.72,
+    # Major toasts on/off.
     "toasts_major": True,
-    "toasts_minor": True,
+    # Minor: off | toast | log (+ look when log).
+    "toasts_minor_mode": "toast",
+    "minor_bg_mode": "full",  # chips | full (выделение)
+    "minor_bg_alpha": 0.72,
+    "minor_text_alpha": 0.92,
     # HUD category lane (slug from /api/categories); empty → first available.
     "hud_category": "",
     # Optional Quests API base (overridden by QUESTS_API env).
@@ -39,7 +44,7 @@ def _clamp_alpha(value: Any, default: float = 0.6) -> float:
 
 def _as_bool(value: Any, default: bool = True) -> bool:
     if isinstance(value, bool):
-        return value
+        return True if value else False
     if isinstance(value, (int, float)):
         return bool(value)
     if isinstance(value, str):
@@ -56,6 +61,16 @@ def _normalize_bg_mode(value: Any) -> str:
     if mode in {"full", "panel", "solid"}:
         return "full"
     return "chips"
+
+
+def _normalize_minor_mode(value: Any, *, legacy_bool: Any = None) -> str:
+    raw = str(value or "").strip().lower()
+    if raw in {"off", "toast", "log"}:
+        return raw
+    # Migrate old toasts_minor bool.
+    if legacy_bool is not None:
+        return "toast" if _as_bool(legacy_bool, True) else "off"
+    return str(DEFAULTS["toasts_minor_mode"])
 
 
 def load() -> dict[str, Any]:
@@ -85,10 +100,32 @@ def load() -> dict[str, Any]:
                 cfg["passthrough_bg_alpha"] = _clamp_alpha(
                     data["passthrough_bg_alpha"], DEFAULTS["passthrough_bg_alpha"]
                 )
+            if "hud_bg_alpha" in data:
+                cfg["hud_bg_alpha"] = _clamp_alpha(
+                    data["hud_bg_alpha"], DEFAULTS["hud_bg_alpha"]
+                )
+            elif "passthrough_bg_alpha" in data:
+                # First migrate: interactive HUD alpha tracks passthrough.
+                cfg["hud_bg_alpha"] = _clamp_alpha(
+                    data["passthrough_bg_alpha"], DEFAULTS["hud_bg_alpha"]
+                )
             if "toasts_major" in data:
                 cfg["toasts_major"] = _as_bool(data["toasts_major"], DEFAULTS["toasts_major"])
-            if "toasts_minor" in data:
-                cfg["toasts_minor"] = _as_bool(data["toasts_minor"], DEFAULTS["toasts_minor"])
+            if "toasts_minor_mode" in data or "toasts_minor" in data:
+                cfg["toasts_minor_mode"] = _normalize_minor_mode(
+                    data.get("toasts_minor_mode"),
+                    legacy_bool=data.get("toasts_minor"),
+                )
+            if "minor_bg_mode" in data:
+                cfg["minor_bg_mode"] = _normalize_bg_mode(data["minor_bg_mode"])
+            if "minor_bg_alpha" in data:
+                cfg["minor_bg_alpha"] = _clamp_alpha(
+                    data["minor_bg_alpha"], DEFAULTS["minor_bg_alpha"]
+                )
+            if "minor_text_alpha" in data:
+                cfg["minor_text_alpha"] = _clamp_alpha(
+                    data["minor_text_alpha"], DEFAULTS["minor_text_alpha"]
+                )
             if "hud_category" in data and isinstance(data["hud_category"], str):
                 cfg["hud_category"] = data["hud_category"].strip()
             if "api_base" in data and isinstance(data["api_base"], str):
@@ -113,8 +150,16 @@ def save(cfg: dict[str, Any]) -> None:
         "passthrough_bg_alpha": _clamp_alpha(
             cfg.get("passthrough_bg_alpha"), DEFAULTS["passthrough_bg_alpha"]
         ),
+        "hud_bg_alpha": _clamp_alpha(cfg.get("hud_bg_alpha"), DEFAULTS["hud_bg_alpha"]),
         "toasts_major": _as_bool(cfg.get("toasts_major"), DEFAULTS["toasts_major"]),
-        "toasts_minor": _as_bool(cfg.get("toasts_minor"), DEFAULTS["toasts_minor"]),
+        "toasts_minor_mode": _normalize_minor_mode(cfg.get("toasts_minor_mode")),
+        "minor_bg_mode": _normalize_bg_mode(cfg.get("minor_bg_mode")),
+        "minor_bg_alpha": _clamp_alpha(
+            cfg.get("minor_bg_alpha"), DEFAULTS["minor_bg_alpha"]
+        ),
+        "minor_text_alpha": _clamp_alpha(
+            cfg.get("minor_text_alpha"), DEFAULTS["minor_text_alpha"]
+        ),
         "hud_category": str(cfg.get("hud_category") or "").strip(),
         "api_base": str(cfg.get("api_base") or "").strip().rstrip("/"),
     }

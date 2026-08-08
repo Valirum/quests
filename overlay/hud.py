@@ -357,6 +357,37 @@ def _settings_label(text: str) -> Gtk.Label:
     return lbl
 
 
+def _settings_section(text: str) -> Gtk.Label:
+    lbl = Gtk.Label(label=text)
+    lbl.add_css_class("hud-settings-section")
+    lbl.set_halign(Gtk.Align.END)
+    lbl.set_xalign(1.0)
+    return lbl
+
+
+def _alpha_scale(
+    value: float,
+    on_change: Callable[[float], None],
+) -> Gtk.Scale:
+    adj = Gtk.Adjustment(
+        value=round(max(0.0, min(1.0, float(value))) * 100),
+        lower=0,
+        upper=100,
+        step_increment=1,
+        page_increment=5,
+    )
+    scale = Gtk.Scale(orientation=Gtk.Orientation.HORIZONTAL, adjustment=adj)
+    scale.set_digits(0)
+    scale.set_draw_value(True)
+    scale.set_value_pos(Gtk.PositionType.RIGHT)
+    scale.set_hexpand(True)
+    scale.set_size_request(220, -1)
+    scale.add_css_class("hud-settings-scale")
+    scale.set_halign(Gtk.Align.FILL)
+    scale.connect("value-changed", lambda s: on_change(float(s.get_value()) / 100.0))
+    return scale
+
+
 def _opt_slider(
     options: list[tuple[str, str]],
     active_id: str,
@@ -401,28 +432,48 @@ def _append_settings_panel(
     category_slug: str,
     bg_mode: str,
     bg_alpha: float,
+    hud_bg_alpha: float,
     toasts_major: bool,
-    toasts_minor: bool,
+    toasts_minor_mode: str,
+    minor_bg_mode: str,
+    minor_bg_alpha: float,
+    minor_text_alpha: float,
     on_select_monitor: Callable[[int], None] | None,
     on_select_style: Callable[[str], None] | None,
     on_select_category: Callable[[str], None] | None,
-    on_passthrough_settings: Callable[[str, float], None] | None,
-    on_toast_settings: Callable[[bool, bool], None] | None,
+    on_hud_look: Callable[[str, float, float], None] | None,
+    on_major_toasts: Callable[[bool], None] | None,
+    on_minor_toasts: Callable[[str, str, float, float], None] | None,
 ) -> None:
     panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
     panel.add_css_class("hud-settings-panel")
     panel.set_halign(Gtk.Align.END)
-    panel.set_size_request(260, -1)
+    panel.set_size_request(280, -1)
 
     mode = "full" if str(bg_mode).strip().lower() in {"full", "panel", "solid"} else "chips"
     alpha = max(0.0, min(1.0, float(bg_alpha)))
+    hud_alpha = max(0.0, min(1.0, float(hud_bg_alpha)))
+    minor_mode = str(toasts_minor_mode or "toast").strip().lower()
+    if minor_mode not in {"off", "toast", "log"}:
+        minor_mode = "toast"
+    m_bg_mode = (
+        "full"
+        if str(minor_bg_mode).strip().lower() in {"full", "panel", "solid"}
+        else "chips"
+    )
+    m_bg_a = max(0.0, min(1.0, float(minor_bg_alpha)))
+    m_text_a = max(0.0, min(1.0, float(minor_text_alpha)))
     on_off = [("1", "вкл"), ("0", "выкл")]
+    bg_opts = [("chips", "выделение"), ("full", "полный")]
 
-    # Monitor
+    # —— Общее ——
+    panel.append(_settings_section("Общее"))
     panel.append(_settings_label("Монитор"))
     if monitors and on_select_monitor is not None:
         mon_opts = [(str(i), label) for i, label in monitors]
-        active_mon = str(monitor_index if any(i == monitor_index for i, _ in monitors) else monitors[0][0])
+        active_mon = str(
+            monitor_index if any(i == monitor_index for i, _ in monitors) else monitors[0][0]
+        )
 
         def _pick_mon(oid: str) -> None:
             on_select_monitor(int(oid))
@@ -431,17 +482,21 @@ def _append_settings_panel(
     else:
         panel.append(_chip("нет мониторов", "hint"))
 
-    # Style
     panel.append(_settings_label("Стиль"))
     if style_packs and on_select_style is not None:
         panel.append(_opt_slider(style_packs, style_pack_id, on_select_style))
     else:
         panel.append(_chip(style_pack_id, "hint"))
 
-    # Category lane
-    panel.append(_settings_label("Раздел в HUD"))
+    # —— HUD ——
+    panel.append(_settings_section("HUD"))
+    panel.append(_settings_label("Раздел"))
     if categories and on_select_category is not None:
-        active_cat = category_slug if any(s == category_slug for s, _ in categories) else categories[0][0]
+        active_cat = (
+            category_slug
+            if any(s == category_slug for s, _ in categories)
+            else categories[0][0]
+        )
         panel.append(_opt_slider(categories, active_cat, on_select_category))
         cat_hint = Gtk.Label(label="z / x — листать раздел")
         cat_hint.add_css_class("hint")
@@ -452,68 +507,89 @@ def _append_settings_panel(
     else:
         panel.append(_chip("нет разделов", "hint"))
 
-    # Background mode
     panel.append(_settings_label("Фон (passthrough)"))
-    bg_opts = [("chips", "выделение"), ("full", "полный")]
+    hud_look = {"mode": mode, "alpha": alpha, "hud": hud_alpha}
+
+    def _emit_hud_look(
+        *,
+        next_mode: str | None = None,
+        next_alpha: float | None = None,
+        next_hud: float | None = None,
+    ) -> None:
+        if on_hud_look is None:
+            return
+        if next_mode is not None:
+            hud_look["mode"] = next_mode
+        if next_alpha is not None:
+            hud_look["alpha"] = next_alpha
+        if next_hud is not None:
+            hud_look["hud"] = next_hud
+        on_hud_look(hud_look["mode"], hud_look["alpha"], hud_look["hud"])
 
     def _pick_bg(oid: str) -> None:
-        if on_passthrough_settings is None:
-            return
-        on_passthrough_settings(oid, alpha)
+        _emit_hud_look(next_mode=oid)
 
     panel.append(_opt_slider(bg_opts, mode, _pick_bg))
-
-    # Alpha
     panel.append(_settings_label("Альфа фона"))
-    adj = Gtk.Adjustment(
-        value=round(alpha * 100),
-        lower=0,
-        upper=100,
-        step_increment=1,
-        page_increment=5,
-    )
-    scale = Gtk.Scale(orientation=Gtk.Orientation.HORIZONTAL, adjustment=adj)
-    scale.set_digits(0)
-    scale.set_draw_value(True)
-    scale.set_value_pos(Gtk.PositionType.RIGHT)
-    scale.set_hexpand(True)
-    scale.set_size_request(220, -1)
-    scale.add_css_class("hud-settings-scale")
-    scale.set_halign(Gtk.Align.FILL)
+    panel.append(_alpha_scale(alpha, lambda v: _emit_hud_look(next_alpha=v)))
+    panel.append(_settings_label("Альфа HUD"))
+    panel.append(_alpha_scale(hud_alpha, lambda v: _emit_hud_look(next_hud=v)))
 
-    def _on_alpha(*_args) -> None:
-        if on_passthrough_settings is None:
-            return
-        on_passthrough_settings(mode, float(scale.get_value()) / 100.0)
-
-    scale.connect("value-changed", _on_alpha)
-    panel.append(scale)
-
-    hint = Gtk.Label(label="фон виден только вне interactive")
-    hint.add_css_class("hint")
-    hint.add_css_class("hud-settings-hint")
-    hint.set_halign(Gtk.Align.END)
-    hint.set_xalign(1.0)
-    panel.append(hint)
-
-    # Toasts
-    panel.append(_settings_label("Тосты полноэкранные"))
+    # —— Мажорные тосты ——
+    panel.append(_settings_section("Мажорные тосты"))
     major_on = bool(toasts_major)
-    minor_on = bool(toasts_minor)
 
     def _pick_major(oid: str) -> None:
-        if on_toast_settings is None:
+        if on_major_toasts is None:
             return
-        on_toast_settings(oid == "1", minor_on)
-
-    def _pick_minor(oid: str) -> None:
-        if on_toast_settings is None:
-            return
-        on_toast_settings(major_on, oid == "1")
+        on_major_toasts(oid == "1")
 
     panel.append(_opt_slider(on_off, "1" if major_on else "0", _pick_major))
-    panel.append(_settings_label("Тосты мелкие"))
-    panel.append(_opt_slider(on_off, "1" if minor_on else "0", _pick_minor))
+
+    # —— Минорные тосты ——
+    panel.append(_settings_section("Минорные тосты"))
+    panel.append(_settings_label("Режим"))
+    minor_opts = [("off", "выкл"), ("toast", "тост"), ("log", "лог")]
+    minor_look = {
+        "mode": minor_mode,
+        "bg": m_bg_mode,
+        "bg_a": m_bg_a,
+        "text_a": m_text_a,
+    }
+
+    def _emit_minor(
+        *,
+        next_mode: str | None = None,
+        next_bg: str | None = None,
+        next_bg_a: float | None = None,
+        next_text_a: float | None = None,
+    ) -> None:
+        if on_minor_toasts is None:
+            return
+        if next_mode is not None:
+            minor_look["mode"] = next_mode
+        if next_bg is not None:
+            minor_look["bg"] = next_bg
+        if next_bg_a is not None:
+            minor_look["bg_a"] = next_bg_a
+        if next_text_a is not None:
+            minor_look["text_a"] = next_text_a
+        on_minor_toasts(
+            minor_look["mode"],
+            minor_look["bg"],
+            minor_look["bg_a"],
+            minor_look["text_a"],
+        )
+
+    panel.append(_opt_slider(minor_opts, minor_mode, lambda oid: _emit_minor(next_mode=oid)))
+    panel.append(_settings_label("Выделение"))
+    panel.append(
+        _opt_slider(bg_opts, m_bg_mode, lambda oid: _emit_minor(next_bg=oid))
+    )
+    panel.append(_settings_label("Альфа фона"))
+    panel.append(_alpha_scale(m_bg_a, lambda v: _emit_minor(next_bg_a=v)))
+    panel.append(_settings_label("Альфа текста"))
+    panel.append(_alpha_scale(m_text_a, lambda v: _emit_minor(next_text_a=v)))
 
     root.append(panel)
 
@@ -535,13 +611,18 @@ def build_hud(
     category_label: str = "",
     passthrough_bg_mode: str = "chips",
     passthrough_bg_alpha: float = 0.6,
+    hud_bg_alpha: float = 0.72,
     toasts_major: bool = True,
-    toasts_minor: bool = True,
+    toasts_minor_mode: str = "toast",
+    minor_bg_mode: str = "full",
+    minor_bg_alpha: float = 0.72,
+    minor_text_alpha: float = 0.92,
     on_select_monitor: Callable[[int], None] | None = None,
     on_select_style: Callable[[str], None] | None = None,
     on_select_category: Callable[[str], None] | None = None,
-    on_passthrough_settings: Callable[[str, float], None] | None = None,
-    on_toast_settings: Callable[[bool, bool], None] | None = None,
+    on_hud_look: Callable[[str, float, float], None] | None = None,
+    on_major_toasts: Callable[[bool], None] | None = None,
+    on_minor_toasts: Callable[[str, str, float, float], None] | None = None,
     on_toggle_collapsed: Callable[[], None] | None = None,
     on_toggle_settings: Callable[[], None] | None = None,
     on_prepare_drag_handle: Callable[[Gtk.Widget], None] | None = None,
@@ -640,13 +721,18 @@ def build_hud(
             category_slug=category_slug,
             bg_mode=passthrough_bg_mode,
             bg_alpha=passthrough_bg_alpha,
+            hud_bg_alpha=hud_bg_alpha,
             toasts_major=toasts_major,
-            toasts_minor=toasts_minor,
+            toasts_minor_mode=toasts_minor_mode,
+            minor_bg_mode=minor_bg_mode,
+            minor_bg_alpha=minor_bg_alpha,
+            minor_text_alpha=minor_text_alpha,
             on_select_monitor=on_select_monitor,
             on_select_style=on_select_style,
             on_select_category=on_select_category,
-            on_passthrough_settings=on_passthrough_settings,
-            on_toast_settings=on_toast_settings,
+            on_hud_look=on_hud_look,
+            on_major_toasts=on_major_toasts,
+            on_minor_toasts=on_minor_toasts,
         )
     elif not favorites and not urgent and not category:
         empty = Gtk.Box(

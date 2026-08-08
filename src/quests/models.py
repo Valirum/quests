@@ -425,6 +425,42 @@ class TemplateEmitRoll(SQLModel, table=True):
     updated_at: datetime = Field(default_factory=utcnow)
 
 
+# --- Quest change log (append-only activity) ------------------------------
+
+
+class QuestChangeLog(SQLModel, table=True):
+    """Durable log of quest lifecycle / edits (not intra-step progress)."""
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    at: datetime = Field(default_factory=utcnow, index=True)
+    kind: str = Field(max_length=32, index=True)
+    quest_id: Optional[int] = Field(
+        default=None,
+        foreign_key="quest.id",
+        index=True,
+    )
+    title: str = Field(default="", max_length=200)
+    detail: str = Field(default="", max_length=500)
+    significance: Optional[str] = Field(default=None, max_length=16)
+    # Monotonic hub revision when published live; null if backfilled later.
+    revision: Optional[int] = Field(default=None, index=True)
+
+
+class QuestChangeLogRead(SQLModel):
+    id: int
+    at: datetime
+    kind: str
+    quest_id: Optional[int] = None
+    title: str
+    detail: str
+    significance: Optional[str] = None
+    revision: Optional[int] = None
+
+    @field_serializer("at", when_used="json")
+    def _ser_at(self, value: Optional[datetime]) -> Optional[str]:
+        return to_utc_iso(value)
+
+
 # --- Hero sheet / metrics -------------------------------------------------
 
 
