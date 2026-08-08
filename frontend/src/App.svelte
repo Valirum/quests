@@ -62,10 +62,11 @@
   let ctxOpen = $state(false)
   let ctxX = $state(0)
   let ctxY = $state(0)
-  /** @type {'line' | 'quest' | null} */
+  /** @type {'line' | 'quest' | 'step' | null} */
   let ctxKind = $state(null)
   let ctxLineId = $state(/** @type {number | null} */ (null))
   let ctxQuestId = $state(/** @type {number | null} */ (null))
+  let ctxStepId = $state(/** @type {number | null} */ (null))
   let lineDeleteConfirmOpen = $state(false)
   let lineDeleting = $state(false)
   let deleting = $state(false)
@@ -85,6 +86,8 @@
   let ctxItems = $derived.by(() => {
     if (ctxKind === 'line') {
       return [
+        { id: 'copy-id', label: `Копировать questline=${ctxLineId}` },
+        { id: 'sep-copy', sep: true },
         { id: 'add', label: 'Добавить квест' },
         { id: 'edit', label: 'Редактировать' },
         { id: 'delete', label: 'Удалить', danger: true },
@@ -92,6 +95,8 @@
     }
     if (ctxKind === 'quest') {
       return [
+        { id: 'copy-id', label: `Копировать quest=${ctxQuestId}` },
+        { id: 'sep-copy', sep: true },
         { id: 'edit', label: 'Редактировать' },
         { id: 'sep-delay', sep: true },
         { id: 'delay-15', label: 'Отложить на 15 мин' },
@@ -103,6 +108,9 @@
         { id: 'sep-danger', sep: true },
         { id: 'delete', label: 'Удалить', danger: true },
       ]
+    }
+    if (ctxKind === 'step') {
+      return [{ id: 'copy-id', label: `Копировать step=${ctxStepId}` }]
     }
     return []
   })
@@ -220,6 +228,7 @@
     ctxKind = 'line'
     ctxLineId = line.id
     ctxQuestId = null
+    ctxStepId = null
     ctxX = event.clientX
     ctxY = event.clientY
     ctxOpen = true
@@ -231,7 +240,20 @@
     ctxKind = 'quest'
     ctxQuestId = quest.id
     ctxLineId = null
+    ctxStepId = null
     selectedId = quest.id
+    ctxX = event.clientX
+    ctxY = event.clientY
+    ctxOpen = true
+  }
+
+  function openStepContextMenu(event, step) {
+    event.preventDefault()
+    event.stopPropagation()
+    ctxKind = 'step'
+    ctxStepId = step.id
+    ctxQuestId = null
+    ctxLineId = null
     ctxX = event.clientX
     ctxY = event.clientY
     ctxOpen = true
@@ -242,7 +264,20 @@
     ctxKind = null
   }
 
+  async function copyIdToClipboard(kind, id) {
+    if (id == null) return
+    try {
+      await navigator.clipboard.writeText(`${kind}=${id}`)
+    } catch (e) {
+      error = e?.message || String(e)
+    }
+  }
+
   function onLineContextSelect(action) {
+    if (action === 'copy-id') {
+      copyIdToClipboard('questline', ctxLineId)
+      return
+    }
     const line = questlines.find((l) => l.id === ctxLineId)
     if (!line && action !== 'delete') return
     if (action === 'add') {
@@ -296,6 +331,10 @@
   }
 
   function onQuestContextSelect(action) {
+    if (action === 'copy-id') {
+      copyIdToClipboard('quest', ctxQuestId)
+      return
+    }
     const quest = quests.find((q) => q.id === ctxQuestId)
     if (!quest) return
     if (action === 'edit') {
@@ -335,6 +374,10 @@
     }
     if (ctxKind === 'quest') {
       onQuestContextSelect(action)
+      return
+    }
+    if (ctxKind === 'step' && action === 'copy-id') {
+      copyIdToClipboard('step', ctxStepId)
     }
   }
 
@@ -680,6 +723,12 @@
         onStepEditBlur={onStepEditBlur}
         onStepEditInput={(v) => (stepEditValue = v)}
         onSelectQuest={(id) => selectQuestFromUi(id)}
+        onQuestTitleContextMenu={openQuestContextMenu}
+        onLineHeadContextMenu={(e) => {
+          const line = questlines.find((l) => l.id === selected?.questline_id)
+          if (line) openLineContextMenu(e, line)
+        }}
+        onStepContextMenu={openStepContextMenu}
       />
     </div>
   {/if}

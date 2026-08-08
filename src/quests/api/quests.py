@@ -90,6 +90,10 @@ async def get_quest(
 @router.post("", response_model=QuestRead, status_code=status.HTTP_201_CREATED)
 async def create_quest(
     payload: QuestCreate,
+    quiet: bool = Query(
+        default=False,
+        description="If true — publish without overlay toasts (HUD still refreshes).",
+    ),
     session: AsyncSession = Depends(get_session),
 ) -> QuestRead:
     data = payload.model_dump(exclude={"steps"})
@@ -131,7 +135,7 @@ async def create_quest(
             description=read.description or "",
             detail="создано задание",
             sound="quest_created",
-            toast=True,
+            toast=not quiet,
             significance=(
                 read.significance.value
                 if hasattr(read.significance, "value")
@@ -145,6 +149,10 @@ async def create_quest(
 async def update_quest(
     quest_id: int,
     payload: QuestUpdate,
+    quiet: bool = Query(
+        default=False,
+        description="If true — publish without overlay toasts (HUD still refreshes).",
+    ),
     session: AsyncSession = Depends(get_session),
 ) -> QuestRead:
     quest = await _get_quest_or_404(session, quest_id)
@@ -218,7 +226,7 @@ async def update_quest(
     session.add(quest)
     await session.commit()
     read = quest_to_read(await _get_quest_or_404(session, quest_id))
-    await _publish_changes(before, read)
+    await _publish_changes(before, read, quiet=quiet)
     return read
 
 
@@ -227,6 +235,10 @@ async def update_quest_step(
     quest_id: int,
     step_id: int,
     payload: QuestStepUpdate,
+    quiet: bool = Query(
+        default=False,
+        description="If true — publish without overlay toasts (HUD still refreshes).",
+    ),
     session: AsyncSession = Depends(get_session),
 ) -> QuestRead:
     quest = await _get_quest_or_404(session, quest_id)
@@ -250,12 +262,18 @@ async def update_quest_step(
     session.add(quest)
     await session.commit()
     read = quest_to_read(await _get_quest_or_404(session, quest_id))
-    await _publish_changes(before, read)
+    await _publish_changes(before, read, quiet=quiet)
     return read
 
 
-async def _publish_changes(before: QuestRead, read: QuestRead) -> None:
+async def _publish_changes(
+    before: QuestRead,
+    read: QuestRead,
+    *,
+    quiet: bool = False,
+) -> None:
     for ev in quest_change_events(before, read):
+        toast = False if quiet else bool(ev.get("toast", True))
         await hub.publish(
             ev["kind"],
             quest_id=read.id,
@@ -263,7 +281,7 @@ async def _publish_changes(before: QuestRead, read: QuestRead) -> None:
             description=ev.get("description", read.description or ""),
             detail=ev.get("detail", ""),
             sound=ev.get("sound"),
-            toast=ev.get("toast", True),
+            toast=toast,
             step_title=ev.get("step_title"),
             significance=ev.get("significance"),
         )
@@ -272,6 +290,10 @@ async def _publish_changes(before: QuestRead, read: QuestRead) -> None:
 @router.delete("/{quest_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_quest(
     quest_id: int,
+    quiet: bool = Query(
+        default=False,
+        description="If true — publish without overlay toasts (HUD still refreshes).",
+    ),
     session: AsyncSession = Depends(get_session),
 ) -> None:
     quest = await _get_quest_or_404(session, quest_id)
@@ -287,5 +309,5 @@ async def delete_quest(
         description=description,
         detail="удалено",
         sound="quest_deleted",
-        toast=True,
+        toast=not quiet,
     )

@@ -106,17 +106,19 @@ class NoticeRouter:
         kind = event.get("kind") or ""
         # Kinds that never land in QuestChangeLog — no panel refresh.
         log_skip = kind in {"step_progress", "startup", "quest_started"}
-        if event.get("toast") is False and kind not in MAJOR_KINDS:
+        toast = bool(event.get("toast", True))
+
+        # Quiet mutations: HUD still refreshes via /api/events; no toasts/sounds.
+        if not toast:
             if self.minor_mode == "log" and not log_skip:
                 self.schedule_refresh_log()
             return
+
         if kind in MAJOR_KINDS:
             if self.major_enabled:
                 self.major.enqueue(event)
             if self.minor_mode == "log":
                 self.schedule_refresh_log()
-            return
-        if not event.get("toast", True):
             return
         if self.minor_mode == "toast":
             self.minor.enqueue(event)

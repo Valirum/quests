@@ -706,9 +706,19 @@ def _add_json_flag(p: argparse.ArgumentParser) -> None:
     )
 
 
+def _add_api_flag(p: argparse.ArgumentParser) -> None:
+    p.add_argument(
+        "--api",
+        default=None,
+        metavar="URL",
+        help=f"база Quests API (иначе QUESTS_API или {API_BASE})",
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     json_parent = argparse.ArgumentParser(add_help=False)
     _add_json_flag(json_parent)
+    _add_api_flag(json_parent)
 
     parser = argparse.ArgumentParser(
         prog="quests",
@@ -718,7 +728,7 @@ def build_parser() -> argparse.ArgumentParser:
         ),
         epilog=(
             "Документация: docs/cli.md\n"
-            f"API по умолчанию: {API_BASE} (переопредели QUESTS_API)\n"
+            f"API по умолчанию: {API_BASE} (переопредели --api или QUESTS_API)\n"
             f"Хуки: {hooks_mod.HOOKS_PATH} (переопредели QUESTS_HOOKS)"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -1047,6 +1057,20 @@ def main(argv: list[str] | None = None) -> int:
     # Root `quests --json <cmd>` and `<cmd> --json` both win.
     if "--json" in argv_list:
         args.json = True
+
+    # Subparser parents can reset --api to None; honor any --api on argv.
+    global API_BASE
+    api_url = getattr(args, "api", None)
+    if not api_url:
+        for i, tok in enumerate(argv_list):
+            if tok == "--api" and i + 1 < len(argv_list):
+                api_url = argv_list[i + 1]
+                break
+            if tok.startswith("--api="):
+                api_url = tok.split("=", 1)[1]
+                break
+    if api_url:
+        API_BASE = str(api_url).rstrip("/")
 
     func = getattr(args, "func", None)
     if func is None:
