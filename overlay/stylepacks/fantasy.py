@@ -10,6 +10,8 @@ FONT_DISPLAY = '"JetBrainsMono Nerd Font", "JetBrains Mono", "JetBrainsMono NF",
 FONT_BODY = FONT_DISPLAY
 # Major / minor toasts — system serif (confirmed present on Cachy/Arch).
 FONT_TOAST = '"Noto Serif", "Liberation Serif", "DejaVu Serif", serif'
+# Persistent event log — mono reads cleaner for dense one-liners.
+FONT_LOG = FONT_BODY
 
 # Passthrough background tint (RGB); alpha comes from overlay settings.
 PASSTHROUGH_BG_RGB = (26, 21, 16)
@@ -227,6 +229,12 @@ button.hud-icon-btn:focus {{
   padding: 2px 0 4px;
 }}
 
+.hud-settings-sep {{
+  min-height: 1px;
+  margin: 4px 0 2px;
+  background-color: rgba(196, 165, 116, 0.35);
+}}
+
 .hud-settings-label {{
   color: #c4a574;
   font-family: {FONT_BODY};
@@ -242,7 +250,7 @@ button.hud-icon-btn:focus {{
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  margin-top: 6px;
+  margin-top: 2px;
   opacity: 0.95;
 }}
 
@@ -513,7 +521,7 @@ button.hud-drag:selected {{
   min-width: 0;
   max-width: none;
   padding: 8px 10px;
-  font-family: {FONT_TOAST};
+  font-family: {FONT_LOG};
 }}
 
 .minor-log__empty {{
@@ -530,7 +538,7 @@ button.hud-drag:selected {{
 
 .minor-log__ts {{
   font-size: 9pt;
-  font-family: {FONT_BODY};
+  font-family: {FONT_LOG};
   color: #e8d5b0;
   letter-spacing: 0.02em;
 }}

@@ -41,21 +41,30 @@ def main_reply_keyboard() -> ReplyKeyboardMarkup:
     )
 
 
-def llm_confirm_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text="✓ Создать",
-                    callback_data="llm:ok",
-                ),
-                InlineKeyboardButton(
-                    text="✖ Отмена",
-                    callback_data="llm:no",
-                ),
-            ]
-        ]
-    )
+def llm_confirm_keyboard(
+    *,
+    index: int = 0,
+    total: int = 1,
+) -> InlineKeyboardMarkup:
+    """Two rows: Create/Cancel, then Prev/Next (edges omitted)."""
+    row1 = [
+        InlineKeyboardButton(text="✓ Создать", callback_data="llm:ok"),
+        InlineKeyboardButton(text="✖ Отмена", callback_data="llm:no"),
+    ]
+    rows: list[list[InlineKeyboardButton]] = [row1]
+    if total > 1:
+        row2: list[InlineKeyboardButton] = []
+        if index > 0:
+            row2.append(
+                InlineKeyboardButton(text="← Предыдущий", callback_data="llm:prev")
+            )
+        if index < total - 1:
+            row2.append(
+                InlineKeyboardButton(text="Следующий →", callback_data="llm:next")
+            )
+        if row2:
+            rows.append(row2)
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def stt_confirm_keyboard() -> InlineKeyboardMarkup:

@@ -57,3 +57,5 @@ overlay/_vendor/
 # Homelab dashboard (not part of Quests)
 deploy/homer/
 deploy/docker/docker-compose.watchtower.yml
+# Local MVP checklist snapshot (live backlog = Quests journal)
+TODO.md

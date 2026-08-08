@@ -559,7 +559,7 @@ def build_router(
         )
         chat_id = message.chat.id if message.chat else None
         try:
-            draft = await extract_quest_draft(
+            bundle = await extract_quest_draft(
                 user_text,
                 settings=llm_settings,
                 history=history,
@@ -574,13 +574,13 @@ def build_router(
             return
         await tg_soft(lambda: wait.delete(), label="llm-wait-del")
 
-        if draft.needs_clarification and (draft.clarify_question or "").strip():
+        if bundle.needs_clarification and (bundle.clarify_question or "").strip():
             hist = list(history or [])
             hist.append(("user", user_text))
             hist.append(
                 (
                     "assistant",
-                    json.dumps(draft.model_dump(), ensure_ascii=False),
+                    json.dumps(bundle.model_dump(), ensure_ascii=False),
                 )
             )
             await state.update_data(llm_history=hist)
@@ -588,18 +588,23 @@ def build_router(
             await _say(
                 message,
                 state,
-                f"Уточни: {_esc_html(draft.clarify_question)}",
+                f"Уточни: {_esc_html(bundle.clarify_question)}",
                 reply_markup=reply_kb,
             )
             return
 
-        await state.update_data(llm_draft=draft.model_dump())
+        drafts = [d.model_dump() for d in bundle.variations]
+        await state.update_data(llm_drafts=drafts, llm_draft_index=0)
         await state.set_state(CreateLlm.confirm)
+        total = len(drafts)
         await _say(
             message,
             state,
-            format_draft_preview(draft, html=True),
-            reply_markup=llm_confirm_keyboard(),
+            format_draft_preview(
+                bundle.primary, html=True, index=0, total=total
+            ),
+            reply_markup=llm_confirm_keyboard(index=0, total=total),
+            parse_mode="HTML",
         )
 
     @router.message(Command("new_llm"))
@@ -822,10 +827,56 @@ def build_router(
             )
         await query.answer("отменено")
 
+    async def _llm_show_variant(
+        query: CallbackQuery, state: FSMContext, delta: int
+    ) -> None:
+        data = await state.get_data()
+        drafts = list(data.get("llm_drafts") or [])
+        if not drafts and data.get("llm_draft"):
+            drafts = [data["llm_draft"]]
+        if not drafts:
+            await query.answer("черновик потерян", show_alert=True)
+            return
+        idx = int(data.get("llm_draft_index") or 0) + delta
+        idx = max(0, min(len(drafts) - 1, idx))
+        await state.update_data(llm_draft_index=idx)
+        try:
+            draft = QuestDraft.model_validate(drafts[idx])
+        except ValidationError as e:
+            await query.answer(f"bad draft: {e}", show_alert=True)
+            return
+        text = format_draft_preview(
+            draft, html=True, index=idx, total=len(drafts)
+        )
+        kb = llm_confirm_keyboard(index=idx, total=len(drafts))
+        msg = query.message
+        if msg is None:
+            await query.answer()
+            return
+        try:
+            await msg.edit_text(text, reply_markup=kb, parse_mode="HTML")
+        except TelegramBadRequest as e:
+            if "message is not modified" not in str(e).lower():
+                await query.answer(str(e), show_alert=True)
+                return
+        await query.answer(f"{idx + 1}/{len(drafts)}")
+
+    @router.callback_query(StateFilter(CreateLlm.confirm), F.data == "llm:prev")
+    async def llm_prev(query: CallbackQuery, state: FSMContext) -> None:
+        await _llm_show_variant(query, state, -1)
+
+    @router.callback_query(StateFilter(CreateLlm.confirm), F.data == "llm:next")
+    async def llm_next(query: CallbackQuery, state: FSMContext) -> None:
+        await _llm_show_variant(query, state, 1)
+
     @router.callback_query(StateFilter(CreateLlm.confirm), F.data == "llm:ok")
     async def llm_ok(query: CallbackQuery, state: FSMContext) -> None:
         data = await state.get_data()
-        raw = data.get("llm_draft")
+        drafts = list(data.get("llm_drafts") or [])
+        if not drafts and data.get("llm_draft"):
+            drafts = [data["llm_draft"]]
+        idx = int(data.get("llm_draft_index") or 0)
+        raw = drafts[idx] if drafts and 0 <= idx < len(drafts) else None
         chat = query.message.chat if query.message else None  # type: ignore[union-attr]
         chat_id = chat.id if chat else None
         if query.message is not None:

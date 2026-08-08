@@ -74,6 +74,7 @@
   let pinBusyId = $state(/** @type {number | null} */ (null))
   let stepBusyId = $state(/** @type {number | null} */ (null))
   let stepEditId = $state(/** @type {number | null} */ (null))
+  let stepEditQuestId = $state(/** @type {number | null} */ (null))
   let stepEditValue = $state('')
   /** Prefer this id across in-flight load() (URL / HUD focus). */
   let pendingSelectId = $state(/** @type {number | null} */ (null))
@@ -361,8 +362,10 @@
     load({ silent: true })
   }
 
-  function requestDeleteSelected() {
-    if (!selected || deleting) return
+  function requestDeleteSelected(quest = selected) {
+    const q = quest || selected
+    if (!q || deleting) return
+    if (q.id !== selectedId) selectedId = q.id
     deleteConfirmOpen = true
   }
 
@@ -382,14 +385,15 @@
     }
   }
 
-  async function toggleCompleted() {
-    if (!selected || statusBusy) return
+  async function toggleCompleted(quest = selected) {
+    const q = quest || selected
+    if (!q || statusBusy) return
     statusBusy = true
     error = ''
     try {
-      const next = selected.status === 'completed' ? 'active' : 'completed'
-      const saved = await updateQuest(selected.id, { status: next })
-      applyQuest(saved)
+      const next = q.status === 'completed' ? 'active' : 'completed'
+      const saved = await updateQuest(q.id, { status: next })
+      applyQuest(saved, { select: false })
     } catch (e) {
       error = e.message || String(e)
     } finally {
@@ -405,7 +409,7 @@
     error = ''
     try {
       const saved = await updateQuest(quest.id, { pinned: !quest.pinned })
-      applyQuest(saved)
+      applyQuest(saved, { select: false })
       selectQuestFromUi(saved.id, { pushUrl: false })
     } catch (e) {
       error = e.message || String(e)
@@ -414,47 +418,59 @@
     }
   }
 
-  async function setStepProgress(step, value) {
-    if (!selected || stepBusyId != null) return
+  async function setStepProgress(step, value, questId = null) {
+    const qid = questId ?? selected?.id
+    if (qid == null || stepBusyId != null) return
     const total = Math.max(0, Number(step.progress_total) || 0)
     const next = Math.max(0, Math.min(total, Math.round(Number(value))))
     if (!Number.isFinite(next) || next === step.progress_current) {
       stepEditId = null
+      stepEditQuestId = null
       return
     }
     stepBusyId = step.id
     error = ''
     try {
-      const saved = await updateQuestStep(selected.id, step.id, {
+      const saved = await updateQuestStep(qid, step.id, {
         progress_current: next,
       })
-      applyQuest(saved)
+      applyQuest(saved, { select: false })
     } catch (e) {
       error = e.message || String(e)
     } finally {
       stepBusyId = null
       stepEditId = null
+      stepEditQuestId = null
     }
   }
 
-  async function bumpStep(step, delta) {
-    await setStepProgress(step, step.progress_current + delta)
+  async function bumpStep(step, delta, questId = null) {
+    await setStepProgress(step, step.progress_current + delta, questId)
   }
 
-  function beginEditStep(step) {
+  function beginEditStep(step, questId = null) {
     if (stepBusyId != null) return
     stepEditId = step.id
+    stepEditQuestId = questId ?? findQuestIdForStep(step.id) ?? selected?.id ?? null
     stepEditValue = String(step.progress_current)
   }
 
   function cancelEditStep() {
     stepEditId = null
+    stepEditQuestId = null
+  }
+
+  function findQuestIdForStep(stepId) {
+    for (const q of quests) {
+      if (q.steps?.some((s) => s.id === stepId)) return q.id
+    }
+    return null
   }
 
   function onStepEditKeydown(event, step) {
     if (event.key === 'Enter') {
       event.preventDefault()
-      setStepProgress(step, stepEditValue)
+      setStepProgress(step, stepEditValue, stepEditQuestId)
     } else if (event.key === 'Escape') {
       event.preventDefault()
       cancelEditStep()
@@ -463,17 +479,17 @@
 
   function onStepEditBlur(step) {
     if (stepEditId !== step.id) return
-    setStepProgress(step, stepEditValue)
+    setStepProgress(step, stepEditValue, stepEditQuestId)
   }
 
-  function applyQuest(quest) {
+  function applyQuest(quest, { select = true } = {}) {
     const idx = quests.findIndex((q) => q.id === quest.id)
     if (idx >= 0) {
       quests = quests.map((q) => (q.id === quest.id ? quest : q))
     } else {
       load({ silent: true })
     }
-    selectedId = quest.id
+    if (select) selectedId = quest.id
   }
 
   function onSaved(quest) {
@@ -648,6 +664,7 @@
       <QuestDetail
         {selected}
         {quests}
+        {showAllQuests}
         {nowMs}
         {statusBusy}
         {deleting}
@@ -655,7 +672,7 @@
         {stepEditId}
         {stepEditValue}
         onToggleCompleted={toggleCompleted}
-        onOpenEdit={() => openEdit()}
+        onOpenEdit={(q) => openEdit(q)}
         onRequestDelete={requestDeleteSelected}
         onBumpStep={bumpStep}
         onBeginEditStep={beginEditStep}

@@ -1,6 +1,7 @@
 """Style-pack loader for overlay (HUD + major/minor notices).
 
-Swap packs: QUESTS_STYLE_PACK=fantasy|cyberpunk, overlay.json, or apply_style_pack().
+Swap packs: QUESTS_STYLE_PACK=<id>, overlay.json, or apply_style_pack().
+Built-ins: fantasy, cyberpunk, gruvbox, nord, rose, ember, ink, ocean.
 CSS hot-reload: reload_pack_module + CssProvider.load_from_string.
 """
 
@@ -124,7 +125,8 @@ window.hud-window--passthrough {{
   padding: 0;
 }}
 """
-    # Per-row bars: each .hud-row hugs its content width.
+    # Per-row bars on the inner plate only (see _hud_row) — never on a
+    # full-width vertical-box child, or short lines become long ghost strips.
     return text + f"""
 window.hud-window--passthrough {{
   background-color: transparent;
@@ -147,7 +149,11 @@ window.hud-window--passthrough {{
   background-image: none;
   border-radius: 0;
   padding: 2px 8px;
+  min-width: 0;
+  min-height: 0;
 }}
+window.hud-window--passthrough .section-rule,
+window.hud-window--passthrough .section-rule--heavy,
 .hud:not(.hud--interactive) .section-rule,
 .hud:not(.hud--interactive) .section-rule--heavy {{
   opacity: 0;
@@ -158,6 +164,16 @@ window.hud-window--passthrough {{
   border: none;
   background-color: transparent;
   background-image: none;
+  box-shadow: none;
+}}
+.hud:not(.hud--interactive) .hud-section,
+.hud:not(.hud--interactive) .hud-header {{
+  background-color: transparent;
+  background-image: none;
+  min-width: 0;
+  padding: 0;
+  margin: 0;
+  border: none;
 }}
 """
 
@@ -205,6 +221,8 @@ window.minor-log-window {{
   opacity: {ta:.3f};
   min-width: {w}px;
   min-height: {h}px;
+  max-height: {h}px;
+  overflow: hidden;
 }}
 .minor-log__row {{
   background-color: {row_bg};

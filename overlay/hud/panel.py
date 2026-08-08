@@ -3,9 +3,13 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from gi.repository import Gtk
+from gi.repository import GLib, Gtk
 
 from .deadline import format_remaining, is_urgent, remaining_seconds, timer_tone
+
+# Persist settings ScrolledWindow Y across HUD rebuilds (chip/slider changes).
+_settings_scroll_y: float = 0.0
+from .monitors import list_monitors
 
 # Header control glyphs (theme-independent).
 ICON_FOLD = "−"
@@ -206,6 +210,35 @@ def _chip(text: str, css_class: str) -> Gtk.Label:
     return lbl
 
 
+def _hud_row(*children: Gtk.Widget, extra_classes: tuple[str, ...] = ()) -> Gtk.Box:
+    """Right-aligned content plate for passthrough chips.
+
+    Vertical Gtk.Box gives children the full cross-size (parent width). If the
+    painted ``.hud-row`` is that child, short lines become long ghost bars.
+    Outer stretcher has no background; only the inner plate is painted.
+    """
+    outer = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
+    outer.set_halign(Gtk.Align.FILL)
+    outer.set_hexpand(True)
+
+    pad = Gtk.Box()
+    pad.set_hexpand(True)
+    pad.set_halign(Gtk.Align.FILL)
+
+    plate = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+    plate.add_css_class("hud-row")
+    for cls in extra_classes:
+        plate.add_css_class(cls)
+    plate.set_halign(Gtk.Align.END)
+    plate.set_hexpand(False)
+    for child in children:
+        plate.append(child)
+
+    outer.append(pad)
+    outer.append(plate)
+    return outer
+
+
 def _rule(*, heavy: bool = False) -> Gtk.Box:
     rule = Gtk.Box()
     rule.add_css_class("section-rule")
@@ -252,17 +285,15 @@ def _append_quest_section(
     )
     section.add_css_class("hud-section")
     section.set_halign(Gtk.Align.END)
+    section.set_hexpand(False)
 
-    title_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-    title_row.add_css_class("hud-row")
-    title_row.set_halign(Gtk.Align.END)
-    title_row.set_hexpand(False)
+    chips: list[Gtk.Widget] = []
 
     if quest.timer_label and quest.deadline_at is not None:
         tone = quest.timer_tone or "red"
         timer = _chip(quest.timer_label, "quest-timer")
         timer.add_css_class(f"quest-timer--{tone}")
-        title_row.append(timer)
+        chips.append(timer)
         timers.append(
             TimerBinding(
                 label=timer,
@@ -275,7 +306,7 @@ def _append_quest_section(
         tone = quest.timer_tone or ("overdue" if quest.overdue else "red")
         timer = _chip(quest.timer_label, "quest-timer")
         timer.add_css_class(f"quest-timer--{tone}")
-        title_row.append(timer)
+        chips.append(timer)
 
     if interactive and on_open_quest is not None and quest.quest_id is not None:
         title_btn = Gtk.Button(label=quest.title)
@@ -285,22 +316,24 @@ def _append_quest_section(
         title_btn.set_halign(Gtk.Align.END)
         title_btn.set_tooltip_text("Открыть в задачах")
         title_btn.connect("clicked", lambda _b, qid=quest.quest_id: on_open_quest(qid))
-        title_row.append(title_btn)
+        chips.append(title_btn)
     else:
-        title_row.append(_chip(quest.title, "section-title"))
+        chips.append(_chip(quest.title, "section-title"))
 
-    section.append(title_row)
-    section.append(_rule())
+    section.append(_hud_row(*chips))
+    # Decorative rules only in interactive panel — in chips passthrough they
+    # still allocate width (longest quest) and paint a ghost bar under titles.
+    if interactive:
+        section.append(_rule())
 
     for step in quest.steps:
-        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        row.add_css_class("quest")
-        row.add_css_class("hud-row")
-        row.set_halign(Gtk.Align.END)
-        row.set_hexpand(False)
-        row.append(_chip(step.progress, "quest-progress"))
-        row.append(_chip(step.title, "quest-title"))
-        section.append(row)
+        section.append(
+            _hud_row(
+                _chip(step.progress, "quest-progress"),
+                _chip(step.title, "quest-title"),
+                extra_classes=("quest",),
+            )
+        )
 
     root.append(section)
 
@@ -313,16 +346,14 @@ def _append_section_heading(root: Gtk.Box, text: str, *, interactive: bool) -> N
     block.add_css_class("hud-section")
     block.add_css_class("hud-section--lane")
     block.set_halign(Gtk.Align.END)
-    row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-    row.add_css_class("hud-row")
-    row.set_halign(Gtk.Align.END)
-    row.set_hexpand(False)
-    row.append(_chip(text, "section-heading"))
-    block.append(row)
+    block.set_hexpand(False)
+    block.append(_hud_row(_chip(text, "section-heading")))
     root.append(block)
 
 
-def _append_heavy_sep(root: Gtk.Box) -> None:
+def _append_heavy_sep(root: Gtk.Box, *, interactive: bool = True) -> None:
+    if not interactive:
+        return
     sep = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
     sep.set_halign(Gtk.Align.END)
     sep.append(_rule(heavy=True))
@@ -365,6 +396,44 @@ def _settings_section(text: str) -> Gtk.Label:
     return lbl
 
 
+def _settings_sep() -> Gtk.Box:
+    """Horizontal rule between settings sections."""
+    sep = Gtk.Box()
+    sep.add_css_class("hud-settings-sep")
+    sep.set_halign(Gtk.Align.FILL)
+    sep.set_hexpand(True)
+    sep.set_size_request(-1, 1)
+    return sep
+
+
+def _settings_max_height(monitor_index: int) -> int:
+    """Cap settings panel at half the current output height."""
+    mons = list_monitors()
+    if not mons:
+        return 540
+    idx = int(monitor_index) % len(mons)
+    try:
+        h = int(mons[idx].get_geometry().height)
+    except Exception:
+        h = 1080
+    return max(240, h // 2)
+
+
+def _block_scale_wheel(scale: Gtk.Scale) -> None:
+    """Keep mouse-wheel for the settings ScrolledWindow, not the Scale."""
+    ctl = Gtk.EventControllerScroll.new(
+        Gtk.EventControllerScrollFlags.BOTH_AXES
+        | Gtk.EventControllerScrollFlags.DISCRETE
+    )
+    ctl.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+
+    def _eat(_c: Gtk.EventControllerScroll, _dx: float, _dy: float) -> bool:
+        return True
+
+    ctl.connect("scroll", _eat)
+    scale.add_controller(ctl)
+
+
 def _alpha_scale(
     value: float,
     on_change: Callable[[float], None],
@@ -384,6 +453,7 @@ def _alpha_scale(
     scale.set_size_request(220, -1)
     scale.add_css_class("hud-settings-scale")
     scale.set_halign(Gtk.Align.FILL)
+    _block_scale_wheel(scale)
     scale.connect("value-changed", lambda s: on_change(float(s.get_value()) / 100.0))
     return scale
 
@@ -410,6 +480,7 @@ def _int_scale(
     scale.set_size_request(220, -1)
     scale.add_css_class("hud-settings-scale")
     scale.set_halign(Gtk.Align.FILL)
+    _block_scale_wheel(scale)
     scale.connect("value-changed", lambda s: on_change(int(round(s.get_value()))))
     return scale
 
@@ -494,7 +565,7 @@ def _append_settings_panel(
     m_text_a = max(0.0, min(1.0, float(minor_text_alpha)))
     m_width = max(280, min(1200, int(minor_log_width)))
     m_height = max(100, min(1200, int(minor_log_height)))
-    m_line = "wrap" if str(minor_log_line_mode).strip().lower() == "wrap" else "clip"
+    _ = minor_log_line_mode  # log is always clip; kept for config compat
     on_off = [("1", "вкл"), ("0", "выкл")]
     bg_opts = [("chips", "выделение"), ("full", "полный")]
 
@@ -521,6 +592,7 @@ def _append_settings_panel(
         panel.append(_chip(style_pack_id, "hint"))
 
     # —— HUD ——
+    panel.append(_settings_sep())
     panel.append(_settings_section("HUD"))
     panel.append(_settings_label("Раздел"))
     if categories and on_select_category is not None:
@@ -568,6 +640,7 @@ def _append_settings_panel(
     panel.append(_alpha_scale(hud_alpha, lambda v: _emit_hud_look(next_text=v)))
 
     # —— Мажорные тосты ——
+    panel.append(_settings_sep())
     panel.append(_settings_section("Мажорные тосты"))
     major_on = bool(toasts_major)
 
@@ -579,6 +652,7 @@ def _append_settings_panel(
     panel.append(_opt_slider(on_off, "1" if major_on else "0", _pick_major))
 
     # —— Минорные тосты ——
+    panel.append(_settings_sep())
     panel.append(_settings_section("Минорные тосты"))
     panel.append(_settings_label("Режим"))
     minor_opts = [("off", "выкл"), ("toast", "тост"), ("log", "лог")]
@@ -589,7 +663,7 @@ def _append_settings_panel(
         "text_a": m_text_a,
         "width": m_width,
         "height": m_height,
-        "line_mode": m_line,
+        "line_mode": "clip",
     }
 
     def _emit_minor(**updates) -> None:
@@ -615,13 +689,42 @@ def _append_settings_panel(
             m_height, lower=120, upper=800, on_change=lambda v: _emit_minor(height=v)
         )
     )
-    panel.append(_settings_label("Строки лога"))
-    line_opts = [("clip", "обрезать"), ("wrap", "перенос")]
-    panel.append(
-        _opt_slider(line_opts, m_line, lambda oid: _emit_minor(line_mode=oid))
-    )
 
-    root.append(panel)
+    max_h = _settings_max_height(monitor_index)
+    scroll = Gtk.ScrolledWindow()
+    scroll.add_css_class("hud-settings-scroll")
+    scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+    # Scrollbar on the left (overlay — no exclusive gutter).
+    scroll.set_placement(Gtk.CornerType.TOP_RIGHT)
+    scroll.set_halign(Gtk.Align.END)
+    scroll.set_hexpand(False)
+    scroll.set_vexpand(False)
+    if hasattr(scroll, "set_propagate_natural_height"):
+        scroll.set_propagate_natural_height(True)
+    if hasattr(scroll, "set_propagate_natural_width"):
+        scroll.set_propagate_natural_width(True)
+    if hasattr(scroll, "set_max_content_height"):
+        scroll.set_max_content_height(max_h)
+    scroll.set_size_request(280, -1)
+    scroll.set_child(panel)
+
+    vadj = scroll.get_vadjustment()
+    if vadj is not None:
+
+        def _remember(_a: Gtk.Adjustment) -> None:
+            global _settings_scroll_y
+            _settings_scroll_y = float(vadj.get_value())
+
+        vadj.connect("value-changed", _remember)
+
+        def _restore_y() -> bool:
+            upper = float(vadj.get_upper() - vadj.get_page_size())
+            vadj.set_value(max(0.0, min(float(_settings_scroll_y), max(0.0, upper))))
+            return False
+
+        GLib.idle_add(_restore_y)
+
+    root.append(scroll)
 
 
 def build_hud(
@@ -693,12 +796,7 @@ def build_hud(
     controls: Gtk.Widget | None = None
 
     if collapsed:
-        title_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
-        title_row.add_css_class("hud-row")
-        title_row.set_halign(Gtk.Align.END)
-        title_row.set_hexpand(False)
-        title_row.append(_chip("Задачи", "title"))
-        header.append(title_row)
+        header.append(_hud_row(_chip("Задачи", "title")))
         root.append(header)
         return root, None, timers
 
@@ -729,17 +827,14 @@ def build_hud(
             controls.append(gear_btn)
             hotspot = gear_btn
 
-    title_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
-    title_row.add_css_class("hud-row")
-    title_row.set_halign(Gtk.Align.END)
-    title_row.set_hexpand(False)
-    title_row.append(_chip("Настройки" if show_settings else "Задачи", "title"))
     # Reserve vertical room: fold/gear are overlaid flush to the corner above the title.
     if controls is not None:
         spacer = Gtk.Box()
         spacer.set_size_request(-1, 22)
+        spacer.set_hexpand(False)
+        spacer.set_halign(Gtk.Align.END)
         header.append(spacer)
-    header.append(title_row)
+    header.append(_hud_row(_chip("Настройки" if show_settings else "Задачи", "title")))
 
     root.append(header)
 
@@ -777,12 +872,8 @@ def build_hud(
         )
         empty.add_css_class("hud-section")
         empty.set_halign(Gtk.Align.END)
-        hint_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        hint_row.add_css_class("hud-row")
-        hint_row.set_halign(Gtk.Align.END)
-        hint_row.set_hexpand(False)
-        hint_row.append(_chip("Нет активных шагов", "hint"))
-        empty.append(hint_row)
+        empty.set_hexpand(False)
+        empty.append(_hud_row(_chip("Нет активных шагов", "hint")))
         root.append(empty)
     else:
         for quest in favorites:
@@ -795,7 +886,7 @@ def build_hud(
             )
 
         if favorites and urgent:
-            _append_heavy_sep(root)
+            _append_heavy_sep(root, interactive=interactive)
 
         for quest in urgent:
             _append_quest_section(
@@ -810,7 +901,7 @@ def build_hud(
         # + empty hint that still paints a stray passthrough bar).
         if category:
             if favorites or urgent:
-                _append_heavy_sep(root)
+                _append_heavy_sep(root, interactive=interactive)
             heading = (category_label or category_slug or "Раздел").strip()
             _append_section_heading(root, heading, interactive=interactive)
             for quest in category:

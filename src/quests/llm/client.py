@@ -14,7 +14,12 @@ import aiohttp
 from pydantic import ValidationError
 
 from quests.llm.config import LlmSettings, load_llm_settings
-from quests.llm.schema import QuestDraft, quest_draft_json_schema, system_prompt
+from quests.llm.schema import (
+    QuestDraft,
+    QuestDraftBundle,
+    quest_draft_json_schema,
+    system_prompt,
+)
 
 log = logging.getLogger("quests.llm")
 
@@ -54,7 +59,7 @@ def _full_prompt(user_text: str, history: list[tuple[str, str]] | None) -> str:
     )
 
 
-def _parse_draft(raw: str | dict[str, Any]) -> QuestDraft:
+def _parse_draft(raw: str | dict[str, Any]) -> QuestDraftBundle:
     if isinstance(raw, dict):
         data = raw
     else:
@@ -73,8 +78,23 @@ def _parse_draft(raw: str | dict[str, Any]) -> QuestDraft:
             data = json.loads(text)
         except json.JSONDecodeError as e:
             raise LlmError(f"модель вернула не-JSON: {e}") from e
+    if not isinstance(data, dict):
+        raise LlmError("модель вернула не объект JSON")
+
+    # Legacy: single QuestDraft without variations wrapper.
+    if "variations" not in data and "title" in data:
+        try:
+            one = QuestDraft.model_validate(data)
+        except ValidationError as e:
+            raise LlmError(f"черновик не прошёл валидацию: {e}") from e
+        return QuestDraftBundle(
+            needs_clarification=bool(one.needs_clarification),
+            clarify_question=one.clarify_question or "",
+            variations=[one],
+        )
+
     try:
-        return QuestDraft.model_validate(data)
+        return QuestDraftBundle.model_validate(data)
     except ValidationError as e:
         raise LlmError(f"черновик не прошёл валидацию: {e}") from e
 
@@ -84,7 +104,7 @@ def _extract_cursor_sync(
     *,
     settings: LlmSettings,
     history: list[tuple[str, str]] | None,
-) -> QuestDraft:
+) -> QuestDraftBundle:
     from cursor_sdk import Agent, AgentOptions, CloudAgentOptions, CursorAgentError
 
     if not settings.api_key:
@@ -117,15 +137,17 @@ def _extract_cursor_sync(
     content = (result.result or "").strip()
     if not content:
         raise LlmError(f"пустой ответ Cursor agent (run={result.id})")
-    draft = _parse_draft(content)
+    bundle = _parse_draft(content)
+    draft = bundle.primary
     log.info(
-        "cursor draft title=%r cat=%s clarify=%s run=%s",
+        "cursor draft title=%r variants=%s cat=%s clarify=%s run=%s",
         draft.title,
+        len(bundle.variations),
         draft.category_slug,
-        draft.needs_clarification,
+        bundle.needs_clarification,
         result.id,
     )
-    return draft
+    return bundle
 
 
 def _build_ollama_messages(
@@ -149,7 +171,7 @@ def _extract_ollama_sync(
     *,
     settings: LlmSettings,
     history: list[tuple[str, str]] | None,
-) -> QuestDraft:
+) -> QuestDraftBundle:
     import urllib.error
     import urllib.request
 
@@ -190,7 +212,7 @@ def extract_quest_draft_sync(
     *,
     settings: LlmSettings | None = None,
     history: list[tuple[str, str]] | None = None,
-) -> QuestDraft:
+) -> QuestDraftBundle:
     settings = settings or load_llm_settings()
     if not user_text.strip():
         raise LlmError("пустой текст")
@@ -205,7 +227,7 @@ async def extract_quest_draft(
     settings: LlmSettings | None = None,
     history: list[tuple[str, str]] | None = None,
     session: aiohttp.ClientSession | None = None,
-) -> QuestDraft:
+) -> QuestDraftBundle:
     """Async entry — Cursor runs in a worker thread; Ollama uses aiohttp."""
     settings = settings or load_llm_settings()
     if not user_text.strip():

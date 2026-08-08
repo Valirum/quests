@@ -105,6 +105,8 @@ def format_draft_preview(
     *,
     html: bool = False,
     now: datetime | None = None,
+    index: int | None = None,
+    total: int | None = None,
 ) -> str:
     sig = SIGNIFICANCE_LABEL_RU.get(draft.significance, draft.significance)
     cat = draft.category_slug or "—"
@@ -127,10 +129,14 @@ def format_draft_preview(
         timing_lines = ["Срок: без срока"]
 
     steps = draft.steps or [draft.title]
+    if index is not None and total is not None and total > 1:
+        header = f"Вариант {index + 1}/{total}"
+    else:
+        header = "Черновик"
 
     if html:
         lines = [
-            "<b>Черновик</b>",
+            f"<b>{_esc(header)}</b>",
             f"<b>{_esc(draft.title)}</b>",
             f"Раздел: <code>{_esc(cat)}</code> · {_esc(sig)}",
             *[f"{_esc(t)}" for t in timing_lines],
@@ -143,7 +149,7 @@ def format_draft_preview(
         return "\n".join(lines)
 
     lines = [
-        f"Черновик: {draft.title}",
+        f"{header}: {draft.title}",
         f"  раздел: {cat}  значимость: {sig}",
         *[f"  {t}" for t in timing_lines],
         "  шаги:",

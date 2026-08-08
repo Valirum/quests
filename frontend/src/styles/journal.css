@@ -850,6 +850,87 @@
     color: var(--color-fg, #e8e8e8);
   }
 
+  .detail__line-head {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3, 0.75rem);
+    margin: calc(-1 * var(--space-5, 1.5rem)) calc(-1 * var(--space-6, 2rem)) var(--space-5, 1.5rem);
+    padding: var(--space-4, 1rem) var(--space-6, 2rem);
+    background: color-mix(in srgb, var(--line-color, #9a9a9a) 22%, var(--color-bg, #1a1a1a));
+    border-bottom: 3px solid var(--line-color, #9a9a9a);
+  }
+
+  .detail__line-icon {
+    display: grid;
+    place-items: center;
+    width: 2.25rem;
+    height: 2.25rem;
+    border-radius: 0.35rem;
+    color: var(--line-color, #9a9a9a);
+    background: color-mix(in srgb, var(--line-color, #9a9a9a) 18%, transparent);
+    flex-shrink: 0;
+  }
+
+  .detail__line-text {
+    min-width: 0;
+    flex: 1;
+  }
+
+  .detail__line-eyebrow {
+    margin: 0 0 0.15rem;
+    font-family: var(--font-mono, monospace);
+    font-size: var(--text-xs, 0.75rem);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: color-mix(in srgb, var(--line-color, #9a9a9a) 70%, var(--color-fg-muted, #9a9a9a));
+  }
+
+  .detail__line-title {
+    margin: 0;
+    font-family: var(--font-display, Georgia, serif);
+    font-size: clamp(1.25rem, 2vw, 1.75rem);
+    font-weight: 700;
+    line-height: 1.2;
+    color: var(--color-fg, #e8e8e8);
+  }
+
+  .detail__line-count {
+    font-family: var(--font-mono, monospace);
+    font-size: var(--text-sm, 0.875rem);
+    color: var(--color-fg-muted, #9a9a9a);
+    flex-shrink: 0;
+  }
+
+  .detail__line-quests {
+    display: grid;
+    gap: var(--space-6, 2rem);
+  }
+
+  .detail__quest {
+    scroll-margin-top: var(--space-4, 1rem);
+    padding-bottom: var(--space-4, 1rem);
+    border-bottom: 1px solid var(--color-border, #333);
+  }
+
+  .detail__quest:last-child {
+    border-bottom: none;
+    padding-bottom: 0;
+  }
+
+  .detail__head--nested {
+    margin-bottom: var(--space-3, 0.75rem);
+    padding-bottom: var(--space-2, 0.5rem);
+  }
+
+  .detail__subtitle {
+    margin: 0;
+    font-family: var(--font-display, Georgia, serif);
+    font-size: clamp(1.1rem, 1.8vw, 1.45rem);
+    font-weight: 700;
+    line-height: 1.25;
+    color: var(--color-fg, #e8e8e8);
+  }
+
   .block {
     margin-bottom: var(--space-5, 1.5rem);
   }

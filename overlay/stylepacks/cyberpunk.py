@@ -19,6 +19,10 @@ FONT_BODY = (
 )
 # Major / minor toasts — system serif.
 FONT_TOAST = '"Noto Serif", "Liberation Serif", "DejaVu Serif", serif'
+# Persistent event log — mono (same stack as fantasy HUD).
+FONT_LOG = (
+    '"JetBrainsMono Nerd Font", "JetBrains Mono", "JetBrainsMono NF", monospace'
+)
 
 PASSTHROUGH_BG_RGB = (12, 12, 14)
 PASSTHROUGH_RADIUS = 0
@@ -274,6 +278,12 @@ button.hud-icon-btn:focus {{
   padding: 2px 0 4px;
 }}
 
+.hud-settings-sep {{
+  min-height: 1px;
+  margin: 4px 0 2px;
+  background-color: rgba(252, 238, 10, 0.35);
+}}
+
 .hud-settings-label {{
   color: {CYAN};
   font-family: {FONT_BODY};
@@ -290,7 +300,7 @@ button.hud-icon-btn:focus {{
   font-weight: 700;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  margin-top: 6px;
+  margin-top: 2px;
   text-shadow: 0 0 8px rgba(252, 238, 10, 0.25);
 }}
 
@@ -593,7 +603,7 @@ button.hud-drag:selected {{
   min-width: 0;
   max-width: none;
   padding: 8px 10px 8px 12px;
-  font-family: {FONT_TOAST};
+  font-family: {FONT_LOG};
 }}
 
 .minor-log__empty {{
@@ -611,7 +621,7 @@ button.hud-drag:selected {{
 
 .minor-log__ts {{
   font-size: 9pt;
-  font-family: {FONT_BODY};
+  font-family: {FONT_LOG};
   color: rgba(220, 220, 222, 0.85);
   letter-spacing: 0.04em;
 }}
