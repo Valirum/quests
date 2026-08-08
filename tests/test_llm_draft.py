@@ -11,8 +11,10 @@ from quests.llm.schema import QuestDraft, quest_draft_json_schema
 def test_draft_schema_has_required_keys() -> None:
     schema = quest_draft_json_schema()
     assert schema["type"] == "object"
-    assert "title" in schema["properties"]
-    assert "steps" in schema["required"]
+    assert "variations" in schema["properties"]
+    assert "variations" in schema["required"]
+    assert "title" in schema["properties"]["variations"]["items"]["properties"]
+    assert "steps" in schema["properties"]["variations"]["items"]["required"]
 
 
 def test_draft_to_body_relative_deadline() -> None:

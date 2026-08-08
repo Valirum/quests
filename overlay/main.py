@@ -585,11 +585,11 @@ def on_activate(app: Gtk.Application) -> None:
         except (TypeError, ValueError):
             height = int(state.get("minor_log_height", 280))
         line_raw = str(cfg.get("line_mode") or state.get("minor_log_line_mode") or "clip")
-        line_mode = "wrap" if line_raw.strip().lower() in {"wrap", "перенос", "word"} else "clip"
+        line_mode = "clip"  # wrap removed — always single-line clip
+        _ = line_raw
 
         prev_mode = str(state.get("toasts_minor_mode") or "")
         prev_bg = str(state.get("minor_bg_mode") or "")
-        prev_line = str(state.get("minor_log_line_mode") or "")
         state["toasts_minor_mode"] = mode_key
         state["minor_bg_mode"] = bg_key
         state["minor_bg_alpha"] = ba
@@ -608,7 +608,7 @@ def on_activate(app: Gtk.Application) -> None:
             style_pack=str(state.get("style_pack") or pack_id),
         )
         persist()
-        if mode_key != prev_mode or bg_key != prev_bg or line_mode != prev_line:
+        if mode_key != prev_mode or bg_key != prev_bg:
             refresh_hud(force=True)
 
     def set_hud_category(slug: str) -> str:

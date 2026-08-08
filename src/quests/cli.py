@@ -323,33 +323,41 @@ def cmd_llm_add(ns: argparse.Namespace) -> int:
                 file=sys.stderr,
             )
     try:
-        draft = extract_quest_draft_sync(text, settings=settings)
+        bundle = extract_quest_draft_sync(text, settings=settings)
     except LlmError as e:
         raise CliError(str(e)) from e
 
-    if draft.needs_clarification and (draft.clarify_question or "").strip():
+    if bundle.needs_clarification and (bundle.clarify_question or "").strip():
+        draft = bundle.primary
         if _want_json(ns):
             emit(
                 {
                     "ok": False,
                     "needs_clarification": True,
-                    "question": draft.clarify_question,
+                    "question": bundle.clarify_question,
                     "draft": draft.model_dump(),
+                    "variations": [d.model_dump() for d in bundle.variations],
                 },
                 as_json=True,
             )
             return 2
-        print(format_draft_preview(draft))
-        print(f"\nуточнение: {draft.clarify_question}", file=sys.stderr)
+        print(format_draft_preview(draft, index=0, total=len(bundle.variations)))
+        print(f"\nуточнение: {bundle.clarify_question}", file=sys.stderr)
         return 2
 
+    pick = max(0, int(getattr(ns, "variant", 0) or 0))
+    pick = min(pick, len(bundle.variations) - 1)
+    draft = bundle.variations[pick]
     cats = api_request("GET", "/api/categories") or []
     body = draft_to_create_body(draft, categories=cats)
 
     if not bool(getattr(ns, "yes", False)) and not _want_json(ns):
-        print(format_draft_preview(draft))
+        for i, d in enumerate(bundle.variations):
+            mark = "→ " if i == pick else "  "
+            print(mark + format_draft_preview(d, index=i, total=len(bundle.variations)))
+            print()
         try:
-            ans = input("создать? [y/N] ").strip().lower()
+            ans = input(f"создать вариант {pick + 1}? [y/N] ").strip().lower()
         except EOFError:
             ans = ""
         if ans not in {"y", "yes", "д", "да"}:
@@ -358,7 +366,16 @@ def cmd_llm_add(ns: argparse.Namespace) -> int:
 
     q = api_request("POST", "/api/quests", body=body)
     if _want_json(ns):
-        emit({"ok": True, "draft": draft.model_dump(), "quest": q}, as_json=True)
+        emit(
+            {
+                "ok": True,
+                "draft": draft.model_dump(),
+                "variations": [d.model_dump() for d in bundle.variations],
+                "picked": pick,
+                "quest": q,
+            },
+            as_json=True,
+        )
     else:
         print(f"создан #{q['id']}: {q['title']}")
     return 0
@@ -800,6 +817,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--yes",
         action="store_true",
         help="не спрашивать подтверждение",
+    )
+    p.add_argument(
+        "--variant",
+        type=int,
+        default=0,
+        help="какой вариант из 3 взять (0=самый вероятный)",
     )
     p.set_defaults(func=cmd_llm_add)
 

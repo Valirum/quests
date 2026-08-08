@@ -10,12 +10,11 @@ from ..stylepacks import active_pack, build_minor_log_css
 from .minor import MINOR_CHANGE
 from .shared import SIGNIFICANCE_LABEL_RU, clear_box, clickthrough
 
-MINOR_LOG_MAX = 48
-# Approx row height for capacity (9pt + padding); wrap uses a taller estimate.
-_MINOR_LOG_LINE_PX = 18
-_MINOR_LOG_WRAP_LINE_PX = 32
-_MINOR_LOG_PAD_PX = 16
-_MINOR_LOG_SPACING_PX = 2
+MINOR_LOG_MAX = 64
+# Dense one-line rows (9pt); pad/spacing kept tight so capacity fills the panel.
+_MINOR_LOG_LINE_PX = 14
+_MINOR_LOG_PAD_PX = 8
+_MINOR_LOG_SPACING_PX = 1
 
 # Labels for durable /api/quest-log rows (majors + minors).
 LOG_KIND_LABEL = {
@@ -119,7 +118,6 @@ class EventLogHost:
         self._text_alpha = 0.92
         self._width = 520
         self._height = 280
-        self._line_mode = "clip"  # clip | wrap
         self._css = Gtk.CssProvider()
         display = Gdk.Display.get_default()
         if display is not None:
@@ -131,17 +129,13 @@ class EventLogHost:
         self._apply_size()
 
     def capacity(self) -> int:
-        """How many one-line rows fit in the current panel height."""
-        line = (
-            _MINOR_LOG_WRAP_LINE_PX
-            if self._line_mode == "wrap"
-            else _MINOR_LOG_LINE_PX
-        )
+        """How many one-line rows fit — slightly overestimate so top may clip."""
+        line = _MINOR_LOG_LINE_PX
         spacing = _MINOR_LOG_SPACING_PX
         avail = max(0, int(self._height) - _MINOR_LOG_PAD_PX)
-        # n*line + (n-1)*spacing <= avail
         n = (avail + spacing) // (line + spacing) if (line + spacing) else 1
-        return max(1, min(MINOR_LOG_MAX, int(n)))
+        # +2: prefer clipping at the top edge over empty filler.
+        return max(1, min(MINOR_LOG_MAX, int(n) + 2))
 
     def _build(self) -> Gtk.ApplicationWindow:
         window = Gtk.ApplicationWindow(application=self._app, title="Quests Event Log")
@@ -158,12 +152,16 @@ class EventLogHost:
         LayerShell.set_keyboard_mode(window, LayerShell.KeyboardMode.NONE)
         LayerShell.set_exclusive_zone(window, 0)
 
-        self._root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        self._root = Gtk.Box(
+            orientation=Gtk.Orientation.VERTICAL,
+            spacing=_MINOR_LOG_SPACING_PX,
+        )
         self._root.add_css_class("minor-log")
         self._root.set_halign(Gtk.Align.FILL)
         self._root.set_valign(Gtk.Align.FILL)
         self._root.set_hexpand(True)
         self._root.set_vexpand(True)
+        self._root.set_overflow(Gtk.Overflow.HIDDEN)
         window.set_child(self._root)
         clickthrough(window)
         return window
@@ -209,12 +207,8 @@ class EventLogHost:
             if h != self._height:
                 self._height = h
                 rebuild = True
-        if line_mode is not None:
-            key = str(line_mode).strip().lower()
-            mode = "wrap" if key in {"wrap", "перенос", "word"} else "clip"
-            if mode != self._line_mode:
-                self._line_mode = mode
-                rebuild = True
+        # line_mode ignored — log is always single-line clip.
+        _ = line_mode
         self._apply_look(style_pack=style_pack)
         self._apply_size()
         if rebuild:
@@ -275,16 +269,26 @@ class EventLogHost:
         clear_box(self._root)
         self._window.hide()
 
+    def _line_budgets(self) -> tuple[int, int, int]:
+        """Pixel content width + title/msg char caps from panel width."""
+        # CSS padding ~10–12px each side + row border/pad.
+        content_w = max(140, int(self._width) - 28)
+        # ~9pt mono-ish average glyph width.
+        avg = 7
+        cols = max(20, content_w // avg)
+        # [HH:MM:SS]_ + " - " ≈ 14 cols reserved.
+        reserved = 14
+        title_max = max(8, min(28, (cols - reserved) // 3))
+        msg_chars = max(8, cols - reserved - title_max)
+        return content_w, title_max, msg_chars
+
     def _rebuild(self) -> None:
         clear_box(self._root)
         self._apply_size()
-        wrap = self._line_mode == "wrap"
-        # Leave room for [ts] + title + " - " (~18 chars + title_max).
-        title_max = min(22, max(10, self._width // 28))
-        msg_chars = max(16, (self._width - 40) // 8 - title_max - 14)
+        content_w, title_max, msg_chars = self._line_budgets()
         cap = self.capacity()
 
-        # Push rows to the bottom of the panel; newest is the last (bottom) line.
+        # Always bottom-align: when over capacity, excess clips at the top.
         filler = Gtk.Box()
         filler.set_vexpand(True)
         filler.set_hexpand(True)
@@ -298,7 +302,7 @@ class EventLogHost:
             self._root.append(empty)
             return
 
-        # API order is newest-first → take newest `cap`, reverse to oldest→newest.
+        # Newest at bottom; take newest `cap`, reverse to oldest→newest.
         visible = list(reversed(self._entries[:cap]))
 
         for entry in visible:
@@ -306,21 +310,20 @@ class EventLogHost:
             row.add_css_class("minor-log__row")
             row.add_css_class(f"minor-log__row--{entry['kind']}")
             row.set_halign(Gtk.Align.START)
-            row.set_hexpand(True)
+            row.set_hexpand(False)
             row.set_vexpand(False)
+            row.set_size_request(content_w, -1)
 
             ts = Gtk.Label(label=f"[{entry['ts']}] ", xalign=0)
             ts.add_css_class("minor-log__ts")
             ts.set_halign(Gtk.Align.START)
 
-            title_raw = entry["title"]
-            if len(title_raw) > title_max:
-                title_raw = title_raw[: title_max - 1].rstrip() + "…"
-
-            title = Gtk.Label(label=title_raw, xalign=0)
+            title = Gtk.Label(label=entry["title"], xalign=0)
             title.add_css_class("minor-log__title")
             title.add_css_class(f"minor-log__title--{entry['sig']}")
             title.set_halign(Gtk.Align.START)
+            title.set_ellipsize(Pango.EllipsizeMode.END)
+            title.set_max_width_chars(title_max)
 
             sep = Gtk.Label(label=" - ", xalign=0)
             sep.add_css_class("minor-log__sep")
@@ -330,19 +333,9 @@ class EventLogHost:
             msg.add_css_class(f"minor-log__msg--{entry['kind']}")
             msg.set_halign(Gtk.Align.START)
             msg.set_hexpand(True)
-            if wrap:
-                msg.set_wrap(True)
-                msg.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
-                msg.set_max_width_chars(msg_chars)
-                if hasattr(msg, "set_natural_wrap_mode"):
-                    try:
-                        msg.set_natural_wrap_mode(Gtk.NaturalWrapMode.WORD)
-                    except Exception:
-                        pass
-            else:
-                msg.set_wrap(False)
-                msg.set_ellipsize(Pango.EllipsizeMode.END)
-                msg.set_max_width_chars(msg_chars)
+            msg.set_wrap(False)
+            msg.set_ellipsize(Pango.EllipsizeMode.END)
+            msg.set_max_width_chars(msg_chars)
 
             row.append(ts)
             row.append(title)

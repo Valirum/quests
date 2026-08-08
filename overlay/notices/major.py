@@ -285,8 +285,8 @@ class MajorHost:
             card.append(major_label(description, "major__description", wrap=True))
 
         detail = (event.get("detail") or "").strip()
-        if detail:
-            card.append(major_label(detail, "major__detail", wrap=True))
+        # Detail often duplicates the eyebrow («создано задание») — skip on majors.
+        _ = detail
 
         self._slot.append(card)
         self._window.present()
