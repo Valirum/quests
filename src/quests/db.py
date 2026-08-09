@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncGenerator
 
+from sqlalchemy import event
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.orm import selectinload
 from sqlmodel import select
@@ -12,8 +13,23 @@ from quests.migrate import upgrade_to_head
 from quests.models import Quest, QuestStatus, QuestStep
 from quests.categories import ensure_categories
 
-engine = create_async_engine(DATABASE_URL, echo=False)
+_engine_kwargs: dict = {"echo": False}
+if DATABASE_URL.startswith("sqlite"):
+    # Avoid flaky "database is locked" under TestClient + fire-and-forget writers.
+    _engine_kwargs["connect_args"] = {"timeout": 30}
+
+engine = create_async_engine(DATABASE_URL, **_engine_kwargs)
 SessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+
+
+if DATABASE_URL.startswith("sqlite"):
+
+    @event.listens_for(engine.sync_engine, "connect")
+    def _sqlite_on_connect(dbapi_conn, _connection_record) -> None:  # type: ignore[no-untyped-def]
+        cursor = dbapi_conn.cursor()
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.execute("PRAGMA busy_timeout=30000")
+        cursor.close()
 
 
 def _seed_data() -> list[Quest]:

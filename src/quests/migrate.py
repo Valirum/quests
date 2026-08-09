@@ -19,10 +19,17 @@ def alembic_config() -> Config:
     return cfg
 
 
+def _sync_engine():
+    kwargs: dict = {}
+    if DATABASE_URL_SYNC.startswith("sqlite"):
+        kwargs["connect_args"] = {"timeout": 30}
+    return create_engine(DATABASE_URL_SYNC, **kwargs)
+
+
 def _has_table(name: str) -> bool:
     if not DB_PATH.exists():
         return False
-    engine = create_engine(DATABASE_URL_SYNC)
+    engine = _sync_engine()
     try:
         return name in inspect(engine).get_table_names()
     finally:
@@ -32,7 +39,7 @@ def _has_table(name: str) -> bool:
 def current_revision() -> str | None:
     if not _has_table("alembic_version"):
         return None
-    engine = create_engine(DATABASE_URL_SYNC)
+    engine = _sync_engine()
     try:
         with engine.connect() as conn:
             row = conn.execute(text("SELECT version_num FROM alembic_version")).first()

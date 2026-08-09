@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException
@@ -20,6 +21,11 @@ from quests.window_start import notify_window_starts
 
 FRONTEND_DIST = ROOT / "frontend" / "dist"
 EXPIRE_POLL_S = 15
+
+
+def _maintenance_enabled() -> bool:
+    raw = (os.environ.get("QUESTS_MAINTENANCE") or "1").strip().lower()
+    return raw not in {"0", "false", "no", "off"}
 
 
 @asynccontextmanager
@@ -51,15 +57,18 @@ async def lifespan(_app: FastAPI):
                 pass
             await asyncio.sleep(EXPIRE_POLL_S)
 
-    task = asyncio.create_task(maintenance_loop())
+    task: asyncio.Task[None] | None = None
+    if _maintenance_enabled():
+        task = asyncio.create_task(maintenance_loop())
     try:
         yield
     finally:
-        task.cancel()
-        try:
-            await task
-        except asyncio.CancelledError:
-            pass
+        if task is not None:
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
 
 
 app = FastAPI(title="Quests", version="0.1.0", lifespan=lifespan)
