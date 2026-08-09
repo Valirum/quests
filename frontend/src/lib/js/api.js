@@ -104,6 +104,17 @@ export function getHero() {
   return request('/api/hero')
 }
 
+/** @param {{ days?: number, from?: string, to?: string, template_id?: number }} [params] */
+export function getStats(params = {}) {
+  const q = new URLSearchParams()
+  if (params.days != null) q.set('days', String(params.days))
+  if (params.from) q.set('from', params.from)
+  if (params.to) q.set('to', params.to)
+  if (params.template_id != null) q.set('template_id', String(params.template_id))
+  const qs = q.toString()
+  return request(`/api/stats${qs ? `?${qs}` : ''}`)
+}
+
 export function listCategories() {
   return request('/api/categories')
 }

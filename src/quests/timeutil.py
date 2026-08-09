@@ -35,12 +35,19 @@ def to_utc_iso(dt: datetime | None) -> str | None:
         return text[:-6] + "Z"
     return text
 
+# Default urgent window when deadline is set without an explicit duration.
+DEFAULT_DURATION_SECONDS = 24 * 60 * 60
+
+
 def auto_duration_seconds(deadline_at: datetime, anchor: datetime) -> int:
-    """If duration omitted: deadline − created/changed, at least 60s."""
+    """If duration omitted: 24h (or time left to deadline if shorter), at least 60s."""
     deadline_at = ensure_utc(deadline_at)
     anchor = ensure_utc(anchor)
     assert deadline_at is not None and anchor is not None
-    return max(60, int((deadline_at - anchor).total_seconds()))
+    left = int((deadline_at - anchor).total_seconds())
+    if left <= 60:
+        return 60
+    return min(DEFAULT_DURATION_SECONDS, left)
 
 
 def window_start(deadline_at: datetime, duration_seconds: int) -> datetime:

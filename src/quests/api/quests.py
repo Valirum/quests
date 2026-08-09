@@ -17,6 +17,7 @@ from quests.models import (
     QuestRead,
     QuestStatus,
     QuestStep,
+    QuestStepCreate,
     QuestStepUpdate,
     QuestUpdate,
     utcnow,
@@ -32,7 +33,7 @@ router = APIRouter(prefix="/api/quests", tags=["quests"])
 
 
 def _normalize_deadline(quest: Quest, *, duration_explicit: bool = False) -> None:
-    """Store deadline as naive UTC; auto-fill duration from created/changed when needed."""
+    """Store deadline as naive UTC; auto-fill duration (24h) when omitted."""
     if quest.deadline_at is None:
         quest.duration_seconds = None
         return
@@ -209,7 +210,7 @@ async def update_quest(
         if duration_explicit and quest.duration_seconds is not None:
             quest.duration_seconds = max(1, int(quest.duration_seconds))
         elif quest.duration_seconds is None or (deadline_touched and not duration_explicit):
-            # No duration (or deadline changed without one) → deadline − created/changed.
+            # No duration (or deadline changed without one) → default 24h window.
             anchor = quest.updated_at if deadline_touched else (quest.created_at or quest.updated_at)
             assert quest.deadline_at is not None
             deadline = ensure_utc(quest.deadline_at)
@@ -223,6 +224,44 @@ async def update_quest(
     if before_status != quest.status:
         await apply_quest_status_rewards(session, quest, new_status=quest.status)
 
+    session.add(quest)
+    await session.commit()
+    read = quest_to_read(await _get_quest_or_404(session, quest_id))
+    await _publish_changes(before, read, quiet=quiet)
+    return read
+
+
+@router.post("/{quest_id}/steps", response_model=QuestRead, status_code=status.HTTP_201_CREATED)
+async def add_quest_step(
+    quest_id: int,
+    payload: QuestStepCreate,
+    quiet: bool = Query(
+        default=False,
+        description="If true — publish without overlay toasts (HUD still refreshes).",
+    ),
+    session: AsyncSession = Depends(get_session),
+) -> QuestRead:
+    quest = await _get_quest_or_404(session, quest_id)
+    before = quest_to_read(quest)
+    before_status = quest.status
+
+    step_payload = payload.model_dump()
+    explicit = payload.model_dump(exclude_unset=True)
+    if "sort_order" not in explicit:
+        next_order = 0
+        if quest.steps:
+            next_order = max(int(s.sort_order or 0) for s in quest.steps) + 1
+        step_payload["sort_order"] = next_order
+    step = QuestStep(**step_payload)
+    clamp_step_progress(step)
+    normalize_check_fields(step)
+    quest.steps.append(step)
+    sync_status_from_steps(quest)
+
+    if before_status != quest.status:
+        await apply_quest_status_rewards(session, quest, new_status=quest.status)
+
+    quest.updated_at = utcnow()
     session.add(quest)
     await session.commit()
     read = quest_to_read(await _get_quest_or_404(session, quest_id))
@@ -253,6 +292,43 @@ async def update_quest_step(
         setattr(step, key, value)
     clamp_step_progress(step)
     normalize_check_fields(step)
+    sync_status_from_steps(quest)
+
+    if before_status != quest.status:
+        await apply_quest_status_rewards(session, quest, new_status=quest.status)
+
+    quest.updated_at = utcnow()
+    session.add(quest)
+    await session.commit()
+    read = quest_to_read(await _get_quest_or_404(session, quest_id))
+    await _publish_changes(before, read, quiet=quiet)
+    return read
+
+
+@router.delete("/{quest_id}/steps/{step_id}", response_model=QuestRead)
+async def delete_quest_step(
+    quest_id: int,
+    step_id: int,
+    quiet: bool = Query(
+        default=False,
+        description="If true — publish without overlay toasts (HUD still refreshes).",
+    ),
+    session: AsyncSession = Depends(get_session),
+) -> QuestRead:
+    quest = await _get_quest_or_404(session, quest_id)
+    before = quest_to_read(quest)
+    before_status = quest.status
+    step = next((s for s in quest.steps if s.id == step_id), None)
+    if step is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Step not found")
+    if len(quest.steps) <= 1:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot delete the last step",
+        )
+
+    quest.steps.remove(step)
+    await session.delete(step)
     sync_status_from_steps(quest)
 
     if before_status != quest.status:

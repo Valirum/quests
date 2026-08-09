@@ -24,6 +24,7 @@
   import ConfirmModal from './lib/modals/ConfirmModal.svelte'
   import ContextMenu from './lib/ui/ContextMenu.svelte'
   import HeroPanel from './lib/blocks/HeroPanel.svelte'
+  import StatsPanel from './lib/blocks/StatsPanel.svelte'
   import JournalHeader from './lib/blocks/JournalHeader.svelte'
   import QuestSidebar from './lib/blocks/QuestSidebar.svelte'
   import QuestDetail from './lib/blocks/QuestDetail.svelte'
@@ -37,10 +38,12 @@
   /** @type {{ api: string, overlay: string, telegram: string, detail?: Record<string, any> }} */
   let health = $state({ api: 'unknown', overlay: 'unknown', telegram: 'unknown' })
   let searchQuery = $state('')
-  /** @type {'journal' | 'calendar' | 'hero'} */
+  /** @type {'journal' | 'calendar' | 'hero' | 'stats'} */
   let view = $state('journal')
   /** Bump to refresh hero silently after quest events. */
   let heroNonce = $state(0)
+  /** Bump to refresh stats silently after quest events. */
+  let statsNonce = $state(0)
   /** @type {{ id: number, slug: string, label: string, sort_order: number, color?: string }[]} */
   let categories = $state([])
   /** @type {{ id: number, title: string, category_id?: number | null, color?: string, icon?: string }[]} */
@@ -630,6 +633,7 @@
         if (msg?.type === 'quests_changed') {
           load({ silent: true })
           if (view === 'hero') heroNonce += 1
+          if (view === 'stats') statsNonce += 1
         }
       },
       { onStatus: (s) => (liveStatus = s) },
@@ -684,6 +688,10 @@
   {#if view === 'hero'}
     <div class="journal__hero">
       <HeroPanel active={view === 'hero'} nonce={heroNonce} />
+    </div>
+  {:else if view === 'stats'}
+    <div class="journal__stats">
+      <StatsPanel active={view === 'stats'} nonce={statsNonce} />
     </div>
   {:else if view === 'calendar'}
     <div class="journal__calendar">

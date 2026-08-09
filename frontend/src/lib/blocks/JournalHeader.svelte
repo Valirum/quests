@@ -2,10 +2,10 @@
   import Icon from '../ui/Icon.svelte'
 
   /** @type {{
-   *   view: 'journal' | 'calendar' | 'hero',
+   *   view: 'journal' | 'calendar' | 'hero' | 'stats',
    *   liveStatus: string,
    *   health: { api: string, overlay: string, telegram: string },
-   *   onViewChange: (v: 'journal' | 'calendar' | 'hero') => void,
+   *   onViewChange: (v: 'journal' | 'calendar' | 'hero' | 'stats') => void,
    *   onOpenSettings: () => void,
    *   onOpenTemplates: () => void,
    *   onOpenCreateQuestline: () => void,
@@ -42,6 +42,8 @@
           Лист
         {:else if view === 'calendar'}
           Календарь
+        {:else if view === 'stats'}
+          Статистика
         {:else}
           Задачи
         {/if}
@@ -101,6 +103,16 @@
       onclick={() => onViewChange('hero')}
     >
       Лист
+    </button>
+    <button
+      type="button"
+      class="view-tab"
+      class:view-tab--on={view === 'stats'}
+      role="tab"
+      aria-selected={view === 'stats'}
+      onclick={() => onViewChange('stats')}
+    >
+      Статистика
     </button>
   </div>
   <div class="header-actions">
