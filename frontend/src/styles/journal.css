@@ -852,7 +852,7 @@
 
   .detail__line-head {
     display: flex;
-    align-items: stretch;
+    align-items: center;
     gap: var(--space-3, 0.75rem);
     margin: calc(-1 * var(--space-5, 1.5rem)) calc(-1 * var(--space-6, 2rem)) var(--space-5, 1.5rem);
     padding: var(--space-4, 1rem) var(--space-6, 2rem);
@@ -864,7 +864,6 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    align-self: center;
     width: 2.25rem;
     height: 2.25rem;
     border-radius: 0.35rem;
@@ -874,23 +873,13 @@
   }
 
   .detail__line-icon--custom {
-    align-self: stretch;
     width: auto;
     height: auto;
     min-height: 0;
     padding: 0;
     background: transparent;
     border-radius: 0;
-  }
-
-  .detail__line-icon--custom :global(.ql-icon--lg) {
-    height: 100%;
-  }
-
-  .detail__line-icon--custom :global(.ql-icon--lg img) {
-    height: 100%;
-    width: auto;
-    max-height: 100%;
+    color: var(--line-color, #9a9a9a);
   }
 
   /* Built-in SVG uses the tinted box; QuestlineIcon's own box would double — hide it. */
@@ -924,7 +913,6 @@
   }
 
   .detail__line-count {
-    align-self: center;
     font-family: var(--font-mono, monospace);
     font-size: var(--text-sm, 0.875rem);
     color: var(--color-fg-muted, #9a9a9a);
