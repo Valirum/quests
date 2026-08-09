@@ -1,5 +1,6 @@
 <script>
   import Icon from '../ui/Icon.svelte'
+  import QuestlineIcon from '../ui/QuestlineIcon.svelte'
   import {
     isQuestInactive,
     periodBadge,
@@ -144,7 +145,11 @@
                 oncontextmenu={(e) => onLineContextMenu(e, line)}
               >
                 <span class="quest-line__icon" aria-hidden="true">
-                  <Icon name={line.icon || 'document'} size={12} />
+                  <QuestlineIcon
+                    icon={line.icon || 'document'}
+                    iconUrl={line.icon_url || null}
+                    size="sm"
+                  />
                 </span>
                 <span class="quest-line__label">{line.title}</span>
                 <span class="quest-line__hint">{line.quests.length}</span>

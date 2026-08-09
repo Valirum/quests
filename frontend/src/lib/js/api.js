@@ -130,6 +130,34 @@ export function deleteQuestline(id) {
   return request(`/api/questlines/${id}`, { method: 'DELETE' })
 }
 
+/** Upload custom questline image (not added to built-in SVG pool). */
+export async function uploadQuestlineIcon(id, file) {
+  const body = new FormData()
+  body.append('file', file)
+  const res = await fetch(`/api/questlines/${id}/icon`, {
+    method: 'POST',
+    body,
+  })
+  const text = await res.text()
+  let data = null
+  if (text) {
+    try {
+      data = JSON.parse(text)
+    } catch {
+      throw new Error(res.ok ? `Ответ не JSON` : `HTTP ${res.status}`)
+    }
+  }
+  if (!res.ok) {
+    const detail = data?.detail ?? res.statusText
+    throw new Error(typeof detail === 'string' ? detail : JSON.stringify(detail))
+  }
+  return data
+}
+
+export function clearQuestlineIcon(id) {
+  return request(`/api/questlines/${id}/icon`, { method: 'DELETE' })
+}
+
 export const QUESTLINE_ICONS = ['document', 'flag', 'map', 'layers', 'target', 'scroll']
 
 export const QUESTLINE_COLORS = [

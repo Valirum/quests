@@ -125,6 +125,8 @@ class QuestLine(QuestLineBase, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     created_at: datetime = Field(default_factory=utcnow)
     updated_at: datetime = Field(default_factory=utcnow)
+    # Uploaded image filename under data/questline-icons/ (e.g. "3.png").
+    custom_icon: Optional[str] = Field(default=None, max_length=64)
     category: Optional[QuestCategory] = Relationship()
 
 
@@ -144,9 +146,12 @@ class QuestLineRead(QuestLineBase):
     id: int
     created_at: datetime
     updated_at: datetime
+    custom_icon: Optional[str] = None
     category_slug: Optional[str] = None
     category_label: Optional[str] = None
     category_color: Optional[str] = None
+    # Present when a custom upload is set; clients prefer this over built-in `icon`.
+    icon_url: Optional[str] = None
 
     @field_serializer("created_at", "updated_at", when_used="json")
     def _ser_utc(self, value: Optional[datetime]) -> Optional[str]:
@@ -258,6 +263,7 @@ class QuestRead(QuestBase):
     questline_title: Optional[str] = None
     questline_color: Optional[str] = None
     questline_icon: Optional[str] = None
+    questline_icon_url: Optional[str] = None
     steps: List[QuestStepRead] = Field(default_factory=list)
     steps_done: int = 0
     steps_total: int = 0
@@ -399,6 +405,7 @@ class QuestTemplateRead(QuestTemplateBase):
     questline_title: Optional[str] = None
     questline_color: Optional[str] = None
     questline_icon: Optional[str] = None
+    questline_icon_url: Optional[str] = None
     steps: List[QuestTemplateStepRead] = Field(default_factory=list)
 
     @field_serializer("created_at", "updated_at", when_used="json")

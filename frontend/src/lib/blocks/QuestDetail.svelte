@@ -1,6 +1,7 @@
 <script>
   import { tick } from 'svelte'
   import Icon from '../ui/Icon.svelte'
+  import QuestlineIcon from '../ui/QuestlineIcon.svelte'
   import ActivityCalendar from './ActivityCalendar.svelte'
   import { formatLocal, localTimeZone } from '../js/time.js'
   import {
@@ -83,6 +84,7 @@
     title: selected?.questline_title || 'Квестлайн',
     color: selected?.questline_color || '#9a9a9a',
     icon: selected?.questline_icon || 'document',
+    iconUrl: selected?.questline_icon_url || null,
   })
 
   $effect(() => {
@@ -275,11 +277,20 @@
   {:else if inQuestline}
     <header
       class="detail__line-head"
+      class:detail__line-head--custom={Boolean(lineMeta.iconUrl)}
       style="--line-color: {lineMeta.color}"
       oncontextmenu={(e) => onLineHeadContextMenu?.(e)}
     >
-      <span class="detail__line-icon" aria-hidden="true">
-        <Icon name={lineMeta.icon} size={18} />
+      <span
+        class="detail__line-icon"
+        class:detail__line-icon--custom={Boolean(lineMeta.iconUrl)}
+        aria-hidden="true"
+      >
+        <QuestlineIcon
+          icon={lineMeta.icon}
+          iconUrl={lineMeta.iconUrl}
+          size="lg"
+        />
       </span>
       <div class="detail__line-text">
         <p class="detail__line-eyebrow">Квестлайн</p>

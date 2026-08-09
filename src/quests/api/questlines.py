@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import selectinload
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -18,7 +19,14 @@ from quests.models import (
     QuestTemplate,
     utcnow,
 )
+from quests.questline_icons import (
+    delete_icon_file,
+    icon_file_path,
+    icon_url,
+    save_uploaded_icon,
+)
 from quests.questlines import sync_member_categories
+from quests.timeutil import to_utc_iso
 
 router = APIRouter(prefix="/api/questlines", tags=["questlines"])
 
@@ -29,6 +37,8 @@ def _line_load_options():
 
 def line_to_read(line: QuestLine) -> QuestLineRead:
     cat = getattr(line, "category", None)
+    custom = getattr(line, "custom_icon", None) or None
+    version = to_utc_iso(line.updated_at) if custom else None
     return QuestLineRead(
         id=line.id,  # type: ignore[arg-type]
         title=line.title,
@@ -36,11 +46,13 @@ def line_to_read(line: QuestLine) -> QuestLineRead:
         category_id=line.category_id,
         color=line.color or "#9a9a9a",
         icon=line.icon or "document",
+        custom_icon=custom,
         created_at=line.created_at,
         updated_at=line.updated_at,
         category_slug=getattr(cat, "slug", None) if cat is not None else None,
         category_label=getattr(cat, "label", None) if cat is not None else None,
         category_color=getattr(cat, "color", None) if cat is not None else None,
+        icon_url=icon_url(int(line.id), version=version) if custom and line.id else None,
     )
 
 
@@ -75,6 +87,56 @@ async def get_questline(
     line_id: int,
     session: AsyncSession = Depends(get_session),
 ) -> QuestLineRead:
+    return line_to_read(await _get_line_or_404(session, line_id))
+
+
+@router.get("/{line_id}/icon")
+async def get_questline_icon(
+    line_id: int,
+    session: AsyncSession = Depends(get_session),
+) -> FileResponse:
+    line = await _get_line_or_404(session, line_id)
+    if not line.custom_icon:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="No custom icon"
+        )
+    path = icon_file_path(line.custom_icon)
+    if not path.is_file():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Icon file missing"
+        )
+    return FileResponse(path)
+
+
+@router.post("/{line_id}/icon", response_model=QuestLineRead)
+async def upload_questline_icon(
+    line_id: int,
+    file: UploadFile = File(...),
+    session: AsyncSession = Depends(get_session),
+) -> QuestLineRead:
+    line = await _get_line_or_404(session, line_id)
+    old = line.custom_icon
+    filename = await save_uploaded_icon(line_id, file)
+    if old and old != filename:
+        delete_icon_file(old)
+    line.custom_icon = filename
+    line.updated_at = utcnow()
+    session.add(line)
+    await session.commit()
+    return line_to_read(await _get_line_or_404(session, line_id))
+
+
+@router.delete("/{line_id}/icon", response_model=QuestLineRead)
+async def clear_questline_icon(
+    line_id: int,
+    session: AsyncSession = Depends(get_session),
+) -> QuestLineRead:
+    line = await _get_line_or_404(session, line_id)
+    delete_icon_file(line.custom_icon)
+    line.custom_icon = None
+    line.updated_at = utcnow()
+    session.add(line)
+    await session.commit()
     return line_to_read(await _get_line_or_404(session, line_id))
 
 
@@ -125,6 +187,7 @@ async def delete_questline(
     session: AsyncSession = Depends(get_session),
 ) -> None:
     line = await _get_line_or_404(session, line_id)
+    delete_icon_file(line.custom_icon)
     members = list(
         (await session.exec(select(Quest).where(Quest.questline_id == line_id))).all()
     )

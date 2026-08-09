@@ -2,12 +2,15 @@
   import {
     QUESTLINE_COLORS,
     QUESTLINE_ICONS,
+    clearQuestlineIcon,
     createQuestline,
     deleteQuestline,
     listCategories,
     updateQuestline,
+    uploadQuestlineIcon,
   } from '../js/api.js'
   import Icon from '../ui/Icon.svelte'
+  import QuestlineIcon from '../ui/QuestlineIcon.svelte'
   import ConfirmModal from './ConfirmModal.svelte'
   import { untrack } from 'svelte'
 
@@ -27,22 +30,40 @@
   let categoryId = $state('')
   let color = $state('#9a9a9a')
   let icon = $state('document')
+  /** Current server custom icon URL (if any). */
+  let iconUrl = $state(/** @type {string | null} */ (null))
+  /** Pending local file for upload after save. */
+  let pendingFile = $state(/** @type {File | null} */ (null))
+  let pendingPreview = $state(/** @type {string | null} */ (null))
+  /** User chose to drop custom icon on save. */
+  let clearCustom = $state(false)
   /** @type {{ id: number, slug: string, label: string, color?: string }[]} */
   let categories = $state([])
   let saving = $state(false)
   let deleting = $state(false)
   let deleteConfirmOpen = $state(false)
   let formError = $state('')
+  let fileInput = $state(/** @type {HTMLInputElement | null} */ (null))
 
   let heading = $derived(mode === 'create' ? 'Новый квестлайн' : 'Редактировать квестлайн')
+  let previewUrl = $derived(pendingPreview || (!clearCustom ? iconUrl : null))
+
+  function revokePendingPreview() {
+    if (pendingPreview) URL.revokeObjectURL(pendingPreview)
+    pendingPreview = null
+  }
 
   function resetFromLine(row) {
+    revokePendingPreview()
+    pendingFile = null
+    clearCustom = false
     if (!row) {
       title = ''
       description = ''
       categoryId = ''
       color = '#9a9a9a'
       icon = 'document'
+      iconUrl = null
       return
     }
     title = row.title ?? ''
@@ -50,6 +71,31 @@
     categoryId = row.category_id != null ? String(row.category_id) : ''
     color = row.color || '#9a9a9a'
     icon = row.icon || 'document'
+    iconUrl = row.icon_url || null
+  }
+
+  function pickBuiltin(name) {
+    icon = name
+    clearCustom = true
+    pendingFile = null
+    revokePendingPreview()
+  }
+
+  function onFileChange(event) {
+    const input = /** @type {HTMLInputElement} */ (event.currentTarget)
+    const file = input.files?.[0] || null
+    input.value = ''
+    if (!file) return
+    revokePendingPreview()
+    pendingFile = file
+    pendingPreview = URL.createObjectURL(file)
+    clearCustom = false
+  }
+
+  function removeCustom() {
+    pendingFile = null
+    revokePendingPreview()
+    clearCustom = true
   }
 
   // Init when `open` becomes true — only track `open`.
@@ -99,10 +145,17 @@
         color: color || '#9a9a9a',
         icon: icon || 'document',
       }
-      const saved =
+      let saved =
         mode === 'create'
           ? await createQuestline(payload)
           : await updateQuestline(line.id, payload)
+
+      if (pendingFile && saved?.id) {
+        saved = await uploadQuestlineIcon(saved.id, pendingFile)
+      } else if (clearCustom && mode === 'edit' && line?.id && iconUrl) {
+        saved = await clearQuestlineIcon(line.id)
+      }
+
       onSaved(saved)
       onClose()
     } catch (e) {
@@ -234,16 +287,41 @@
               <button
                 type="button"
                 class="icon-pick"
-                class:icon-pick--on={icon === name}
+                class:icon-pick--on={!previewUrl && icon === name}
                 role="radio"
-                aria-checked={icon === name}
+                aria-checked={!previewUrl && icon === name}
                 aria-label={name}
-                onclick={() => (icon = name)}
+                onclick={() => pickBuiltin(name)}
               >
                 <Icon {name} size={16} />
               </button>
             {/each}
           </div>
+          <div class="icon-custom">
+            {#if previewUrl}
+              <span class="icon-custom__preview" style="--line-color: {color}">
+                <QuestlineIcon iconUrl={previewUrl} size="md" />
+              </span>
+              <button type="button" class="btn btn--ghost" onclick={removeCustom}>
+                Убрать свою
+              </button>
+            {/if}
+            <button
+              type="button"
+              class="btn"
+              onclick={() => fileInput?.click()}
+            >
+              Загрузить…
+            </button>
+            <input
+              bind:this={fileInput}
+              class="icon-custom__file"
+              type="file"
+              accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml"
+              onchange={onFileChange}
+            />
+          </div>
+          <p class="hint">Своя иконка только у этого квестлайна, в пул SVG не попадает.</p>
         </div>
 
         <footer class="modal__foot">
@@ -457,6 +535,32 @@
     border-color: var(--color-accent, #c9a227);
     color: var(--color-accent, #c9a227);
     background: color-mix(in srgb, var(--color-accent, #c9a227) 16%, transparent);
+  }
+
+  .icon-custom {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+  }
+
+  .icon-custom__preview {
+    display: inline-flex;
+  }
+
+  .icon-custom__file {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .hint {
+    margin: 0.4rem 0 0;
+    font-size: var(--text-xs, 0.75rem);
+    color: var(--color-fg-muted, #9a9a9a);
   }
 
   .modal__foot {

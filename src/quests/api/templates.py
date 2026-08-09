@@ -59,6 +59,16 @@ def template_to_read(tmpl: QuestTemplate) -> QuestTemplateRead:
     steps = sorted(tmpl.steps or [], key=lambda s: (s.sort_order, s.id or 0))
     cat = getattr(tmpl, "category", None)
     line = getattr(tmpl, "questline", None)
+    custom = getattr(line, "custom_icon", None) if line is not None else None
+    line_id = getattr(line, "id", None) if line is not None else tmpl.questline_id
+    q_icon_url = None
+    if custom and line_id is not None:
+        from quests.questline_icons import icon_url as questline_icon_url
+        from quests.timeutil import to_utc_iso
+
+        q_icon_url = questline_icon_url(
+            int(line_id), version=to_utc_iso(getattr(line, "updated_at", None))
+        )
     return QuestTemplateRead(
         id=tmpl.id,  # type: ignore[arg-type]
         title=tmpl.title,
@@ -85,6 +95,7 @@ def template_to_read(tmpl: QuestTemplate) -> QuestTemplateRead:
         questline_title=getattr(line, "title", None) if line is not None else None,
         questline_color=getattr(line, "color", None) if line is not None else None,
         questline_icon=getattr(line, "icon", None) if line is not None else None,
+        questline_icon_url=q_icon_url,
         created_at=tmpl.created_at,
         updated_at=tmpl.updated_at,
         steps=[_step_to_read(s) for s in steps],
