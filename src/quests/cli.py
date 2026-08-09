@@ -484,6 +484,79 @@ def cmd_step(ns: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_step_add(ns: argparse.Namespace) -> int:
+    body: dict[str, Any] = {
+        "title": ns.title,
+        "progress_current": int(ns.progress or 0),
+        "progress_total": max(1, int(ns.total or 1)),
+    }
+    if ns.description is not None:
+        body["description"] = ns.description
+    if ns.sort_order is not None:
+        body["sort_order"] = int(ns.sort_order)
+    updated = api_request(
+        "POST",
+        f"/api/quests/{ns.quest_id}/steps",
+        body=body,
+        query={"quiet": "1"} if getattr(ns, "quiet", False) else None,
+    )
+    if _want_json(ns):
+        emit(updated, as_json=True)
+    else:
+        added = max(updated.get("steps") or [], key=lambda s: int(s.get("id") or 0))
+        print(
+            f"#{updated['id']} +step [{added['id']}] {added['title']}  "
+            f"({updated.get('progress_label')})"
+        )
+    return 0
+
+
+def cmd_step_edit(ns: argparse.Namespace) -> int:
+    body: dict[str, Any] = {}
+    if ns.title is not None:
+        body["title"] = ns.title
+    if ns.description is not None:
+        body["description"] = ns.description
+    if ns.total is not None:
+        body["progress_total"] = max(1, int(ns.total))
+    if ns.set is not None:
+        body["progress_current"] = int(ns.set)
+    if ns.sort_order is not None:
+        body["sort_order"] = int(ns.sort_order)
+    if not body:
+        raise CliError("укажи хотя бы одно поле: --title / -d / --total / --set / --sort-order")
+    updated = api_request(
+        "PATCH",
+        f"/api/quests/{ns.quest_id}/steps/{ns.step_id}",
+        body=body,
+        query={"quiet": "1"} if getattr(ns, "quiet", False) else None,
+    )
+    if _want_json(ns):
+        emit(updated, as_json=True)
+    else:
+        st = next(s for s in updated["steps"] if int(s["id"]) == int(ns.step_id))
+        print(
+            f"#{updated['id']} step [{st['id']}] {st['title']}: "
+            f"{st['progress_current']}/{st['progress_total']}  ({updated.get('progress_label')})"
+        )
+    return 0
+
+
+def cmd_step_rm(ns: argparse.Namespace) -> int:
+    updated = api_request(
+        "DELETE",
+        f"/api/quests/{ns.quest_id}/steps/{ns.step_id}",
+        query={"quiet": "1"} if getattr(ns, "quiet", False) else None,
+    )
+    if _want_json(ns):
+        emit(updated, as_json=True)
+    else:
+        print(
+            f"#{updated['id']} −step {ns.step_id}  ({updated.get('progress_label')})"
+        )
+    return 0
+
+
 def cmd_delete(ns: argparse.Namespace) -> int:
     api_request("DELETE", f"/api/quests/{ns.quest_id}")
     if _want_json(ns):
@@ -886,7 +959,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("quest_id", type=int)
     p.set_defaults(func=cmd_fail)
 
-    # step
+    # step (progress bump) + step-add / step-edit / step-rm
     p = sub.add_parser(
         "step",
         help="прогресс шага (+1 по умолчанию)",
@@ -900,6 +973,48 @@ def build_parser() -> argparse.ArgumentParser:
     g.add_argument("--set", type=int, default=None, dest="set", help="установить progress_current")
     g.add_argument("--done", action="store_true", help="довести шаг до total")
     p.set_defaults(func=cmd_step)
+
+    p = sub.add_parser(
+        "step-add",
+        help="добавить шаг к квесту",
+        aliases=["stepadd"],
+        parents=[json_parent],
+    )
+    p.add_argument("quest_id", type=int)
+    p.add_argument("title")
+    p.add_argument("-d", "--description", default=None)
+    p.add_argument("--total", type=int, default=1, help="progress_total (дефолт 1)")
+    p.add_argument("--progress", type=int, default=0, help="progress_current (дефолт 0)")
+    p.add_argument("--sort-order", type=int, default=None)
+    p.add_argument("--quiet", action="store_true", help="без overlay toasts")
+    p.set_defaults(func=cmd_step_add)
+
+    p = sub.add_parser(
+        "step-edit",
+        help="изменить поля шага",
+        aliases=["stepedit", "step-set"],
+        parents=[json_parent],
+    )
+    p.add_argument("quest_id", type=int)
+    p.add_argument("step_id", type=int)
+    p.add_argument("--title", default=None)
+    p.add_argument("-d", "--description", default=None)
+    p.add_argument("--total", type=int, default=None, help="progress_total")
+    p.add_argument("--set", type=int, default=None, dest="set", help="progress_current")
+    p.add_argument("--sort-order", type=int, default=None)
+    p.add_argument("--quiet", action="store_true", help="без overlay toasts")
+    p.set_defaults(func=cmd_step_edit)
+
+    p = sub.add_parser(
+        "step-rm",
+        help="удалить шаг (не последний)",
+        aliases=["step-delete", "steprm"],
+        parents=[json_parent],
+    )
+    p.add_argument("quest_id", type=int)
+    p.add_argument("step_id", type=int)
+    p.add_argument("--quiet", action="store_true", help="без overlay toasts")
+    p.set_defaults(func=cmd_step_rm)
 
     # delete
     p = sub.add_parser(

@@ -159,9 +159,38 @@ def api_mock(monkeypatch: pytest.MonkeyPatch):
             store["quests"][qid] = q
             return q
 
-        if method == "GET" and path.startswith("/api/quests/"):
+        if method == "GET" and path.startswith("/api/quests/") and "/steps" not in path:
             qid = int(path.rsplit("/", 1)[-1])
             return store["quests"][qid]
+
+        if method == "POST" and path.endswith("/steps") and path.startswith("/api/quests/"):
+            # /api/quests/{id}/steps
+            qid = int(path.strip("/").split("/")[2])
+            q = store["quests"][qid]
+            store["seq"] += 1  # reuse seq for step ids uniqueness across quests
+            step_id = max((s["id"] for s in q["steps"]), default=0) + 1
+            sort = body.get("sort_order")
+            if sort is None:
+                sort = max((s.get("sort_order") or 0 for s in q["steps"]), default=-1) + 1
+            step = {
+                "id": step_id,
+                "quest_id": qid,
+                "title": body["title"],
+                "description": body.get("description") or "",
+                "progress_current": int(body.get("progress_current") or 0),
+                "progress_total": int(body.get("progress_total") or 1),
+                "sort_order": int(sort),
+                "done": False,
+            }
+            step["done"] = step["progress_current"] >= step["progress_total"]
+            q["steps"].append(step)
+            done = sum(1 for s in q["steps"] if s["done"])
+            q["progress_label"] = f"{done} / {len(q['steps'])}"
+            if done == len(q["steps"]) and q["steps"]:
+                q["status"] = "completed"
+            elif q["status"] == "completed" and done < len(q["steps"]):
+                q["status"] = "active"
+            return q
 
         if method == "PATCH" and "/steps/" in path:
             # /api/quests/{id}/steps/{step_id}
@@ -171,13 +200,40 @@ def api_mock(monkeypatch: pytest.MonkeyPatch):
             q = store["quests"][qid]
             for s in q["steps"]:
                 if s["id"] == step_id:
-                    if body and "progress_current" in body:
-                        s["progress_current"] = int(body["progress_current"])
+                    if body:
+                        if "progress_current" in body:
+                            s["progress_current"] = int(body["progress_current"])
+                        if "progress_total" in body:
+                            s["progress_total"] = int(body["progress_total"])
+                        if "title" in body:
+                            s["title"] = body["title"]
+                        if "description" in body:
+                            s["description"] = body["description"]
+                        if "sort_order" in body:
+                            s["sort_order"] = int(body["sort_order"])
                         s["done"] = s["progress_current"] >= s["progress_total"]
             done = sum(1 for s in q["steps"] if s["done"])
             q["progress_label"] = f"{done} / {len(q['steps'])}"
-            if done == len(q["steps"]):
+            if done == len(q["steps"]) and q["steps"]:
                 q["status"] = "completed"
+            elif q["status"] == "completed" and done < len(q["steps"]):
+                q["status"] = "active"
+            return q
+
+        if method == "DELETE" and "/steps/" in path:
+            parts = path.strip("/").split("/")
+            qid = int(parts[2])
+            step_id = int(parts[4])
+            q = store["quests"][qid]
+            if len(q["steps"]) <= 1:
+                raise AssertionError("Cannot delete the last step")
+            q["steps"] = [s for s in q["steps"] if s["id"] != step_id]
+            done = sum(1 for s in q["steps"] if s["done"])
+            q["progress_label"] = f"{done} / {len(q['steps'])}"
+            if done == len(q["steps"]) and q["steps"]:
+                q["status"] = "completed"
+            elif q["status"] == "completed" and done < len(q["steps"]):
+                q["status"] = "active"
             return q
 
         if method == "PATCH" and path.startswith("/api/quests/"):
@@ -335,3 +391,33 @@ def test_cli_api_error_json(api_mock, monkeypatch: pytest.MonkeyPatch):
     code, _, err = _run(["show", "999", "--json"])
     assert code == 1
     assert json.loads(err)["ok"] is False
+
+
+def test_cli_step_add_edit_rm(api_mock):
+    code, out, err = _run(["add", "Steps", "--step", "A", "--step", "B", "--json"])
+    assert code == 0, err
+    q = json.loads(out)
+    qid = q["id"]
+    assert len(q["steps"]) == 2
+
+    code, out, err = _run(["step-add", str(qid), "C", "--total", "2", "--json"])
+    assert code == 0, err
+    q = json.loads(out)
+    assert len(q["steps"]) == 3
+    c = next(s for s in q["steps"] if s["title"] == "C")
+    assert c["progress_total"] == 2
+
+    code, out, err = _run(
+        ["step-edit", str(qid), str(c["id"]), "--title", "C2", "--set", "1", "--json"]
+    )
+    assert code == 0, err
+    q = json.loads(out)
+    c2 = next(s for s in q["steps"] if s["id"] == c["id"])
+    assert c2["title"] == "C2"
+    assert c2["progress_current"] == 1
+
+    code, out, err = _run(["step-rm", str(qid), str(c["id"]), "--json"])
+    assert code == 0, err
+    q = json.loads(out)
+    assert len(q["steps"]) == 2
+    assert all(s["title"] != "C2" for s in q["steps"])

@@ -49,6 +49,9 @@ quests show 3 --json | jq .title
 | `complete ID` | → completed |
 | `fail ID` | → failed |
 | `step ID` | +1 к шагу (или `--inc N` / `--set N` / `--done`; `--step-id` / `--title`) |
+| `step-add QUEST TITLE` | добавить шаг (`--total`, `--progress`, `--sort-order`, `-d`, `--quiet`) |
+| `step-edit QUEST STEP` | поля шага (`--title` / `-d` / `--total` / `--set` / `--sort-order`) |
+| `step-rm QUEST STEP` | удалить шаг (нельзя единственный) |
 | `delete` / `rm ID` | удалить |
 
 Примеры:
@@ -59,6 +62,9 @@ quests add "MVP" --category work --questline "Проект"
 quests set 4 --category health
 quests set 4 --questline none
 quests step 4 --title лугов --inc 2
+quests step-add 4 "Новый шаг" --total 3
+quests step-edit 4 12 --title "Переименован" --total 5
+quests step-rm 4 12
 quests complete 4 --json
 ```
 

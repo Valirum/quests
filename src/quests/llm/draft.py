@@ -39,9 +39,8 @@ def _resolve_timing(
     if deadline_m is None and duration_m is not None:
         deadline_m = duration_m
     if duration_m is None and deadline_m is not None:
-        # Full remaining time: safer than a short default window
-        # (missed long tasks stay visible in the urgent HUD).
-        duration_m = deadline_m
+        # Match API default: 24h urgent window (or shorter if deadline is sooner).
+        duration_m = min(24 * 60, int(deadline_m))
     if deadline_m is not None and duration_m is not None:
         duration_m = min(int(duration_m), int(deadline_m))
     return deadline_m, duration_m
