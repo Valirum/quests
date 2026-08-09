@@ -27,6 +27,7 @@
   import JournalHeader from './lib/blocks/JournalHeader.svelte'
   import QuestSidebar from './lib/blocks/QuestSidebar.svelte'
   import QuestDetail from './lib/blocks/QuestDetail.svelte'
+  import ActivityCalendar from './lib/blocks/ActivityCalendar.svelte'
 
   let quests = $state([])
   let selectedId = $state(null)
@@ -36,7 +37,7 @@
   /** @type {{ api: string, overlay: string, telegram: string, detail?: Record<string, any> }} */
   let health = $state({ api: 'unknown', overlay: 'unknown', telegram: 'unknown' })
   let searchQuery = $state('')
-  /** @type {'journal' | 'hero'} */
+  /** @type {'journal' | 'calendar' | 'hero'} */
   let view = $state('journal')
   /** Bump to refresh hero silently after quest events. */
   let heroNonce = $state(0)
@@ -640,7 +641,7 @@
     }
   })
 
-  // Esc in journal (no modal): collapse selected quest → activity calendar.
+  // Esc in journal (no modal): clear selection → empty detail prompt.
   $effect(() => {
     const onKey = (event) => {
       if (event.key !== 'Escape') return
@@ -684,6 +685,16 @@
     <div class="journal__hero">
       <HeroPanel active={view === 'hero'} nonce={heroNonce} />
     </div>
+  {:else if view === 'calendar'}
+    <div class="journal__calendar">
+      <ActivityCalendar
+        {quests}
+        onSelectQuest={(id) => {
+          selectQuestFromUi(id)
+          view = 'journal'
+        }}
+      />
+    </div>
   {:else}
     <div class="journal__body">
       <QuestSidebar
@@ -723,7 +734,6 @@
         onStepEditKeydown={onStepEditKeydown}
         onStepEditBlur={onStepEditBlur}
         onStepEditInput={(v) => (stepEditValue = v)}
-        onSelectQuest={(id) => selectQuestFromUi(id)}
         onQuestTitleContextMenu={openQuestContextMenu}
         onLineHeadContextMenu={(e) => {
           const line = questlines.find((l) => l.id === selected?.questline_id)
