@@ -18,9 +18,17 @@
 </script>
 
 {#if custom}
-  <span class="ql-icon ql-icon--custom ql-icon--{size}" aria-hidden={alt ? undefined : 'true'}>
-    <img src={iconUrl} {alt} draggable="false" />
-  </span>
+  <!--
+    <img> ignores page CSS color; mask + background uses currentColor
+    so questline --line-color / color: inherit works.
+  -->
+  <span
+    class="ql-icon ql-icon--custom ql-icon--{size}"
+    style:--ql-mask="url({iconUrl})"
+    role={alt ? 'img' : undefined}
+    aria-label={alt || undefined}
+    aria-hidden={alt ? undefined : 'true'}
+  ></span>
 {:else}
   <span class="ql-icon ql-icon--svg ql-icon--{size}" aria-hidden="true">
     <Icon name={icon || 'document'} size={size === 'sm' ? 12 : size === 'lg' ? 22 : 16} />
@@ -40,48 +48,36 @@
     width: 2.25rem;
     height: 2.25rem;
     border-radius: 0.35rem;
-    color: var(--line-color, #9a9a9a);
+    color: var(--line-color, currentColor);
     background: color-mix(in srgb, var(--line-color, #9a9a9a) 18%, transparent);
   }
 
-  .ql-icon--svg.ql-icon--lg {
-    /* filled by parent stretch in detail head */
-    width: auto;
-    height: 100%;
-    aspect-ratio: 1;
-    min-height: 2.5rem;
-  }
-
   .ql-icon--custom {
-    line-height: 0;
+    background-color: currentColor;
+    color: var(--line-color, currentColor);
+    -webkit-mask-image: var(--ql-mask);
+    mask-image: var(--ql-mask);
+    -webkit-mask-size: contain;
+    mask-size: contain;
+    -webkit-mask-repeat: no-repeat;
+    mask-repeat: no-repeat;
+    -webkit-mask-position: center;
+    mask-position: center;
   }
 
-  .ql-icon--custom.ql-icon--sm img {
+  .ql-icon--custom.ql-icon--sm {
     width: 0.85rem;
     height: 0.85rem;
-    object-fit: contain;
-    border-radius: 0.15rem;
   }
 
-  .ql-icon--custom.ql-icon--md img {
+  .ql-icon--custom.ql-icon--md {
     width: 2.25rem;
     height: 2.25rem;
-    object-fit: contain;
-    border-radius: 0.35rem;
   }
 
+  /* Detail head: a bit larger than builtin box, not full header height. */
   .ql-icon--custom.ql-icon--lg {
-    align-self: stretch;
-    height: auto;
-    max-height: 100%;
-  }
-
-  .ql-icon--custom.ql-icon--lg img {
-    display: block;
-    height: 100%;
-    width: auto;
-    max-height: 100%;
-    object-fit: contain;
-    border-radius: 0.35rem;
+    width: 2.75rem;
+    height: 2.75rem;
   }
 </style>
