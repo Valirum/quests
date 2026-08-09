@@ -77,6 +77,7 @@ export function partitionByQuestline(items, questlines) {
       title: meta?.title || quests[0]?.questline_title || 'Квестлайн',
       color: meta?.color || quests[0]?.questline_color || '#9a9a9a',
       icon: meta?.icon || quests[0]?.questline_icon || 'document',
+      icon_url: meta?.icon_url || quests[0]?.questline_icon_url || null,
       category_id: meta?.category_id ?? quests[0]?.category_id ?? null,
       quests: sorted,
     })

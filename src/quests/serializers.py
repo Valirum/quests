@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from quests.models import Quest, QuestStep, QuestStepRead, QuestRead
+from quests.questline_icons import icon_url as questline_icon_url
 from quests.timeutil import (
     ensure_utc,
     is_in_urgent_window,
     remaining_seconds,
     timer_tone,
+    to_utc_iso,
 )
 
 
@@ -67,6 +69,13 @@ def quest_to_read(quest: Quest) -> QuestRead:
         urgent = is_in_urgent_window(deadline, quest.duration_seconds)
     cat = getattr(quest, "category", None)
     line = getattr(quest, "questline", None)
+    custom = getattr(line, "custom_icon", None) if line is not None else None
+    line_id = getattr(line, "id", None) if line is not None else quest.questline_id
+    q_icon_url = None
+    if custom and line_id is not None:
+        q_icon_url = questline_icon_url(
+            int(line_id), version=to_utc_iso(getattr(line, "updated_at", None))
+        )
     return QuestRead(
         id=quest.id,  # type: ignore[arg-type]
         title=quest.title,
@@ -86,6 +95,7 @@ def quest_to_read(quest: Quest) -> QuestRead:
         questline_title=getattr(line, "title", None) if line is not None else None,
         questline_color=getattr(line, "color", None) if line is not None else None,
         questline_icon=getattr(line, "icon", None) if line is not None else None,
+        questline_icon_url=q_icon_url,
         created_at=ensure_utc(quest.created_at),  # type: ignore[arg-type]
         updated_at=ensure_utc(quest.updated_at),  # type: ignore[arg-type]
         completed_at=ensure_utc(quest.completed_at),
