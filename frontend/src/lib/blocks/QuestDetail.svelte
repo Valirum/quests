@@ -2,7 +2,6 @@
   import { tick } from 'svelte'
   import Icon from '../ui/Icon.svelte'
   import QuestlineIcon from '../ui/QuestlineIcon.svelte'
-  import ActivityCalendar from './ActivityCalendar.svelte'
   import { formatLocal, localTimeZone } from '../js/time.js'
   import {
     OPEN_STATUSES,
@@ -30,7 +29,6 @@
    *   onStepEditKeydown: (event: KeyboardEvent, step: any) => void,
    *   onStepEditBlur: (step: any) => void,
    *   onStepEditInput: (value: string) => void,
-   *   onSelectQuest?: (id: number) => void,
    *   onQuestTitleContextMenu?: (event: MouseEvent, quest: any) => void,
    *   onLineHeadContextMenu?: (event: MouseEvent) => void,
    *   onStepContextMenu?: (event: MouseEvent, step: any) => void,
@@ -53,7 +51,6 @@
     onStepEditKeydown,
     onStepEditBlur,
     onStepEditInput,
-    onSelectQuest,
     onQuestTitleContextMenu,
     onLineHeadContextMenu,
     onStepContextMenu,
@@ -87,9 +84,30 @@
     iconUrl: selected?.questline_icon_url || null,
   })
 
+  /** Only scroll on selected-id change — not on step/progress refreshes of the same quest. */
+  let scrolledToId = $state(/** @type {number | null} */ (null))
+  /** Open only when explicitly true; collapsed by default. */
+  let lineQuestOpen = $state(/** @type {Record<number, boolean>} */ ({}))
+
+  function isLineQuestOpen(id) {
+    return lineQuestOpen[id] === true
+  }
+
+  function toggleLineQuest(id) {
+    lineQuestOpen = { ...lineQuestOpen, [id]: !isLineQuestOpen(id) }
+  }
+
   $effect(() => {
-    const id = selected?.id
-    if (!id || !inQuestline) return
+    const id = selected?.id ?? null
+    const inLine = Boolean(selected?.questline_id)
+    if (!id || !inLine) {
+      scrolledToId = null
+      return
+    }
+    if (scrolledToId === id) return
+    scrolledToId = id
+    // Selecting a quest: expand only it, collapse the rest.
+    lineQuestOpen = { [id]: true }
     tick().then(() => {
       const el = document.getElementById(`quest-${id}`)
       el?.scrollIntoView({ block: 'start', behavior: 'smooth' })
@@ -101,35 +119,40 @@
   <div class="detail__actions">
     <button
       type="button"
-      class="btn"
+      class="btn btn--icon"
       onclick={() => onToggleCompleted(q)}
       disabled={statusBusy}
+      title={q.status === 'completed' ? 'Сделать активным' : 'Выполнено'}
       aria-label={q.status === 'completed' ? 'Сделать активным' : 'Отметить выполненным'}
     >
-      <Icon name={q.status === 'completed' ? 'renew' : 'checkmark'} />
-      <span class="btn__text">
-        {#if statusBusy}
-          …
-        {:else if q.status === 'completed'}
-          Активно
-        {:else}
-          Выполнено
-        {/if}
-      </span>
-    </button>
-    <button type="button" class="btn" onclick={() => onOpenEdit(q)} aria-label="Править">
-      <Icon name="edit" />
-      <span class="btn__text">Править</span>
+      {#if statusBusy}
+        …
+      {:else}
+        <Icon name={q.status === 'completed' ? 'renew' : 'checkmark'} />
+      {/if}
     </button>
     <button
       type="button"
-      class="btn btn--danger"
+      class="btn btn--icon"
+      onclick={() => onOpenEdit(q)}
+      title="Править"
+      aria-label="Править"
+    >
+      <Icon name="edit" />
+    </button>
+    <button
+      type="button"
+      class="btn btn--icon btn--danger"
       onclick={() => onRequestDelete(q)}
       disabled={deleting}
+      title={deleting ? 'Удаление…' : 'Удалить'}
       aria-label={deleting ? 'Удаление…' : 'Удалить'}
     >
-      <Icon name="delete" />
-      <span class="btn__text">{deleting ? '…' : 'Удалить'}</span>
+      {#if deleting}
+        …
+      {:else}
+        <Icon name="delete" />
+      {/if}
     </button>
   </div>
 {/snippet}
@@ -172,15 +195,19 @@
             {/if}
           </span>
           <div class="step__controls">
-            <button
-              type="button"
-              class="step__btn"
-              aria-label="Уменьшить прогресс"
-              disabled={stepBusyId != null || step.progress_current <= 0}
-              onclick={() => onBumpStep(step, -1, q.id)}
-            >
-              <Icon name="subtract" size={14} />
-            </button>
+            {#if step.progress_current > 0}
+              <button
+                type="button"
+                class="step__btn"
+                aria-label="Уменьшить прогресс"
+                disabled={stepBusyId != null}
+                onclick={() => onBumpStep(step, -1, q.id)}
+              >
+                <Icon name="subtract" size={14} />
+              </button>
+            {:else}
+              <span class="step__btn-slot" aria-hidden="true"></span>
+            {/if}
             {#if stepEditId === step.id}
               <input
                 class="step__progress-input"
@@ -209,15 +236,19 @@
                 {step.progress_current}/{step.progress_total}
               </button>
             {/if}
-            <button
-              type="button"
-              class="step__btn"
-              aria-label="Увеличить прогресс"
-              disabled={stepBusyId != null || step.progress_current >= step.progress_total}
-              onclick={() => onBumpStep(step, 1, q.id)}
-            >
-              <Icon name="add" size={14} />
-            </button>
+            {#if step.progress_current < step.progress_total}
+              <button
+                type="button"
+                class="step__btn"
+                aria-label="Увеличить прогресс"
+                disabled={stepBusyId != null}
+                onclick={() => onBumpStep(step, 1, q.id)}
+              >
+                <Icon name="add" size={14} />
+              </button>
+            {:else}
+              <span class="step__btn-slot" aria-hidden="true"></span>
+            {/if}
           </div>
           {#if step.description}
             <p class="step__desc">{step.description}</p>
@@ -271,8 +302,8 @@
 
 <section class="detail" aria-live="polite">
   {#if !selected}
-    <div class="detail__empty detail__empty--cal">
-      <ActivityCalendar {quests} {onSelectQuest} />
+    <div class="detail__empty">
+      <p class="detail__empty-prompt">Выберите квест слева</p>
     </div>
   {:else if inQuestline}
     <header
@@ -301,32 +332,61 @@
 
     <div class="detail__line-quests">
       {#each lineQuests as q (q.id)}
-        <article id="quest-{q.id}" class="detail__quest">
-          <header class="detail__head detail__head--nested">
+        {@const open = isLineQuestOpen(q.id)}
+        <article
+          id="quest-{q.id}"
+          class="detail__quest"
+          class:detail__quest--collapsed={!open}
+        >
+          <header
+            class="detail__head detail__head--nested"
+            data-sig={q.significance || 'common'}
+          >
             <div class="detail__head-row">
               {@render questEyebrow(q)}
               {@render questActions(q)}
             </div>
-            <h3
-              class="detail__subtitle"
-              oncontextmenu={(e) => onQuestTitleContextMenu?.(e, q)}
-            >{q.title}</h3>
+            <button
+              type="button"
+              class="detail__quest-toggle"
+              aria-expanded={open}
+              aria-label={open ? 'Свернуть квест' : 'Развернуть квест'}
+              onclick={() => toggleLineQuest(q.id)}
+            >
+              <h3
+                class="detail__subtitle"
+                oncontextmenu={(e) => onQuestTitleContextMenu?.(e, q)}
+              >{q.title}</h3>
+              <span
+                class="detail__quest-chevron"
+                class:detail__quest-chevron--open={open}
+                aria-hidden="true"
+              >
+                <Icon name="chevron-right" size={16} />
+              </span>
+            </button>
           </header>
-          {@render questBody(q)}
+          <div class="detail__quest-body" class:detail__quest-body--open={open}>
+            <div class="detail__quest-body-inner">
+              {@render questBody(q)}
+            </div>
+          </div>
         </article>
       {/each}
     </div>
   {:else}
-    <header class="detail__head">
-      <div class="detail__head-row">
-        {@render questEyebrow(selected)}
-        {@render questActions(selected)}
-      </div>
-      <h2
-        class="detail__title"
-        oncontextmenu={(e) => onQuestTitleContextMenu?.(e, selected)}
-      >{selected.title}</h2>
-    </header>
-    {@render questBody(selected)}
+    <article id="quest-{selected.id}" class="detail__quest">
+      <header class="detail__head" data-sig={selected.significance || 'common'}>
+        <div class="detail__head-row">
+          {@render questEyebrow(selected)}
+          {@render questActions(selected)}
+        </div>
+        <h2
+          class="detail__title"
+          oncontextmenu={(e) => onQuestTitleContextMenu?.(e, selected)}
+        >{selected.title}</h2>
+      </header>
+      {@render questBody(selected)}
+    </article>
   {/if}
 </section>

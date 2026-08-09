@@ -92,7 +92,6 @@
 <div class="activity-cal" aria-label="Календарь задач">
   <header class="activity-cal__head">
     <h2 class="activity-cal__title">Календарь</h2>
-    <p class="activity-cal__hint">По сроку (или дате создания) · Esc снимает выбор квеста</p>
   </header>
 
   <div class="activity-cal__months">
