@@ -85,6 +85,13 @@ def _api_get(path: str, query: dict[str, Any] | None = None) -> Any:
     return _api("GET", path, query=query)
 
 
+def _tool_query(*, quiet: bool) -> dict[str, str]:
+    q = {"source": "mcp"}
+    if quiet:
+        q["quiet"] = "1"
+    return q
+
+
 def _parse_ref(ref: str) -> tuple[str, int]:
     text = (ref or "").strip()
     for kind in ("questline", "quest", "step"):
@@ -217,7 +224,7 @@ def add_step(
     q = _api(
         "POST",
         f"/api/quests/{quest_id}/steps",
-        query={"quiet": "1"} if quiet else None,
+        query=_tool_query(quiet=quiet),
         body=body,
     )
     return {
@@ -261,7 +268,7 @@ def update_step(
     q = _api(
         "PATCH",
         f"/api/quests/{quest_id}/steps/{step_id}",
-        query={"quiet": "1"} if quiet else None,
+        query=_tool_query(quiet=quiet),
         body=body,
     )
     return {
@@ -287,7 +294,7 @@ def delete_step(
     q = _api(
         "DELETE",
         f"/api/quests/{quest_id}/steps/{step_id}",
-        query={"quiet": "1"} if quiet else None,
+        query=_tool_query(quiet=quiet),
     )
     return {
         "id": q.get("id"),

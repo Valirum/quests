@@ -73,6 +73,7 @@ async def notify_window_starts(session: AsyncSession | None = None) -> list[int]
                 sound="quest_started",
                 toast=True,
                 significance=significance_value(read),
+                source="system",
             )
             fired.append(qid)
         return fired

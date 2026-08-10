@@ -1,10 +1,11 @@
 /* Journal layout + sidebar + detail — from App.svelte */
 
   .journal {
-    display: grid;
-    grid-template-rows: auto auto 1fr;
+    display: flex;
+    flex-direction: column;
     height: 100%;
-    min-height: 100%;
+    min-height: 0;
+    overflow: hidden;
     background:
       radial-gradient(
         ellipse 80% 50% at 10% -10%,
@@ -15,6 +16,7 @@
   }
 
   .journal__header {
+    flex-shrink: 0;
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
     align-items: center;
@@ -104,6 +106,7 @@
   .journal__hero,
   .journal__calendar,
   .journal__stats {
+    flex: 1 1 auto;
     min-height: 0;
     overflow: auto;
   }
@@ -168,6 +171,7 @@
   }
 
   .banner-error {
+    flex-shrink: 0;
     margin: 0;
     padding: var(--space-2, 0.5rem) var(--space-4, 1rem);
     background: color-mix(in srgb, var(--color-danger, #b54a3a) 18%, var(--color-bg, #121212));
@@ -179,16 +183,19 @@
   }
 
   .journal__body {
+    flex: 1 1 auto;
     display: grid;
     grid-template-columns: minmax(16rem, var(--sidebar-width, 20rem)) 1fr;
     min-height: 0;
-    height: 100%;
+    overflow: hidden;
   }
 
   .sidebar {
     display: flex;
     flex-direction: column;
     min-height: 0;
+    height: 100%;
+    overflow: hidden;
     border-right: 1px solid var(--color-border, #333);
     background: var(--color-bg-raised, #1a1a1a);
   }
@@ -892,16 +899,45 @@
     color: var(--color-fg, #e8e8e8);
   }
 
+  /* Questline band: color wash under header + first quests. */
+  .detail__line {
+    --line-head-h: 4.5rem;
+    --line-wash-h: calc(2 * var(--line-head-h));
+    position: relative;
+    margin: calc(-1 * var(--space-5, 1.5rem)) calc(-1 * var(--space-6, 2rem)) 0;
+    padding: 0 var(--space-6, 2rem) var(--space-5, 1.5rem);
+    isolation: isolate;
+  }
+
+  .detail__line-wash {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: var(--line-wash-h);
+    z-index: 0;
+    pointer-events: none;
+    background: linear-gradient(
+      to bottom,
+      color-mix(in srgb, var(--line-color, #9a9a9a) 42%, var(--color-bg, #121212)),
+      color-mix(in srgb, var(--line-color, #9a9a9a) 14%, var(--color-bg, #121212)) 45%,
+      var(--color-bg, #121212)
+    );
+  }
+
   .detail__line-head {
+    position: relative;
+    z-index: 1;
     display: flex;
     align-items: center;
     gap: var(--space-3, 0.75rem);
-    margin: calc(-1 * var(--space-5, 1.5rem)) calc(-1 * var(--space-6, 2rem)) var(--space-5, 1.5rem);
-    padding: var(--space-4, 1rem) var(--space-6, 2rem) calc(var(--space-4, 1rem) + 0.15rem);
-    background: color-mix(in srgb, var(--line-color, #9a9a9a) 22%, var(--color-bg, #1a1a1a));
+    min-height: var(--line-head-h);
+    margin: 0 0 var(--space-5, 1.5rem);
+    padding: var(--space-4, 1rem) 0;
+    background: transparent;
     border: 0;
-    border-radius: 0 0 var(--radius-lg, 12px) var(--radius-lg, 12px);
-    box-shadow: 0 1px 0 color-mix(in srgb, var(--line-color, #9a9a9a) 65%, transparent);
+    border-radius: 0;
+    box-shadow: none;
   }
 
   .detail__line-icon {
@@ -964,6 +1000,8 @@
   }
 
   .detail__line-quests {
+    position: relative;
+    z-index: 1;
     display: grid;
     gap: var(--space-5, 1.5rem);
   }

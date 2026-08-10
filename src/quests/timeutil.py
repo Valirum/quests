@@ -40,7 +40,11 @@ DEFAULT_DURATION_SECONDS = 24 * 60 * 60
 
 
 def auto_duration_seconds(deadline_at: datetime, anchor: datetime) -> int:
-    """If duration omitted: 24h (or time left to deadline if shorter), at least 60s."""
+    """If duration omitted: 24h (or time left to deadline if shorter), at least 60s.
+
+    Anchor is always ``now`` (create and update) so API and LLM draft share one rule:
+    urgent window = min(24h, deadline − now), never shorter than 60s.
+    """
     deadline_at = ensure_utc(deadline_at)
     anchor = ensure_utc(anchor)
     assert deadline_at is not None and anchor is not None
@@ -48,6 +52,33 @@ def auto_duration_seconds(deadline_at: datetime, anchor: datetime) -> int:
     if left <= 60:
         return 60
     return min(DEFAULT_DURATION_SECONDS, left)
+
+
+def normalize_quest_deadline(
+    *,
+    deadline_at: datetime | None,
+    duration_seconds: int | None,
+    duration_explicit: bool,
+    now: datetime | None = None,
+) -> tuple[datetime | None, int | None]:
+    """Return (naive-UTC deadline, duration) with shared create/update semantics.
+
+    - No deadline → duration cleared.
+    - Explicit duration → clamped to ≥1s (caller may pass None to clear with deadline).
+    - Otherwise auto-fill from *now* via ``auto_duration_seconds``.
+    """
+    if deadline_at is None:
+        return None, None
+    deadline = to_db_utc(deadline_at)
+    assert deadline is not None
+    if duration_explicit and duration_seconds is not None:
+        return deadline, max(1, int(duration_seconds))
+    if duration_explicit and duration_seconds is None:
+        # Explicit null duration with a deadline still gets the default window.
+        pass
+    anchor = ensure_utc(now) or ensure_utc(datetime.now(UTC))
+    assert anchor is not None
+    return deadline, auto_duration_seconds(deadline, anchor)
 
 
 def window_start(deadline_at: datetime, duration_seconds: int) -> datetime:

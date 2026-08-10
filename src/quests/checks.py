@@ -17,10 +17,9 @@ from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from quests.db import SessionLocal, quest_load_options
-from quests.events import hub
+from quests.emit import deliver_staged, stage_quest_diff
 from quests.hero import apply_quest_status_rewards
 from quests.models import Quest, QuestStatus, utcnow
-from quests.notify import quest_change_events
 from quests.progress import clamp_step_progress, sync_status_from_steps
 from quests.serializers import quest_to_read
 from quests.timeutil import ensure_utc, to_db_utc
@@ -151,33 +150,19 @@ async def run_due_step_checks(
                     )
                 quest.updated_at = utcnow()
             session.add(quest)
-            await session.commit()
             qid = quest.id
             assert qid is not None
 
-            if not progress_changed:
-                continue
-
-            changed_ids.append(int(qid))
-            reloaded = await session.exec(
-                select(Quest).where(Quest.id == qid).options(*quest_load_options())
-            )
-            quest2 = reloaded.first()
-            if quest2 is None:
-                continue
-            after = quest_to_read(quest2)
-            for ev in quest_change_events(before, after):
-                await hub.publish(
-                    ev["kind"],
-                    quest_id=after.id,
-                    title=ev.get("title", after.title),
-                    description=ev.get("description", after.description or ""),
-                    detail=ev.get("detail", ""),
-                    sound=ev.get("sound"),
-                    toast=ev.get("toast", True),
-                    step_title=ev.get("step_title"),
-                    significance=ev.get("significance"),
+            staged: list = []
+            if progress_changed:
+                after = quest_to_read(quest)
+                staged = stage_quest_diff(
+                    session, before, after, quiet=False, source="system"
                 )
+                changed_ids.append(int(qid))
+
+            await session.commit()
+            await deliver_staged(staged)
         return changed_ids
     finally:
         if owns:

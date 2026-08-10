@@ -306,73 +306,75 @@
       <p class="detail__empty-prompt">Выберите квест слева</p>
     </div>
   {:else if inQuestline}
-    <header
-      class="detail__line-head"
-      class:detail__line-head--custom={Boolean(lineMeta.iconUrl)}
-      style="--line-color: {lineMeta.color}"
-      oncontextmenu={(e) => onLineHeadContextMenu?.(e)}
-    >
-      <span
-        class="detail__line-icon"
-        class:detail__line-icon--custom={Boolean(lineMeta.iconUrl)}
-        aria-hidden="true"
+    <div class="detail__line" style="--line-color: {lineMeta.color}">
+      <div class="detail__line-wash" aria-hidden="true"></div>
+      <header
+        class="detail__line-head"
+        class:detail__line-head--custom={Boolean(lineMeta.iconUrl)}
+        oncontextmenu={(e) => onLineHeadContextMenu?.(e)}
       >
-        <QuestlineIcon
-          icon={lineMeta.icon}
-          iconUrl={lineMeta.iconUrl}
-          size="lg"
-        />
-      </span>
-      <div class="detail__line-text">
-        <p class="detail__line-eyebrow">Квестлайн</p>
-        <h2 class="detail__line-title">{lineMeta.title}</h2>
-      </div>
-      <span class="detail__line-count">{lineQuests.length}</span>
-    </header>
-
-    <div class="detail__line-quests">
-      {#each lineQuests as q (q.id)}
-        {@const open = isLineQuestOpen(q.id)}
-        <article
-          id="quest-{q.id}"
-          class="detail__quest"
-          class:detail__quest--collapsed={!open}
+        <span
+          class="detail__line-icon"
+          class:detail__line-icon--custom={Boolean(lineMeta.iconUrl)}
+          aria-hidden="true"
         >
-          <header
-            class="detail__head detail__head--nested"
-            data-sig={q.significance || 'common'}
+          <QuestlineIcon
+            icon={lineMeta.icon}
+            iconUrl={lineMeta.iconUrl}
+            size="lg"
+          />
+        </span>
+        <div class="detail__line-text">
+          <p class="detail__line-eyebrow">Квестлайн</p>
+          <h2 class="detail__line-title">{lineMeta.title}</h2>
+        </div>
+        <span class="detail__line-count">{lineQuests.length}</span>
+      </header>
+
+      <div class="detail__line-quests">
+        {#each lineQuests as q (q.id)}
+          {@const open = isLineQuestOpen(q.id)}
+          <article
+            id="quest-{q.id}"
+            class="detail__quest"
+            class:detail__quest--collapsed={!open}
           >
-            <div class="detail__head-row">
-              {@render questEyebrow(q)}
-              {@render questActions(q)}
-            </div>
-            <button
-              type="button"
-              class="detail__quest-toggle"
-              aria-expanded={open}
-              aria-label={open ? 'Свернуть квест' : 'Развернуть квест'}
-              onclick={() => toggleLineQuest(q.id)}
+            <header
+              class="detail__head detail__head--nested"
+              data-sig={q.significance || 'common'}
             >
-              <h3
-                class="detail__subtitle"
-                oncontextmenu={(e) => onQuestTitleContextMenu?.(e, q)}
-              >{q.title}</h3>
-              <span
-                class="detail__quest-chevron"
-                class:detail__quest-chevron--open={open}
-                aria-hidden="true"
+              <div class="detail__head-row">
+                {@render questEyebrow(q)}
+                {@render questActions(q)}
+              </div>
+              <button
+                type="button"
+                class="detail__quest-toggle"
+                aria-expanded={open}
+                aria-label={open ? 'Свернуть квест' : 'Развернуть квест'}
+                onclick={() => toggleLineQuest(q.id)}
               >
-                <Icon name="chevron-right" size={16} />
-              </span>
-            </button>
-          </header>
-          <div class="detail__quest-body" class:detail__quest-body--open={open}>
-            <div class="detail__quest-body-inner">
-              {@render questBody(q)}
+                <h3
+                  class="detail__subtitle"
+                  oncontextmenu={(e) => onQuestTitleContextMenu?.(e, q)}
+                >{q.title}</h3>
+                <span
+                  class="detail__quest-chevron"
+                  class:detail__quest-chevron--open={open}
+                  aria-hidden="true"
+                >
+                  <Icon name="chevron-right" size={16} />
+                </span>
+              </button>
+            </header>
+            <div class="detail__quest-body" class:detail__quest-body--open={open}>
+              <div class="detail__quest-body-inner">
+                {@render questBody(q)}
+              </div>
             </div>
-          </div>
-        </article>
-      {/each}
+          </article>
+        {/each}
+      </div>
     </div>
   {:else}
     <article id="quest-{selected.id}" class="detail__quest">

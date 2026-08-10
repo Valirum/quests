@@ -60,10 +60,23 @@ export function updateQuest(id, payload, { quiet = true } = {}) {
   })
 }
 
+export function addQuestStep(questId, payload, { quiet = true } = {}) {
+  return request(`/api/quests/${questId}/steps${quietQs(quiet)}`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
 export function updateQuestStep(questId, stepId, payload, { quiet = true } = {}) {
   return request(`/api/quests/${questId}/steps/${stepId}${quietQs(quiet)}`, {
     method: 'PATCH',
     body: JSON.stringify(payload),
+  })
+}
+
+export function deleteQuestStep(questId, stepId, { quiet = true } = {}) {
+  return request(`/api/quests/${questId}/steps/${stepId}${quietQs(quiet)}`, {
+    method: 'DELETE',
   })
 }
 

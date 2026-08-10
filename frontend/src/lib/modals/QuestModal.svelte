@@ -6,6 +6,9 @@
     createQuest,
     updateQuest,
     deleteQuest,
+    addQuestStep,
+    updateQuestStep,
+    deleteQuestStep,
     listCategories,
     listQuestlines,
   } from '../js/api.js'
@@ -95,6 +98,7 @@
   function blankStep() {
     return {
       key: newStepKey(),
+      id: null,
       title: '',
       progress_current: 0,
       progress_total: 1,
@@ -176,6 +180,7 @@
       q.steps?.length > 0
         ? q.steps.map((s) => ({
             key: String(s.id ?? newStepKey()),
+            id: s.id ?? null,
             title: s.title ?? '',
             progress_current: s.progress_current ?? 0,
             progress_total: s.progress_total ?? 1,
@@ -243,6 +248,7 @@
         const intervalRaw = String(s.check_interval_seconds ?? '').trim()
         const interval = intervalRaw === '' ? null : Math.max(15, Number(intervalRaw) || 15)
         return {
+          id: s.id != null ? Number(s.id) : null,
           title: s.title.trim(),
           description: '',
           progress_current: Math.max(0, Number(s.progress_current) || 0),
@@ -253,6 +259,29 @@
         }
       })
       .filter((s) => s.title)
+  }
+
+  /** Sync step list via CRUD (PATCH quest no longer replaces steps[]). */
+  async function syncQuestSteps(questId, desired, existing) {
+    const desiredIds = new Set(
+      desired.filter((s) => s.id != null).map((s) => Number(s.id)),
+    )
+    let saved = null
+    for (const s of desired) {
+      if (s.id == null) continue
+      const { id, ...body } = s
+      saved = await updateQuestStep(questId, id, body)
+    }
+    for (const s of desired) {
+      if (s.id != null) continue
+      const { id: _id, ...body } = s
+      saved = await addQuestStep(questId, body)
+    }
+    for (const old of existing || []) {
+      if (desiredIds.has(Number(old.id))) continue
+      saved = await deleteQuestStep(questId, old.id)
+    }
+    return saved
   }
 
   async function onSubmit(event) {
@@ -286,14 +315,18 @@
         questline_id: questlineId === '' ? null : Number(questlineId),
         deadline_at,
         ...(deadline_at && duration_seconds != null ? { duration_seconds } : {}),
-        steps: stepsPayload,
       }
-      // Clear duration when clearing deadline.
       if (!deadline_at) {
         payload.duration_seconds = null
       }
-      const saved =
-        mode === 'create' ? await createQuest(payload) : await updateQuest(quest.id, payload)
+      let saved
+      if (mode === 'create') {
+        saved = await createQuest({ ...payload, steps: stepsPayload })
+      } else {
+        saved = await updateQuest(quest.id, payload)
+        const afterSteps = await syncQuestSteps(quest.id, stepsPayload, quest?.steps || [])
+        if (afterSteps) saved = afterSteps
+      }
       onSaved(saved)
       onClose()
     } catch (e) {

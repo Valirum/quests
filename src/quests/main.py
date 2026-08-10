@@ -31,7 +31,14 @@ def _maintenance_enabled() -> bool:
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     await init_db(seed=True)
-    await hub.publish("startup", title="Quests", detail="server ready", toast=False, sound="")
+    await hub.publish(
+        "startup",
+        title="Quests",
+        detail="server ready",
+        toast=False,
+        sound="",
+        source="system",
+    )
 
     async def maintenance_loop() -> None:
         while True:

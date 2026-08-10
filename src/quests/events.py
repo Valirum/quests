@@ -98,9 +98,14 @@ class EventHub:
         detail: str = "",
         sound: str | None = None,
         toast: bool = True,
+        source: str | None = None,
         **extra: Any,
     ) -> dict[str, Any]:
-        """Publish a domain event."""
+        """Publish a domain event to WS clients + hooks.
+
+        Durable ``QuestChangeLog`` must be staged on the caller's DB session
+        (see ``quests.emit``) — this hub must not open a second SQLite writer.
+        """
         async with self._lock:
             self.revision += 1
             payload: dict[str, Any] = {
@@ -114,19 +119,15 @@ class EventHub:
                 "toast": toast,
                 **extra,
             }
+            if source is not None:
+                payload["source"] = source
             self._recent.append(payload)
             await self._prune_and_send(json.dumps(payload))
-        # Outside the lock — hooks / durable log may I/O.
+        # Outside the lock — hooks may I/O (scripts / webhooks).
         try:
             from quests.hooks import dispatch_hooks
 
             asyncio.create_task(dispatch_hooks(payload))
-        except Exception:
-            pass
-        try:
-            from quests.changelog import persist_event
-
-            asyncio.create_task(persist_event(payload))
         except Exception:
             pass
         return payload
