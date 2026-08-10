@@ -12,8 +12,8 @@ from sqlalchemy.orm import selectinload
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from quests.db import SessionLocal
-from quests.events import hub
+from quests.db import SessionLocal, quest_load_options
+from quests.emit import deliver_staged, stage_simple
 from quests.models import (
     Quest,
     QuestStatus,
@@ -345,6 +345,7 @@ async def _materialize(
     )
     templates = list(result.all())
     created_ids: list[int] = []
+    staged: list = []
 
     for tmpl in templates:
         tz = resolve_tz(tmpl.timezone)
@@ -408,35 +409,35 @@ async def _materialize(
             surprise_roll.updated_at = utcnow()
             session.add(surprise_roll)
 
-    await session.commit()
-
-    if not created_ids:
-        return []
-
-    for qid in created_ids:
         loaded = await session.exec(
             select(Quest)
-            .where(Quest.id == qid)
-            .options(selectinload(Quest.steps))
+            .where(Quest.id == quest.id)
+            .options(*quest_load_options())
         )
-        quest = loaded.first()
-        if quest is None:
-            continue
-        read = quest_to_read(quest)
-        await hub.publish(
-            "quest_appeared",
-            quest_id=read.id,
-            title=read.title,
-            description=read.description or "",
-            detail=f"Период {read.period_key or ''}".strip(),
-            sound="quest_created",
-            toast=True,
-            significance=(
-                read.significance.value
-                if hasattr(read.significance, "value")
-                else str(read.significance or "common")
-            ),
+        full = loaded.first()
+        assert full is not None
+        read = quest_to_read(full)
+        staged.append(
+            stage_simple(
+                session,
+                kind="quest_appeared",
+                quest_id=read.id,
+                title=read.title,
+                description=read.description or "",
+                detail=f"Период {read.period_key or ''}".strip(),
+                sound="quest_created",
+                toast=True,
+                source="system",
+                significance=(
+                    read.significance.value
+                    if hasattr(read.significance, "value")
+                    else str(read.significance or "common")
+                ),
+            )
         )
+
+    await session.commit()
+    await deliver_staged(staged)
     return created_ids
 
 

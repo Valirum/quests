@@ -6,10 +6,9 @@ from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from quests.db import SessionLocal, quest_load_options
-from quests.events import hub
+from quests.emit import deliver_staged, stage_quest_diff
 from quests.hero import apply_quest_status_rewards
 from quests.models import Quest, QuestStatus, utcnow
-from quests.notify import quest_change_events
 from quests.serializers import quest_to_read
 from quests.timeutil import to_db_utc
 
@@ -28,34 +27,22 @@ async def _expire(session: AsyncSession) -> list[int]:
     if not overdue:
         return []
 
-    pairs: list[tuple] = []
+    staged: list = []
+    delayed_ids: list[int] = []
     for quest in overdue:
         before = quest_to_read(quest)
         quest.status = QuestStatus.delayed
         quest.updated_at = utcnow()
         session.add(quest)
         await apply_quest_status_rewards(session, quest, new_status=QuestStatus.delayed)
-        pairs.append((before, quest))
-
-    await session.commit()
-
-    delayed_ids: list[int] = []
-    for before, quest in pairs:
-        await session.refresh(quest)
         after = quest_to_read(quest)
         delayed_ids.append(after.id)
-        for ev in quest_change_events(before, after):
-            await hub.publish(
-                ev["kind"],
-                quest_id=after.id,
-                title=ev.get("title", after.title),
-                description=ev.get("description", after.description or ""),
-                detail=ev.get("detail", ""),
-                sound=ev.get("sound"),
-                toast=ev.get("toast", True),
-                step_title=ev.get("step_title"),
-                significance=ev.get("significance"),
-            )
+        staged.extend(
+            stage_quest_diff(session, before, after, quiet=False, source="system")
+        )
+
+    await session.commit()
+    await deliver_staged(staged)
     return delayed_ids
 
 

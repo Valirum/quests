@@ -236,6 +236,8 @@ class QuestCreate(QuestBase):
 
 
 class QuestUpdate(SQLModel):
+    """Partial quest update. Steps are not replaced here — use step CRUD routes."""
+
     title: Optional[str] = Field(default=None, min_length=1, max_length=200)
     description: Optional[str] = None
     status: Optional[QuestStatus] = None
@@ -247,7 +249,6 @@ class QuestUpdate(SQLModel):
     reward_attrs: Optional[str] = Field(default=None, max_length=500)
     category_id: Optional[int] = None
     questline_id: Optional[int] = None
-    steps: Optional[List[QuestStepCreate]] = None
 
 
 class QuestRead(QuestBase):

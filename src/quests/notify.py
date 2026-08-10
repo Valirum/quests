@@ -62,7 +62,7 @@ def _describe_edits(before: QuestRead, after: QuestRead) -> list[str]:
     if removed:
         bits.append(f"−шаги: {len(removed)}")
     # Renames / check-command edits that keep sort_order+title key won't show;
-    # structural add/remove covers most step edits from the replace-all PATCH.
+    # structural add/remove covers step CRUD diffs that change the key set.
     return bits
 
 

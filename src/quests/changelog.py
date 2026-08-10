@@ -1,16 +1,18 @@
-"""Persist domain events to QuestChangeLog (skip noisy / non-durable kinds)."""
+"""Persist domain events to QuestChangeLog (skip noisy / non-durable kinds).
+
+Prefer ``stage_event(session, ...)`` in the same transaction as the domain write.
+A separate SessionLocal writer races with request handlers on SQLite.
+"""
 
 from __future__ import annotations
 
-import logging
 from typing import Any
 
 from sqlmodel import col, select
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from quests.db import SessionLocal
 from quests.models import QuestChangeLog, QuestChangeLogRead, utcnow
-
-log = logging.getLogger("quests.changelog")
 
 # Live toasts / maintenance that do not belong in durable history.
 SKIP_KINDS = frozenset(
@@ -27,42 +29,33 @@ def should_persist(kind: str) -> bool:
     return bool(kind) and kind not in SKIP_KINDS
 
 
-async def persist_event(payload: dict[str, Any]) -> None:
-    """Write one hub event to SQLite. Safe to fire-and-forget."""
-    kind = str(payload.get("kind") or "").strip()
+def stage_event(
+    session: AsyncSession,
+    *,
+    kind: str,
+    quest_id: int | None = None,
+    title: str = "",
+    detail: str = "",
+    significance: Any = None,
+    revision: int | None = None,
+) -> QuestChangeLog | None:
+    """Add a changelog row to ``session`` (no commit). Returns None if skipped."""
+    kind = str(kind or "").strip()
     if not should_persist(kind):
-        return
-    title = str(payload.get("title") or "")[:200]
-    detail = str(payload.get("detail") or "")[:500]
-    sig = payload.get("significance")
-    significance = str(sig).strip()[:16] if sig else None
-    qid = payload.get("quest_id")
-    try:
-        quest_id = int(qid) if qid is not None else None
-    except (TypeError, ValueError):
-        quest_id = None
-    rev = payload.get("revision")
-    try:
-        revision = int(rev) if rev is not None else None
-    except (TypeError, ValueError):
-        revision = None
+        return None
+    sig = str(significance).strip()[:16] if significance else None
+    row = QuestChangeLog(
+        at=utcnow(),
+        kind=kind[:32],
+        quest_id=quest_id,
+        title=str(title or "")[:200],
+        detail=str(detail or "")[:500],
+        significance=sig or None,
+        revision=revision,
+    )
+    session.add(row)
+    return row
 
-    try:
-        async with SessionLocal() as session:
-            session.add(
-                QuestChangeLog(
-                    at=utcnow(),
-                    kind=kind[:32],
-                    quest_id=quest_id,
-                    title=title,
-                    detail=detail,
-                    significance=significance or None,
-                    revision=revision,
-                )
-            )
-            await session.commit()
-    except Exception:
-        log.exception("failed to persist quest change log kind=%s", kind)
 
 
 async def list_changes(
