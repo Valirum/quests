@@ -60,3 +60,7 @@ deploy/homer/
 deploy/docker/docker-compose.watchtower.yml
 # Local MVP checklist snapshot (live backlog = Quests journal)
 TODO.md
+
+# Go
+go/bin/
+*.exe

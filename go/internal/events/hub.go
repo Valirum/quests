@@ -1,0 +1,253 @@
+package events
+
+import (
+	"encoding/json"
+	"sync"
+	"time"
+
+	"github.com/gorilla/websocket"
+)
+
+const FocusTTL = 45 * time.Second
+const HistorySize = 64
+const writeWait = 5 * time.Second
+
+// Payload is a domain event broadcast to WS / polling clients.
+type Payload map[string]any
+
+// Client is one WS peer. All writes go through WriteJSON / WriteRaw under mu
+// (gorilla allows one concurrent writer).
+type Client struct {
+	Conn *websocket.Conn
+	mu   sync.Mutex
+}
+
+func (c *Client) WriteJSON(v any) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	_ = c.Conn.SetWriteDeadline(time.Now().Add(writeWait))
+	return c.Conn.WriteJSON(v)
+}
+
+func (c *Client) WriteRaw(messageType int, data []byte) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	_ = c.Conn.SetWriteDeadline(time.Now().Add(writeWait))
+	return c.Conn.WriteMessage(messageType, data)
+}
+
+func (c *Client) Close() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	_ = c.Conn.Close()
+}
+
+type Hub struct {
+	mu             sync.Mutex
+	Revision       int
+	clients        map[*Client]struct{}
+	recent         []Payload
+	pendingFocus   *int64
+	pendingFocusAt time.Time
+}
+
+func New() *Hub {
+	return &Hub{
+		clients: map[*Client]struct{}{},
+		recent:  make([]Payload, 0, HistorySize),
+	}
+}
+
+func (h *Hub) AddClient(conn *websocket.Conn) (*Client, Payload) {
+	c := &Client{Conn: conn}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.clients[c] = struct{}{}
+	hello := Payload{"type": "hello", "revision": h.Revision}
+	if focus := h.focusIfFreshLocked(); focus != nil {
+		hello["pending_focus"] = *focus
+	}
+	return c, hello
+}
+
+func (h *Hub) RemoveClient(c *Client) {
+	if c == nil {
+		return
+	}
+	h.mu.Lock()
+	_, ok := h.clients[c]
+	if ok {
+		delete(h.clients, c)
+	}
+	h.mu.Unlock()
+	if ok {
+		c.Close()
+	}
+}
+
+func (h *Hub) focusIfFreshLocked() *int64 {
+	if h.pendingFocus == nil {
+		return nil
+	}
+	if time.Since(h.pendingFocusAt) > FocusTTL {
+		return nil
+	}
+	return h.pendingFocus
+}
+
+func (h *Hub) PeekPendingFocus() *int64 {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.focusIfFreshLocked()
+}
+
+func (h *Hub) SetPendingFocus(questID int64) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.pendingFocus = &questID
+	h.pendingFocusAt = time.Now()
+}
+
+func (h *Hub) GetRevision() int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.Revision
+}
+
+func (h *Hub) EventsSince(since int) []Payload {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	out := make([]Payload, 0)
+	for _, e := range h.recent {
+		rev := asInt(e["revision"])
+		if rev > since {
+			out = append(out, e)
+		}
+	}
+	return out
+}
+
+func asInt(v any) int {
+	switch n := v.(type) {
+	case int:
+		return n
+	case int64:
+		return int(n)
+	case float64:
+		return int(n)
+	default:
+		return 0
+	}
+}
+
+func (h *Hub) clientSnapshot() []*Client {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	out := make([]*Client, 0, len(h.clients))
+	for c := range h.clients {
+		out = append(out, c)
+	}
+	return out
+}
+
+// send writes outside h.mu so a slow socket cannot stall Publish / HTTP.
+func (h *Hub) send(raw []byte) int {
+	clients := h.clientSnapshot()
+	delivered := 0
+	for _, c := range clients {
+		if err := c.WriteRaw(websocket.TextMessage, raw); err != nil {
+			h.RemoveClient(c)
+			continue
+		}
+		delivered++
+	}
+	return delivered
+}
+
+func (h *Hub) Broadcast(payload Payload) int {
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return 0
+	}
+	return h.send(raw)
+}
+
+func (h *Hub) FocusQuest(questID int64) int {
+	h.SetPendingFocus(questID)
+	return h.Broadcast(Payload{"type": "ui_focus_quest", "quest_id": questID})
+}
+
+func (h *Hub) Publish(kind string, opts PublishOpts) Payload {
+	h.mu.Lock()
+	h.Revision++
+	payload := Payload{
+		"type":     "quests_changed",
+		"kind":     kind,
+		"revision": h.Revision,
+		"quest_id": opts.QuestID,
+		"title":    opts.Title,
+		"detail":   opts.Detail,
+		"toast":    opts.Toast,
+	}
+	sound := opts.Sound
+	if sound == nil {
+		payload["sound"] = kind
+	} else {
+		payload["sound"] = *sound
+	}
+	if opts.Description != "" {
+		payload["description"] = opts.Description
+	}
+	if opts.Significance != "" {
+		payload["significance"] = opts.Significance
+	}
+	if opts.Source != "" {
+		payload["source"] = opts.Source
+	}
+	if opts.StepTitle != "" {
+		payload["step_title"] = opts.StepTitle
+	}
+	for k, v := range opts.Extra {
+		payload[k] = v
+	}
+	h.recent = append(h.recent, payload)
+	if len(h.recent) > HistorySize {
+		h.recent = h.recent[len(h.recent)-HistorySize:]
+	}
+	raw, _ := json.Marshal(payload)
+	h.mu.Unlock()
+	h.send(raw)
+	return payload
+}
+
+type PublishOpts struct {
+	QuestID      *int64
+	Title        string
+	Detail       string
+	Description  string
+	Sound        *string
+	Toast        bool
+	Source       string
+	Significance string
+	StepTitle    string
+	Extra        map[string]any
+}
+
+func SourceLabel(quiet bool, source string) string {
+	if source != "" {
+		return source
+	}
+	if quiet {
+		return "quiet"
+	}
+	return "api"
+}
+
+func QuietFromQuery(raw string) bool {
+	switch raw {
+	case "1", "true", "True", "yes", "on":
+		return true
+	default:
+		return false
+	}
+}
