@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from quests.models import Quest, QuestStep, QuestStepRead, QuestRead
-from quests.questline_icons import icon_url as questline_icon_url
 from quests.timeutil import (
     ensure_utc,
     is_in_urgent_window,
@@ -9,6 +8,13 @@ from quests.timeutil import (
     timer_tone,
     to_utc_iso,
 )
+
+
+def _questline_icon_url(line_id: int, version: str | None = None) -> str:
+    url = f"/api/questlines/{line_id}/icon"
+    if version:
+        url = f"{url}?v={version}"
+    return url
 
 
 def step_to_read(step: QuestStep) -> QuestStepRead:
@@ -73,7 +79,7 @@ def quest_to_read(quest: Quest) -> QuestRead:
     line_id = getattr(line, "id", None) if line is not None else quest.questline_id
     q_icon_url = None
     if custom and line_id is not None:
-        q_icon_url = questline_icon_url(
+        q_icon_url = _questline_icon_url(
             int(line_id), version=to_utc_iso(getattr(line, "updated_at", None))
         )
     return QuestRead(

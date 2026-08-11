@@ -48,10 +48,8 @@ jobs:
             frontend:
               - 'frontend/**'
             api:
-              - 'src/quests/**'
-              - '!src/quests/telegram/**'
-              - '!src/quests/llm/**'
-              - '!src/quests/stt/**'
+              - 'go/**'
+              - 'frontend/**'
               - 'alembic/**'
               - 'alembic.ini'
               - 'pyproject.toml'
@@ -67,6 +65,10 @@ jobs:
               - 'src/quests/telegram/**'
               - 'src/quests/llm/**'
               - 'src/quests/stt/**'
+              - 'src/quests/mcp_server.py'
+              - 'src/quests/cli.py'
+              - 'src/quests/config.py'
+              - 'src/quests/envload.py'
               - 'pyproject.toml'
               - 'uv.lock'
               - 'deploy/docker/Dockerfile'
@@ -82,6 +84,17 @@ jobs:
         with:
           enable-cache: true
           cache-dependency-glob: "uv.lock"
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go/go.mod
+          cache-dependency-path: go/go.sum
+
+      - name: Go build + test
+        working-directory: go
+        run: |
+          go build ./...
+          go test ./...
 
       - name: Sync + pytest
         run: |

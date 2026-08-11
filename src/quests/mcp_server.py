@@ -1,13 +1,18 @@
 """Quests MCP (stdio) — journal tools over the HTTP API.
 
-Configure Cursor (example)::
+Global Cursor config (``~/.cursor/mcp.json``) so any workspace can use it::
 
     {
       "mcpServers": {
         "quests": {
-          "command": "uv",
-          "args": ["run", "--directory", "/path/to/Quests", "quests-mcp"],
-          "env": { "QUESTS_API": "http://192.168.1.11:8765" }
+          "command": "/usr/bin/uv",
+          "args": [
+            "run",
+            "--directory",
+            "/home/amarant/Documents/projects/Quests",
+            "quests-mcp"
+          ],
+          "env": { "QUESTS_API": "http://127.0.0.1:8765" }
         }
       }
     }
@@ -40,7 +45,10 @@ server = MCPServer(
         "quest=23 / step=252 / questline=3. Use list_questlines then list_quests "
         "to browse; get_context for full related detail. "
         "To change steps on an existing quest use add_step / update_step / "
-        "delete_step (do not replace the whole steps array)."
+        "delete_step (do not replace the whole steps array). "
+        "To change quest lifecycle or metadata use update_quest "
+        "(status: active|delayed|completed|failed|archived; pin; title; …) — "
+        "do not curl the Quests API or dig into the Quests repo for that."
     ),
 )
 
@@ -126,17 +134,33 @@ def _quest_summary(q: dict[str, Any]) -> dict[str, Any]:
 def _steps_brief(q: dict[str, Any]) -> list[dict[str, Any]]:
     out = []
     for s in q.get("steps") or []:
-        out.append(
-            {
-                "id": s.get("id"),
-                "title": s.get("title"),
-                "progress_current": s.get("progress_current"),
-                "progress_total": s.get("progress_total"),
-                "done": s.get("done"),
-                "sort_order": s.get("sort_order"),
-            }
-        )
+        row = {
+            "id": s.get("id"),
+            "title": s.get("title"),
+            "progress_current": s.get("progress_current"),
+            "progress_total": s.get("progress_total"),
+            "done": s.get("done"),
+            "sort_order": s.get("sort_order"),
+        }
+        desc = s.get("description")
+        if desc:
+            row["description"] = desc
+        out.append(row)
     return out
+
+
+def _quest_mutation_result(q: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": q.get("id"),
+        "title": q.get("title"),
+        "status": q.get("status"),
+        "pinned": q.get("pinned"),
+        "significance": q.get("significance"),
+        "progress_label": q.get("progress_label"),
+        "questline_id": q.get("questline_id"),
+        "category_id": q.get("category_id"),
+        "steps": _steps_brief(q),
+    }
 
 
 @server.tool(
@@ -227,19 +251,78 @@ def add_step(
         query=_tool_query(quiet=quiet),
         body=body,
     )
-    return {
-        "id": q.get("id"),
-        "title": q.get("title"),
-        "status": q.get("status"),
-        "progress_label": q.get("progress_label"),
-        "steps": _steps_brief(q),
-    }
+    return _quest_mutation_result(q)
+
+
+@server.tool(
+    description=(
+        "Update quest fields (PATCH /api/quests/{id}). Only pass fields to change. "
+        "Use for lifecycle: status=active|delayed|completed|failed|archived "
+        "(e.g. archive when blocked / needs clarification). Also title, description, "
+        "pinned, significance, sort_order, deadline_at, duration_seconds, "
+        "category_id, questline_id (null to detach). quiet=true skips overlay toasts."
+    )
+)
+def update_quest(
+    quest_id: int,
+    title: str | None = None,
+    description: str | None = None,
+    status: str | None = None,
+    significance: str | None = None,
+    pinned: bool | None = None,
+    sort_order: int | None = None,
+    deadline_at: str | None = None,
+    duration_seconds: int | None = None,
+    category_id: int | None = None,
+    questline_id: int | None = None,
+    clear_questline: bool = False,
+    quiet: bool = True,
+) -> dict[str, Any]:
+    allowed_status = {"active", "delayed", "completed", "failed", "archived"}
+    body: dict[str, Any] = {}
+    if title is not None:
+        body["title"] = title
+    if description is not None:
+        body["description"] = description
+    if status is not None:
+        st = str(status).strip().lower()
+        if st not in allowed_status:
+            raise ValueError(
+                f"bad status {status!r}; expected one of {sorted(allowed_status)}"
+            )
+        body["status"] = st
+    if significance is not None:
+        body["significance"] = significance
+    if pinned is not None:
+        body["pinned"] = bool(pinned)
+    if sort_order is not None:
+        body["sort_order"] = int(sort_order)
+    if deadline_at is not None:
+        body["deadline_at"] = deadline_at
+    if duration_seconds is not None:
+        body["duration_seconds"] = int(duration_seconds)
+    if category_id is not None:
+        body["category_id"] = int(category_id)
+    if clear_questline:
+        body["questline_id"] = None
+    elif questline_id is not None:
+        body["questline_id"] = int(questline_id)
+    if not body:
+        raise ValueError("provide at least one field to update")
+    q = _api(
+        "PATCH",
+        f"/api/quests/{quest_id}",
+        query=_tool_query(quiet=quiet),
+        body=body,
+    )
+    return _quest_mutation_result(q)
 
 
 @server.tool(
     description=(
         "Update fields on one step (PATCH /api/quests/{id}/steps/{step_id}). "
-        "Only pass fields to change. quiet=true skips overlay toasts."
+        "Only pass fields to change. Mark done with progress_current=progress_total "
+        "(or progress_current equal to existing total). quiet=true skips overlay toasts."
     )
 )
 def update_step(
@@ -271,13 +354,7 @@ def update_step(
         query=_tool_query(quiet=quiet),
         body=body,
     )
-    return {
-        "id": q.get("id"),
-        "title": q.get("title"),
-        "status": q.get("status"),
-        "progress_label": q.get("progress_label"),
-        "steps": _steps_brief(q),
-    }
+    return _quest_mutation_result(q)
 
 
 @server.tool(
@@ -296,13 +373,7 @@ def delete_step(
         f"/api/quests/{quest_id}/steps/{step_id}",
         query=_tool_query(quiet=quiet),
     )
-    return {
-        "id": q.get("id"),
-        "title": q.get("title"),
-        "status": q.get("status"),
-        "progress_label": q.get("progress_label"),
-        "steps": _steps_brief(q),
-    }
+    return _quest_mutation_result(q)
 
 
 def main(argv: list[str] | None = None) -> None:

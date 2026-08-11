@@ -2,25 +2,31 @@
 
 Клиент журнала: квесты через локальный API и хуки (скрипт / webhook / unix socket).
 
+Реализация — **Go-бинарник** `go/bin/quests` (не зависит от Python/`go run` в runtime):
+
 ```bash
-uv run quests --help          # или: quests -h
-uv run quests list --help
-uv run quests hook --help
+./scripts/build-cli.sh          # один раз (или после изменений CLI)
+./scripts/quests --help
+./scripts/quests list --json
+go/bin/quests list              # напрямую
+uv run quests list              # launcher → тот же бинарник
 ```
 
-После `uv sync` / `./scripts/bootstrap.sh` команда `quests` доступна в окружении проекта.
+Опционально в PATH: `cp go/bin/quests ~/.local/bin/quests`
 
-Нужен запущенный API (`./scripts/run-server.sh`), кроме команд `hook *` — они работают с файлом напрямую.
+Нужен запущенный API (`QUESTS_PORT=8765 ./scripts/run-go-server.sh`), кроме команд `hook *` — они работают с файлом напрямую.
 
 | Env / флаг | Default | Назначение |
 |-----|---------|------------|
 | `QUESTS_API` / `--api URL` | `http://127.0.0.1:8765` | база API (`--api` перекрывает env) |
 | `QUESTS_HOOKS` | `data/hooks.json` | хранилище хуков |
-| `QUESTS_LLM_PROVIDER` | `cursor` | `cursor` \| `ollama` |
+| `QUESTS_LLM_PROVIDER` | `cursor` | `cursor` \| `ollama` (только `llm-add`) |
 | `CURSOR_API_KEY` | — | ключ Cursor (Dashboard → API Keys) |
 | `QUESTS_LLM_MODEL` | `composer-2.5` | модель Cursor / Ollama |
 | `QUESTS_LLM_BASE` | `http://127.0.0.1:11434` | только для `ollama` |
 | `QUESTS_LLM_TIMEOUT` | `180` | таймаут сек |
+
+`llm-add` по-прежнему через Python LLM (`QUESTS_CLI_NATIVE=1`).
 
 ## `--json` / `--api` / `-h`
 

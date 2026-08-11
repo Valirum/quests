@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/valirum/quests/go/internal/hooks"
 )
 
 const FocusTTL = 45 * time.Second
@@ -217,6 +218,14 @@ func (h *Hub) Publish(kind string, opts PublishOpts) Payload {
 	raw, _ := json.Marshal(payload)
 	h.mu.Unlock()
 	h.send(raw)
+	// Fire-and-forget user hooks (script/webhook/socket).
+	go func(p Payload) {
+		ev := map[string]any{}
+		for k, v := range p {
+			ev[k] = v
+		}
+		_ = hooks.Dispatch(ev)
+	}(payload)
 	return payload
 }
 

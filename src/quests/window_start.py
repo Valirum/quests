@@ -64,7 +64,7 @@ async def notify_window_starts(session: AsyncSession | None = None) -> list[int]
                 continue
             _notified.add(qid)
             read = quest_to_read(quest)
-            await hub.publish(
+            hub.publish(
                 "quest_started",
                 quest_id=qid,
                 title=read.title,
