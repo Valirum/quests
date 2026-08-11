@@ -101,5 +101,5 @@ async def deliver_staged(staged: list[dict[str, Any]]) -> list[dict[str, Any]]:
     for raw in staged:
         kwargs = dict(raw)
         kind = str(kwargs.pop("kind"))
-        published.append(await hub.publish(kind, **kwargs))
+        published.append(hub.publish(kind, **kwargs))
     return published

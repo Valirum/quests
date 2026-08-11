@@ -7,9 +7,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 WorkingDirectory=%h/Quests
-Environment=PYTHONUNBUFFERED=1
-# uv often lives in ~/.local/bin
-Environment=PATH=%h/.local/bin:%h/.cargo/bin:/usr/local/bin:/usr/bin
+Environment=PATH=%h/.local/bin:%h/go/bin:/usr/local/go/bin:/usr/local/bin:/usr/bin
 # Local-only by default. For remote HUD/bot:
 # Environment=QUESTS_HOST=0.0.0.0
 # Environment=QUESTS_CORS_ORIGINS=http://127.0.0.1:5173,http://LAN_IP:5173

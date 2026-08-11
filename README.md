@@ -2,11 +2,12 @@
 
 Менеджер задач в духе игрового журнала: веб-UI, API и Wayland-оверлей (HUD + тосты) для niri / CachyOS.
 
-Стек: **Python · FastAPI · SQLite · Svelte (Vite) · GTK4 + gtk4-layer-shell**
+Стек: **Go (API + CLI) · SQLite · Svelte (Vite) · Python (MCP / Telegram / Alembic / LLM) · GTK4 + gtk4-layer-shell**
 
 ## Требования
 
-- Python ≥ 3.12, [uv](https://docs.astral.sh/uv/)
+- Go ≥ 1.26 (сборка API/CLI)
+- Python ≥ 3.12, [uv](https://docs.astral.sh/uv/) (миграции, MCP, Telegram, `llm-add`)
 - Node.js / npm (фронт)
 - Для оверлея: `gtk4`, `gtk4-layer-shell`, `python-gobject` (Wayland)
 
@@ -21,18 +22,20 @@ sudo pacman -S gtk4 gtk4-layer-shell python-gobject
 ./scripts/bootstrap.sh
 ```
 
-Подтянет Python-зависимости (`uv sync`), `npm install` во `frontend/`, создаст `data/` и накатит миграции.
+Подтянет Python-зависимости (`uv sync`), соберёт Go CLI/API, `npm install` во `frontend/`, создаст `data/` и накатит миграции.
 
 ## Запуск
 
 | Что | Команда | URL / заметка |
 |-----|---------|----------------|
 | API + SPA | `./scripts/run-server.sh` | http://127.0.0.1:8765 (нужен собранный `frontend/dist`) |
+| Сборка API | `./scripts/build-server.sh` | → `go/bin/quests-server` |
 | Фронт (HMR) | `./scripts/run-frontend.sh` | http://127.0.0.1:5173 (нужен запущенный API) |
 | Сборка SPA | `./scripts/build-frontend.sh` | в `frontend/dist` |
 | Миграции | `./scripts/migrate.sh` | или `uv run quests-migrate` |
-| CLI | `uv run quests --help` | квесты + хуки; см. [`docs/cli.md`](docs/cli.md) |
+| CLI | `./scripts/quests` / `go/bin/quests` | см. [`docs/cli.md`](docs/cli.md) |
 | Оверлей | `./scripts/run-overlay-smoke.sh` | или `python -m overlay` |
+| Telegram | `./scripts/run-telegram.sh` | HTTP-клиент к API |
 | Шаблоны | UI «Шаблоны» / `/api/templates` | daily/weekly → инстансы-квесты |
 
 Оверлей (IPC):

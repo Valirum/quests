@@ -1,4 +1,4 @@
-# Bake definition for Quests images (api + bot share python-base layers).
+# Bake definition for Quests images (Go API + Python bot).
 #
 # Local:
 #   docker buildx bake -f deploy/docker/docker-bake.hcl api

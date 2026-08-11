@@ -50,7 +50,11 @@ ln -sfn ~/Documents/projects/Quests ~/Quests
 ## 0. Зависимости на сервере
 
 ```bash
-# uv: https://docs.astral.sh/uv/
+# Go (API + CLI)
+# Arch: sudo pacman -S go
+# или https://go.dev/dl/
+
+# uv: https://docs.astral.sh/uv/  (миграции, Telegram, MCP)
 curl -LsSf https://astral.sh/uv/install.sh | sh
 
 # Node.js / npm (сборка SPA)
@@ -75,8 +79,8 @@ cd Quests
 ./scripts/build-frontend.sh
 ```
 
-`bootstrap.sh`: `uv sync`, `npm install`, `data/`, миграции DB.  
-`build-frontend.sh`: `frontend/dist` — отдаёт API на `:8765`.
+`bootstrap.sh`: `uv sync`, Go CLI/API build, `npm install`, `data/`, миграции DB.  
+`build-frontend.sh`: `frontend/dist` — отдаёт Go API на `:8765`.
 
 ---
 
