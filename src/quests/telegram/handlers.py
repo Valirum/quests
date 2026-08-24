@@ -545,11 +545,12 @@ def build_router(
         history: list[tuple[str, str]] | None = None,
     ) -> None:
         llm_settings = load_llm_settings()
-        label = (
-            f"Cursor · {llm_settings.model}"
-            if llm_settings.provider == "cursor"
-            else f"Ollama · {llm_settings.model}"
-        )
+        if llm_settings.provider == "cursor":
+            label = f"Cursor · {llm_settings.model}"
+        elif llm_settings.provider == "groq":
+            label = f"Groq · {llm_settings.model}"
+        else:
+            label = f"Ollama · {llm_settings.model}"
         wait = await tg_retry(
             lambda: message.answer(
                 f"Думаю ({label})…",

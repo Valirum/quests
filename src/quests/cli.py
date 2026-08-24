@@ -102,6 +102,8 @@ def cmd_llm_add(ns: argparse.Namespace) -> int:
     if not bool(getattr(ns, "json", False)):
         if settings.provider == "cursor":
             print(f"Cursor ({settings.model})…", file=sys.stderr)
+        elif settings.provider == "groq":
+            print(f"Groq ({settings.model})…", file=sys.stderr)
         else:
             print(
                 f"Ollama ({settings.model} @ {settings.base_url})…",
