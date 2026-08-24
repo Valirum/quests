@@ -8,7 +8,7 @@ from dataclasses import dataclass
 DEFAULT_PROVIDER = "groq"
 DEFAULT_CURSOR_MODEL = "composer-2.5"
 DEFAULT_GROQ_BASE = "https://api.groq.com/openai/v1"
-DEFAULT_GROQ_MODEL = "llama-3.3-70b-versatile"
+DEFAULT_GROQ_MODEL = "openai/gpt-oss-20b"
 DEFAULT_OLLAMA_BASE = "http://127.0.0.1:11434"
 DEFAULT_OLLAMA_MODEL = "qwen2.5:7b"
 DEFAULT_TIMEOUT = 180.0
@@ -22,6 +22,7 @@ class LlmSettings:
     base_url: str  # groq / ollama only
     timeout: float
     temperature: float = 0.1
+    proxy: str = ""  # groq only — Groq blocks some regions; route via HTTP(S) proxy
 
 
 def load_llm_settings() -> LlmSettings:
@@ -60,6 +61,14 @@ def load_llm_settings() -> LlmSettings:
             "/"
         )
 
+    proxy = ""
+    if provider == "groq":
+        proxy = (
+            os.environ.get("QUESTS_LLM_PROXY")
+            or os.environ.get("QUESTS_TG_PROXY")
+            or ""
+        ).strip()
+
     return LlmSettings(
         provider=provider,
         api_key=api_key,
@@ -67,4 +76,5 @@ def load_llm_settings() -> LlmSettings:
         base_url=base,
         timeout=float(os.environ.get("QUESTS_LLM_TIMEOUT") or DEFAULT_TIMEOUT),
         temperature=float(os.environ.get("QUESTS_LLM_TEMPERATURE") or "0.1"),
+        proxy=proxy,
     )
