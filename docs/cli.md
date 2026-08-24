@@ -23,8 +23,9 @@ uv run quests list              # launcher → тот же бинарник
 | `QUESTS_LLM_PROVIDER` | `groq` | `groq` \| `cursor` \| `ollama` (только `llm-add`) |
 | `GROQ_API_KEY` | — | ключ Groq (console.groq.com → API Keys) |
 | `CURSOR_API_KEY` | — | ключ Cursor (Dashboard → API Keys), если `provider=cursor` |
-| `QUESTS_LLM_MODEL` | `llama-3.3-70b-versatile` | модель Groq / Cursor / Ollama |
+| `QUESTS_LLM_MODEL` | `openai/gpt-oss-20b` | модель Groq / Cursor / Ollama |
 | `QUESTS_LLM_BASE` | `https://api.groq.com/openai/v1` | база для `groq` (или `http://127.0.0.1:11434` для `ollama`) |
+| `QUESTS_LLM_PROXY` | `QUESTS_TG_PROXY` | прокси для `groq` — Cloudflare перед api.groq.com банит некоторые сети/регионы (403) |
 | `QUESTS_LLM_TIMEOUT` | `180` | таймаут сек |
 
 `llm-add` по-прежнему через Python LLM (`QUESTS_CLI_NATIVE=1`).

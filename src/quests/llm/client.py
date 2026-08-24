@@ -166,6 +166,16 @@ def _build_ollama_messages(
     return messages
 
 
+def _groq_response_format() -> dict[str, Any]:
+    return {
+        "type": "json_schema",
+        "json_schema": {
+            "name": "quest_draft_bundle",
+            "schema": quest_draft_json_schema(),
+        },
+    }
+
+
 def _extract_groq_sync(
     user_text: str,
     *,
@@ -184,7 +194,7 @@ def _extract_groq_sync(
         "model": settings.model,
         "messages": _build_ollama_messages(user_text, history=history),
         "temperature": settings.temperature,
-        "response_format": {"type": "json_object"},
+        "response_format": _groq_response_format(),
     }
     url = f"{settings.base_url}/chat/completions"
     req = urllib.request.Request(
@@ -194,11 +204,26 @@ def _extract_groq_sync(
             "Content-Type": "application/json",
             "Accept": "application/json",
             "Authorization": f"Bearer {settings.api_key}",
+            # Cloudflare in front of api.groq.com bans the default
+            # "Python-urllib/…" UA outright (403 browser_signature_banned).
+            "User-Agent": "quests-bot/1.0",
         },
         method="POST",
     )
+    # Cloudflare also blocks some regions at the network edge — route
+    # through settings.proxy (QUESTS_LLM_PROXY / QUESTS_TG_PROXY) when set,
+    # same as the Telegram client.
+    opener = (
+        urllib.request.build_opener(
+            urllib.request.ProxyHandler(
+                {"http": settings.proxy, "https": settings.proxy}
+            )
+        )
+        if settings.proxy
+        else urllib.request.build_opener()
+    )
     try:
-        with urllib.request.urlopen(req, timeout=settings.timeout) as resp:
+        with opener.open(req, timeout=settings.timeout) as resp:
             data = json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as e:
         detail = e.read().decode("utf-8", errors="replace")[:400]
@@ -300,11 +325,15 @@ async def extract_quest_draft(
             "model": settings.model,
             "messages": _build_ollama_messages(user_text, history=history),
             "temperature": settings.temperature,
-            "response_format": {"type": "json_object"},
+            "response_format": _groq_response_format(),
         }
         url = f"{settings.base_url}/chat/completions"
-        headers = {"Authorization": f"Bearer {settings.api_key}"}
+        headers = {
+            "Authorization": f"Bearer {settings.api_key}",
+            "User-Agent": "quests-bot/1.0",
+        }
         error_label = "Groq"
+        proxy = settings.proxy or None
     else:
         payload = {
             "model": settings.model,
@@ -316,6 +345,7 @@ async def extract_quest_draft(
         url = f"{settings.base_url}/api/chat"
         headers = {}
         error_label = "Ollama"
+        proxy = None
 
     owns = session is None
     session = session or aiohttp.ClientSession()
@@ -325,6 +355,7 @@ async def extract_quest_draft(
                 url,
                 json=payload,
                 headers=headers,
+                proxy=proxy,
                 timeout=aiohttp.ClientTimeout(total=settings.timeout),
             ) as resp:
                 body = await resp.read()
