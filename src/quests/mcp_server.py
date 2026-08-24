@@ -38,12 +38,19 @@ from quests.envload import load_dotenv_files
 
 API_BASE = (os.environ.get("QUESTS_API") or f"http://{HOST}:{PORT}").rstrip("/")
 
+ALLOWED_STATUS = {"active", "delayed", "completed", "failed", "archived"}
+
 server = MCPServer(
     "quests",
     instructions=(
         "Quests journal tools. Prefer get_context with a pasted ref like "
         "quest=23 / step=252 / questline=3. Use list_questlines then list_quests "
         "to browse; get_context for full related detail. "
+        "To create a new quest use create_quest (title, optional steps inline, "
+        "deadline_at + duration_seconds for a reminder window that opens "
+        "duration_seconds before deadline_at, category/questline by id or by "
+        "name — e.g. category='health', questline='Сайт Рефкул'). "
+        "To create a new questline (project/theme container) use create_questline. "
         "To change steps on an existing quest use add_step / update_step / "
         "delete_step (do not replace the whole steps array). "
         "To change quest lifecycle or metadata use update_quest "
@@ -149,6 +156,47 @@ def _steps_brief(q: dict[str, Any]) -> list[dict[str, Any]]:
     return out
 
 
+def _is_none_token(raw: str) -> bool:
+    return raw.strip().lower() in {"", "none", "-", "нет", "null"}
+
+
+def _resolve_ref_id(raw: str | int | None, *, path: str, needle_fields: tuple[str, ...]) -> int | None:
+    """Resolve a category/questline given as id, or as a name/substring (case-insensitive),
+    the same way the CLI's ResolveCategoryID/ResolveQuestlineID do."""
+    if raw is None:
+        return None
+    if isinstance(raw, int):
+        return raw
+    if _is_none_token(raw):
+        return None
+    text = raw.strip()
+    if text.lstrip("-").isdigit():
+        return int(text)
+    needle = text.lower()
+    rows = _api_get(path) or []
+    matches = [
+        row["id"]
+        for row in rows
+        if any(needle == str(row.get(f, "")).lower() or needle in str(row.get(f, "")).lower() for f in needle_fields)
+    ]
+    exact = [row["id"] for row in rows if any(str(row.get(f, "")).lower() == needle for f in needle_fields)]
+    if exact:
+        matches = exact
+    if not matches:
+        raise ValueError(f"{path.rsplit('/', 1)[-1]} {raw!r} not found")
+    if len(matches) > 1:
+        raise ValueError(f"multiple matches for {raw!r} in {path}; pass a numeric id")
+    return matches[0]
+
+
+def _resolve_category_id(raw: str | int | None) -> int | None:
+    return _resolve_ref_id(raw, path="/api/categories", needle_fields=("slug", "label"))
+
+
+def _resolve_questline_id(raw: str | int | None) -> int | None:
+    return _resolve_ref_id(raw, path="/api/questlines", needle_fields=("title",))
+
+
 def _quest_mutation_result(q: dict[str, Any]) -> dict[str, Any]:
     return {
         "id": q.get("id"),
@@ -223,6 +271,102 @@ def list_questlines() -> list[dict[str, Any]]:
 
 @server.tool(
     description=(
+        "Create a new quest (POST /api/quests). Steps can be passed inline via "
+        "`steps`: a list of {title, description?, progress_total?, progress_current?, "
+        "sort_order?} — if omitted, a single default step named after the quest is "
+        "created. deadline_at is the moment the quest is due (ISO datetime, UTC — "
+        "e.g. '2026-08-20T10:20:00Z'); duration_seconds sizes the urgent/reminder "
+        "window that opens that many seconds before deadline_at and triggers the "
+        "Telegram/HUD notification (e.g. 7200 for a 2-hour-before reminder). "
+        "category and questline accept either a numeric id or a name/substring "
+        "(e.g. category='health', questline='Сайт Рефкул') — resolved via "
+        "/api/categories and /api/questlines; error if ambiguous. Passing questline "
+        "makes the quest inherit that questline's category. quiet=true skips overlay toasts."
+    )
+)
+def create_quest(
+    title: str,
+    description: str | None = None,
+    status: str | None = None,
+    significance: str | None = None,
+    pinned: bool | None = None,
+    sort_order: int | None = None,
+    deadline_at: str | None = None,
+    duration_seconds: int | None = None,
+    category: str | None = None,
+    questline: str | None = None,
+    steps: list[dict[str, Any]] | None = None,
+    quiet: bool = True,
+) -> dict[str, Any]:
+    body: dict[str, Any] = {"title": title}
+    if description is not None:
+        body["description"] = description
+    if status is not None:
+        st = str(status).strip().lower()
+        if st not in ALLOWED_STATUS:
+            raise ValueError(f"bad status {status!r}; expected one of {sorted(ALLOWED_STATUS)}")
+        body["status"] = st
+    if significance is not None:
+        body["significance"] = significance
+    if pinned is not None:
+        body["pinned"] = bool(pinned)
+    if sort_order is not None:
+        body["sort_order"] = int(sort_order)
+    if deadline_at is not None:
+        body["deadline_at"] = deadline_at
+    if duration_seconds is not None:
+        body["duration_seconds"] = int(duration_seconds)
+    questline_id = _resolve_questline_id(questline)
+    if questline_id is not None:
+        body["questline_id"] = questline_id
+    else:
+        cat_id = _resolve_category_id(category)
+        if cat_id is not None:
+            body["category_id"] = cat_id
+    if steps:
+        body["steps"] = [
+            {
+                "title": s["title"],
+                "description": s.get("description", ""),
+                "progress_total": max(1, int(s.get("progress_total", 1))),
+                "progress_current": max(0, int(s.get("progress_current", 0))),
+                **({"sort_order": int(s["sort_order"])} if s.get("sort_order") is not None else {}),
+            }
+            for s in steps
+        ]
+    q = _api("POST", "/api/quests", query=_tool_query(quiet=quiet), body=body)
+    return _quest_mutation_result(q)
+
+
+@server.tool(
+    description=(
+        "Create a new questline (POST /api/questlines) — a themed project/series "
+        "that quests can be attached to via update_quest(questline_id=...) or "
+        "create_quest(questline=...). category accepts id or name/substring."
+    )
+)
+def create_questline(
+    title: str,
+    description: str | None = None,
+    category: str | None = None,
+    color: str | None = None,
+    icon: str | None = None,
+) -> dict[str, Any]:
+    body: dict[str, Any] = {"title": title}
+    if description is not None:
+        body["description"] = description
+    if color is not None:
+        body["color"] = color
+    if icon is not None:
+        body["icon"] = icon
+    cat_id = _resolve_category_id(category)
+    if cat_id is not None:
+        body["category_id"] = cat_id
+    return _api("POST", "/api/questlines", body=body)
+
+
+@server.tool(
+    description=(
         "Add one step to an existing quest (POST /api/quests/{id}/steps). "
         "Returns quest id, progress_label, and steps brief. quiet=true skips overlay toasts."
     )
@@ -278,7 +422,6 @@ def update_quest(
     clear_questline: bool = False,
     quiet: bool = True,
 ) -> dict[str, Any]:
-    allowed_status = {"active", "delayed", "completed", "failed", "archived"}
     body: dict[str, Any] = {}
     if title is not None:
         body["title"] = title
@@ -286,9 +429,9 @@ def update_quest(
         body["description"] = description
     if status is not None:
         st = str(status).strip().lower()
-        if st not in allowed_status:
+        if st not in ALLOWED_STATUS:
             raise ValueError(
-                f"bad status {status!r}; expected one of {sorted(allowed_status)}"
+                f"bad status {status!r}; expected one of {sorted(ALLOWED_STATUS)}"
             )
         body["status"] = st
     if significance is not None:

@@ -1,4 +1,4 @@
-"""Extract QuestDraft via Cursor Agent API (default) or Ollama."""
+"""Extract QuestDraft via Groq (default), Cursor Agent API, or Ollama."""
 
 from __future__ import annotations
 
@@ -166,6 +166,53 @@ def _build_ollama_messages(
     return messages
 
 
+def _extract_groq_sync(
+    user_text: str,
+    *,
+    settings: LlmSettings,
+    history: list[tuple[str, str]] | None,
+) -> QuestDraftBundle:
+    import urllib.error
+    import urllib.request
+
+    if not settings.api_key:
+        raise LlmError(
+            "нужен GROQ_API_KEY или QUESTS_GROQ_API_KEY (console.groq.com → API Keys)"
+        )
+
+    payload = {
+        "model": settings.model,
+        "messages": _build_ollama_messages(user_text, history=history),
+        "temperature": settings.temperature,
+        "response_format": {"type": "json_object"},
+    }
+    url = f"{settings.base_url}/chat/completions"
+    req = urllib.request.Request(
+        url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "Authorization": f"Bearer {settings.api_key}",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=settings.timeout) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        detail = e.read().decode("utf-8", errors="replace")[:400]
+        raise LlmError(f"Groq HTTP {e.code}: {detail}") from e
+    except urllib.error.URLError as e:
+        raise LlmError(f"не удалось связаться с Groq: {e.reason}") from e
+
+    choices = data.get("choices") or [] if isinstance(data, dict) else []
+    content = (choices[0].get("message") or {}).get("content") if choices else None
+    if content is None:
+        raise LlmError(f"пустой ответ Groq: {data!r}"[:300])
+    return _parse_draft(content)
+
+
 def _extract_ollama_sync(
     user_text: str,
     *,
@@ -216,6 +263,8 @@ def extract_quest_draft_sync(
     settings = settings or load_llm_settings()
     if not user_text.strip():
         raise LlmError("пустой текст")
+    if settings.provider == "groq":
+        return _extract_groq_sync(user_text, settings=settings, history=history)
     if settings.provider == "ollama":
         return _extract_ollama_sync(user_text, settings=settings, history=history)
     return _extract_cursor_sync(user_text, settings=settings, history=history)
@@ -228,7 +277,7 @@ async def extract_quest_draft(
     history: list[tuple[str, str]] | None = None,
     session: aiohttp.ClientSession | None = None,
 ) -> QuestDraftBundle:
-    """Async entry — Cursor runs in a worker thread; Ollama uses aiohttp."""
+    """Async entry — Cursor runs in a worker thread; Groq/Ollama use aiohttp."""
     settings = settings or load_llm_settings()
     if not user_text.strip():
         raise LlmError("пустой текст")
@@ -241,15 +290,33 @@ async def extract_quest_draft(
             history=history,
         )
 
-    # ollama path
-    payload = {
-        "model": settings.model,
-        "messages": _build_ollama_messages(user_text, history=history),
-        "stream": False,
-        "format": quest_draft_json_schema(),
-        "options": {"temperature": settings.temperature},
-    }
-    url = f"{settings.base_url}/api/chat"
+    if settings.provider == "groq":
+        if not settings.api_key:
+            raise LlmError(
+                "нужен GROQ_API_KEY или QUESTS_GROQ_API_KEY "
+                "(console.groq.com → API Keys)"
+            )
+        payload: dict[str, Any] = {
+            "model": settings.model,
+            "messages": _build_ollama_messages(user_text, history=history),
+            "temperature": settings.temperature,
+            "response_format": {"type": "json_object"},
+        }
+        url = f"{settings.base_url}/chat/completions"
+        headers = {"Authorization": f"Bearer {settings.api_key}"}
+        error_label = "Groq"
+    else:
+        payload = {
+            "model": settings.model,
+            "messages": _build_ollama_messages(user_text, history=history),
+            "stream": False,
+            "format": quest_draft_json_schema(),
+            "options": {"temperature": settings.temperature},
+        }
+        url = f"{settings.base_url}/api/chat"
+        headers = {}
+        error_label = "Ollama"
+
     owns = session is None
     session = session or aiohttp.ClientSession()
     try:
@@ -257,25 +324,32 @@ async def extract_quest_draft(
             async with session.post(
                 url,
                 json=payload,
+                headers=headers,
                 timeout=aiohttp.ClientTimeout(total=settings.timeout),
             ) as resp:
                 body = await resp.read()
                 if resp.status >= 400:
                     raise LlmError(
-                        f"LLM HTTP {resp.status}: "
+                        f"{error_label} HTTP {resp.status}: "
                         f"{body.decode('utf-8', errors='replace')[:400]}"
                     )
                 data = json.loads(body.decode("utf-8"))
         except aiohttp.ClientError as e:
             raise LlmError(
-                f"не удалось связаться с Ollama ({settings.base_url}): {e}"
+                f"не удалось связаться с {error_label} ({settings.base_url}): {e}"
             ) from e
     finally:
         if owns:
             await session.close()
 
-    message = (data.get("message") or {}) if isinstance(data, dict) else {}
-    content = message.get("content")
+    if settings.provider == "groq":
+        choices = data.get("choices") or [] if isinstance(data, dict) else []
+        content = (
+            (choices[0].get("message") or {}).get("content") if choices else None
+        )
+    else:
+        message = (data.get("message") or {}) if isinstance(data, dict) else {}
+        content = message.get("content")
     if content is None:
-        raise LlmError(f"пустой ответ LLM: {data!r}"[:300])
+        raise LlmError(f"пустой ответ {error_label}: {data!r}"[:300])
     return _parse_draft(content)

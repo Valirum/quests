@@ -64,3 +64,5 @@ TODO.md
 # Go
 go/bin/
 *.exe
+
+.mcp.json
