@@ -179,6 +179,196 @@ def _llm_parser() -> argparse.ArgumentParser:
     return p
 
 
+def _fmt_action_line(r: Any) -> str:
+    tag = "NEW " if r.is_new else "EDIT"
+    after = {k: v for k, v in r.after.items() if k != "id"}
+    return f"  [{tag}] #{r.index} {r.action} id={r.after.get('id')} {after}"
+
+
+def cmd_llm_action(ns: argparse.Namespace) -> int:
+    """Free-form text → LLM action batch → dry-run preview → confirm → execute."""
+    from quests.actions_exec import ActionExecError, ActionExecutor
+    from quests.llm import LlmError, extract_action_batch_sync
+    from quests.llm.config import load_llm_settings
+
+    text = " ".join(ns.text).strip() if isinstance(ns.text, list) else str(ns.text).strip()
+    if not text:
+        raise CliError("нужен текст запроса")
+
+    settings = load_llm_settings()
+    as_json = bool(getattr(ns, "json", False))
+    if not as_json:
+        print(f"Groq ({settings.model})…", file=sys.stderr)
+
+    try:
+        batch = extract_action_batch_sync(text, settings=settings)
+    except LlmError as e:
+        raise CliError(str(e)) from e
+
+    if batch.needs_clarification:
+        if as_json:
+            emit({"ok": False, "needs_clarification": True, "question": batch.clarify_question}, as_json=True)
+        else:
+            print(f"уточнение: {batch.clarify_question}", file=sys.stderr)
+        return 2
+
+    executor = ActionExecutor(API_BASE)
+    try:
+        preview = executor.run(batch, dry_run=True)
+    except ActionExecError as e:
+        raise CliError(str(e)) from e
+
+    if not as_json:
+        print("план:")
+        for r in preview:
+            print(_fmt_action_line(r))
+        if not bool(getattr(ns, "yes", False)):
+            try:
+                ans = input("применить? [y/N] ").strip().lower()
+            except EOFError:
+                ans = ""
+            if ans not in {"y", "yes", "д", "да"}:
+                print("отменено")
+                return 1
+
+    try:
+        applied = executor.run(batch, dry_run=False)
+    except ActionExecError as e:
+        raise CliError(str(e)) from e
+
+    if as_json:
+        emit(
+            {
+                "ok": True,
+                "preview": [
+                    {"index": r.index, "action": r.action, "is_new": r.is_new, "after": r.after}
+                    for r in preview
+                ],
+                "results": [
+                    {"index": r.index, "action": r.action, "result": r.result} for r in applied
+                ],
+            },
+            as_json=True,
+        )
+    else:
+        for r in applied:
+            print(_fmt_action_line(r))
+    return 0
+
+
+def _preview_payload(r: Any) -> dict[str, Any]:
+    return {"index": r.index, "action": r.action, "is_new": r.is_new, "before": r.before, "after": r.after}
+
+
+def cmd_llm_action_preview(ns: argparse.Namespace) -> int:
+    """Free-form text → LLM action batch → dry-run preview, no writes. --json only.
+
+    Called from the Go HTTP layer (POST /api/llm/actions/preview) as well as
+    directly. Returns the raw batch alongside the preview so the caller can
+    send that *exact* batch back to llm-action-apply — the model is not
+    re-invoked between preview and apply, so what's shown is what runs.
+    """
+    from quests.actions_exec import ActionExecError, ActionExecutor
+    from quests.llm import LlmError, extract_action_batch_sync
+
+    text = " ".join(ns.text).strip() if isinstance(ns.text, list) else str(ns.text).strip()
+    if not text:
+        raise CliError("нужен текст запроса")
+
+    try:
+        batch = extract_action_batch_sync(text)
+    except LlmError as e:
+        raise CliError(str(e)) from e
+
+    as_json = bool(getattr(ns, "json", False))
+    if batch.needs_clarification:
+        payload = {
+            "ok": False,
+            "needs_clarification": True,
+            "clarify_question": batch.clarify_question,
+        }
+        emit(payload, as_json=True) if as_json else print(
+            f"уточнение: {batch.clarify_question}", file=sys.stderr
+        )
+        return 2
+
+    executor = ActionExecutor(API_BASE)
+    try:
+        preview = executor.run(batch, dry_run=True)
+    except ActionExecError as e:
+        raise CliError(str(e)) from e
+
+    emit(
+        {
+            "ok": True,
+            "needs_clarification": False,
+            "batch": batch.model_dump(),
+            "preview": [_preview_payload(r) for r in preview],
+        },
+        as_json=True,
+    )
+    return 0
+
+
+def cmd_llm_action_apply(ns: argparse.Namespace) -> int:
+    """Take a previously previewed batch (JSON on stdin) and execute it for real."""
+    from pydantic import ValidationError
+
+    from quests.actions_exec import ActionExecError, ActionExecutor
+    from quests.llm.actions import ActionBatch
+
+    raw = sys.stdin.read()
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as e:
+        raise CliError(f"батч не JSON: {e}") from e
+    try:
+        batch = ActionBatch.model_validate(data)
+    except ValidationError as e:
+        raise CliError(f"батч не прошёл валидацию: {e}") from e
+
+    executor = ActionExecutor(API_BASE)
+    try:
+        applied = executor.run(batch, dry_run=False)
+    except ActionExecError as e:
+        raise CliError(str(e)) from e
+
+    emit(
+        {
+            "ok": True,
+            "results": [
+                {"index": r.index, "action": r.action, "result": r.result} for r in applied
+            ],
+        },
+        as_json=True,
+    )
+    return 0
+
+
+def _llm_action_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(prog="quests llm-action")
+    p.add_argument("--json", action="store_true")
+    p.add_argument("--api", default=None)
+    p.add_argument("text", nargs="+")
+    p.add_argument("-y", "--yes", action="store_true")
+    return p
+
+
+def _llm_action_preview_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(prog="quests llm-action-preview")
+    p.add_argument("--json", action="store_true")
+    p.add_argument("--api", default=None)
+    p.add_argument("text", nargs="+")
+    return p
+
+
+def _llm_action_apply_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(prog="quests llm-action-apply")
+    p.add_argument("--json", action="store_true")
+    p.add_argument("--api", default=None)
+    return p
+
+
 def main(argv: list[str] | None = None) -> int:
     from quests.envload import load_dotenv_files
 
@@ -215,10 +405,24 @@ def _exec_go_cli(argv_list: list[str]) -> int:
 
 
 def _main_llm_add(argv_list: list[str]) -> int:
-    # Strip leading "llm-add" when Go shells: python -m quests.cli llm-add …
-    if argv_list and argv_list[0] in {"llm-add", "add-llm", "new-llm"}:
+    # Strip leading subcommand when Go shells: python -m quests.cli <cmd> …
+    kind = argv_list[0] if argv_list else ""
+    if kind in {"llm-add", "add-llm", "new-llm", "llm-action", "action", "llm-action-preview", "llm-action-apply"}:
         argv_list = argv_list[1:]
-    parser = _llm_parser()
+
+    if kind == "llm-action-preview":
+        parser = _llm_action_preview_parser()
+        runner = cmd_llm_action_preview
+    elif kind == "llm-action-apply":
+        parser = _llm_action_apply_parser()
+        runner = cmd_llm_action_apply
+    elif kind in {"llm-action", "action"}:
+        parser = _llm_action_parser()
+        runner = cmd_llm_action
+    else:
+        parser = _llm_parser()
+        runner = cmd_llm_add
+
     try:
         args = parser.parse_args(argv_list)
     except SystemExit as e:
@@ -227,12 +431,9 @@ def _main_llm_add(argv_list: list[str]) -> int:
     global API_BASE
     if args.api:
         API_BASE = str(args.api).rstrip("/")
-    elif "--api" in argv_list:
-        # already handled by argparse
-        pass
 
     try:
-        return int(cmd_llm_add(args) or 0)
+        return int(runner(args) or 0)
     except CliError as e:
         return emit_error(str(e), as_json=bool(args.json), code=e.code)
     except BrokenPipeError:

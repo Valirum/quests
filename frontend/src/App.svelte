@@ -17,6 +17,7 @@
   import { OPEN_STATUSES } from './lib/js/questFormat.js'
   import { groupQuestsByCategory } from './lib/js/questGroups.js'
   import { copyText } from './lib/js/clipboard.js'
+  import ActionAssistantModal from './lib/modals/ActionAssistantModal.svelte'
   import QuestModal from './lib/modals/QuestModal.svelte'
   import QuestlineModal from './lib/modals/QuestlineModal.svelte'
   import TemplatesModal from './lib/modals/TemplatesModal.svelte'
@@ -61,6 +62,7 @@
   )
   let templatesOpen = $state(false)
   let settingsOpen = $state(false)
+  let assistantOpen = $state(false)
   let lineModalOpen = $state(false)
   let lineModalMode = $state(/** @type {'create' | 'edit'} */ ('create'))
   let lineModalTarget = $state(/** @type {any | null} */ (null))
@@ -679,6 +681,7 @@
     onOpenTemplates={openTemplates}
     onOpenCreateQuestline={openCreateQuestline}
     onOpenCreateQuest={() => openCreate()}
+    onOpenAssistant={() => (assistantOpen = true)}
   />
 
   {#if error}
@@ -789,6 +792,14 @@
   onClose={() => (settingsOpen = false)}
   {health}
   {liveStatus}
+/>
+
+<ActionAssistantModal
+  open={assistantOpen}
+  {quests}
+  {questlines}
+  onClose={() => (assistantOpen = false)}
+  onApplied={() => load({ silent: true })}
 />
 
 <ContextMenu

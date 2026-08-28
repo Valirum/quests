@@ -128,6 +128,22 @@ export function getStats(params = {}) {
   return request(`/api/stats${qs ? `?${qs}` : ''}`)
 }
 
+/** Free text → LLM action batch → dry-run preview (no writes). */
+export function previewActionBatch(text) {
+  return request('/api/llm/actions/preview', {
+    method: 'POST',
+    body: JSON.stringify({ text }),
+  })
+}
+
+/** Execute a batch previously returned by previewActionBatch() as-is (no re-generation). */
+export function applyActionBatch(batch) {
+  return request('/api/llm/actions/apply', {
+    method: 'POST',
+    body: JSON.stringify({ batch }),
+  })
+}
+
 export function listCategories() {
   return request('/api/categories')
 }

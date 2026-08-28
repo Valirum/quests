@@ -35,6 +35,8 @@ from mcp.server.mcpserver import MCPServer
 
 from quests.config import HOST, PORT
 from quests.envload import load_dotenv_files
+from quests.refs import resolve_category_id as _shared_resolve_category_id
+from quests.refs import resolve_questline_id as _shared_resolve_questline_id
 
 API_BASE = (os.environ.get("QUESTS_API") or f"http://{HOST}:{PORT}").rstrip("/")
 
@@ -156,45 +158,12 @@ def _steps_brief(q: dict[str, Any]) -> list[dict[str, Any]]:
     return out
 
 
-def _is_none_token(raw: str) -> bool:
-    return raw.strip().lower() in {"", "none", "-", "нет", "null"}
-
-
-def _resolve_ref_id(raw: str | int | None, *, path: str, needle_fields: tuple[str, ...]) -> int | None:
-    """Resolve a category/questline given as id, or as a name/substring (case-insensitive),
-    the same way the CLI's ResolveCategoryID/ResolveQuestlineID do."""
-    if raw is None:
-        return None
-    if isinstance(raw, int):
-        return raw
-    if _is_none_token(raw):
-        return None
-    text = raw.strip()
-    if text.lstrip("-").isdigit():
-        return int(text)
-    needle = text.lower()
-    rows = _api_get(path) or []
-    matches = [
-        row["id"]
-        for row in rows
-        if any(needle == str(row.get(f, "")).lower() or needle in str(row.get(f, "")).lower() for f in needle_fields)
-    ]
-    exact = [row["id"] for row in rows if any(str(row.get(f, "")).lower() == needle for f in needle_fields)]
-    if exact:
-        matches = exact
-    if not matches:
-        raise ValueError(f"{path.rsplit('/', 1)[-1]} {raw!r} not found")
-    if len(matches) > 1:
-        raise ValueError(f"multiple matches for {raw!r} in {path}; pass a numeric id")
-    return matches[0]
-
-
 def _resolve_category_id(raw: str | int | None) -> int | None:
-    return _resolve_ref_id(raw, path="/api/categories", needle_fields=("slug", "label"))
+    return _shared_resolve_category_id(raw, api_get=_api_get)
 
 
 def _resolve_questline_id(raw: str | int | None) -> int | None:
-    return _resolve_ref_id(raw, path="/api/questlines", needle_fields=("title",))
+    return _shared_resolve_questline_id(raw, api_get=_api_get)
 
 
 def _quest_mutation_result(q: dict[str, Any]) -> dict[str, Any]:
