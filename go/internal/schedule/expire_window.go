@@ -16,6 +16,9 @@ func ExpireOverdue(ctx context.Context, st *store.Store, hub *events.Hub) ([]int
 	rows, err := st.DB.QueryContext(ctx, `
 		SELECT id FROM quest
 		WHERE status = 'active' AND deadline_at IS NOT NULL AND deadline_at <= ?
+			-- duration=0/NULL means "no window": deadline is informational only,
+			-- don't auto-flip the quest to delayed just because it passed.
+			AND duration_seconds IS NOT NULL AND duration_seconds > 0
 		ORDER BY id`, nowDB)
 	if err != nil {
 		return nil, err

@@ -88,8 +88,11 @@ func NormalizeDeadline(deadline *time.Time, duration *int, durationExplicit bool
 	d := EnsureUTC(*deadline)
 	if durationExplicit && duration != nil {
 		v := *duration
-		if v < 1 {
-			v = 1
+		if v <= 0 {
+			// Explicit 0 (or negative) means "no window": deadline stays as a
+			// plain target time, no urgent-window timer, no forced auto-expire.
+			zero := 0
+			return &d, &zero
 		}
 		return &d, &v
 	}
