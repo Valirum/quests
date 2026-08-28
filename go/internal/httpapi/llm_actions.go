@@ -2,97 +2,70 @@ package httpapi
 
 import (
 	"bytes"
-	"encoding/json"
+	"io"
 	"net/http"
 	"os"
-	"os/exec"
 	"strings"
+	"time"
 )
 
 // registerLLMActions wires the web-form path for the LLM action-batch
 // feature: free text -> Groq -> dry-run preview -> (user confirms) -> apply.
-// Both handlers shell into the same Python CLI subcommands used for manual
-// testing (`quests llm-action-preview` / `quests llm-action-apply`), the
-// same way cmdLLMAdd in go/internal/cli/run.go shells into `quests llm-add`.
+// Both handlers proxy to the standalone quests-llm service (aiohttp,
+// src/quests/llm/service.py) — a small long-lived process that owns the
+// Groq/proxy networking concern, instead of shelling into a fresh `uv run`
+// subprocess per request.
 func (s *Server) registerLLMActions(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/llm/actions/preview", s.postLLMActionsPreview)
 	mux.HandleFunc("POST /api/llm/actions/apply", s.postLLMActionsApply)
 }
 
-func (s *Server) runPythonCLI(subcommand string, extraArgs []string, stdin []byte) ([]byte, int, error) {
-	args := []string{"run", "--directory", s.Root, "python", "-m", "quests.cli", subcommand, "--json"}
-	args = append(args, extraArgs...)
-	cmd := exec.Command("uv", args...)
-	cmd.Env = append(os.Environ(), "QUESTS_CLI_NATIVE=1")
-	if stdin != nil {
-		cmd.Stdin = bytes.NewReader(stdin)
+func llmServiceBase() string {
+	if v := strings.TrimSpace(os.Getenv("QUESTS_LLM_SERVICE_URL")); v != "" {
+		return strings.TrimRight(v, "/")
 	}
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	err := cmd.Run()
-	exitCode := 0
-	if ee, ok := err.(*exec.ExitError); ok {
-		exitCode = ee.ExitCode()
-		err = nil
-	}
-	if err != nil {
-		return nil, 1, err
-	}
-	out := stdout.Bytes()
-	if len(bytes.TrimSpace(out)) == 0 {
-		out = stderr.Bytes()
-	}
-	return out, exitCode, nil
+	return "http://127.0.0.1:8766"
 }
 
-func (s *Server) postLLMActionsPreview(w http.ResponseWriter, r *http.Request) {
-	var body struct {
-		Text string `json:"text"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid JSON")
+var llmHTTPClient = &http.Client{Timeout: 120 * time.Second}
+
+// proxyToLLMService forwards the request body as-is to the quests-llm
+// service and relays its JSON response (and status code) back verbatim —
+// that service already returns {ok, ...} / {ok:false, error} shapes.
+func proxyToLLMService(w http.ResponseWriter, r *http.Request, path string) {
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid body")
 		return
 	}
-	text := strings.TrimSpace(body.Text)
-	if text == "" {
-		writeErr(w, http.StatusBadRequest, "text is required")
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, llmServiceBase()+path, bytes.NewReader(body))
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	out, _, err := s.runPythonCLI("llm-action-preview", []string{text}, nil)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := llmHTTPClient.Do(req)
+	if err != nil {
+		writeErr(w, http.StatusBadGateway, "quests-llm unreachable: "+err.Error())
+		return
+	}
+	defer resp.Body.Close()
+
+	out, err := io.ReadAll(resp.Body)
 	if err != nil {
 		writeErr(w, http.StatusBadGateway, err.Error())
-		return
-	}
-	relayCLIJSON(w, out)
-}
-
-func (s *Server) postLLMActionsApply(w http.ResponseWriter, r *http.Request) {
-	var body struct {
-		Batch json.RawMessage `json:"batch"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || len(body.Batch) == 0 {
-		writeErr(w, http.StatusBadRequest, "batch is required")
-		return
-	}
-	out, _, err := s.runPythonCLI("llm-action-apply", nil, body.Batch)
-	if err != nil {
-		writeErr(w, http.StatusBadGateway, err.Error())
-		return
-	}
-	relayCLIJSON(w, out)
-}
-
-// relayCLIJSON forwards the CLI's own --json output as-is (it already
-// carries {ok, ...} / {ok:false, detail} shapes); falls back to a wrapped
-// error if the subprocess printed something that isn't JSON.
-func relayCLIJSON(w http.ResponseWriter, out []byte) {
-	var probe json.RawMessage
-	if err := json.Unmarshal(out, &probe); err != nil {
-		writeErr(w, http.StatusBadGateway, strings.TrimSpace(string(out)))
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
+	w.WriteHeader(resp.StatusCode)
 	_, _ = w.Write(out)
+}
+
+func (s *Server) postLLMActionsPreview(w http.ResponseWriter, r *http.Request) {
+	proxyToLLMService(w, r, "/preview")
+}
+
+func (s *Server) postLLMActionsApply(w http.ResponseWriter, r *http.Request) {
+	proxyToLLMService(w, r, "/apply")
 }

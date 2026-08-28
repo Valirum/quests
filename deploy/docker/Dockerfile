@@ -63,3 +63,13 @@ RUN chmod +x /entrypoint.sh
 VOLUME ["/app/data"]
 ENTRYPOINT ["/entrypoint.sh"]
 CMD ["quests-telegram"]
+
+# --- LLM service: action-batch assistant (Groq) behind its own small process ---
+FROM python-base AS llm
+COPY deploy/docker/entrypoint-generic.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+ENV QUESTS_LLM_HOST=0.0.0.0 \
+    QUESTS_LLM_SERVICE_PORT=8766
+EXPOSE 8766
+ENTRYPOINT ["/entrypoint.sh"]
+CMD ["quests-llm"]
