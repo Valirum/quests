@@ -25,16 +25,10 @@ export function actionLabel(action) {
   return ACTION_LABELS[action] || action
 }
 
-function findQuestInContext(ctx, id) {
-  return ctx?.quests?.find((q) => q.id === id) || null
-}
-
-function findStepInContext(ctx, id) {
-  for (const q of ctx?.quests || []) {
-    const s = q.steps?.find((st) => st.id === id)
-    if (s) return s
-  }
-  return null
+// `before` is now the flat quest object (GET /api/quests/{id}) — the Go
+// executor fetches it directly, no more nested /api/context shape.
+function findStepIn(before, id) {
+  return before?.steps?.find((st) => st.id === id) || null
 }
 
 /**
@@ -115,21 +109,20 @@ export function buildPreviewTree(preview, { quests = [], questlines = [] } = {})
     }
 
     if (action === 'update_quest') {
-      const ctxQuest = findQuestInContext(before, after.id)
       const node = ensureQuestNode(after.id, {
-        label: ctxQuest?.title,
+        label: before?.title,
         questlineId: 'questline_id' in after ? after.questline_id : undefined,
       })
       for (const [k, v] of Object.entries(after)) {
         if (k === 'id' || k === 'questline_id') continue
-        node.changes.push({ field: FIELD_LABELS[k] || k, from: ctxQuest?.[k], to: v })
+        node.changes.push({ field: FIELD_LABELS[k] || k, from: before?.[k], to: v })
       }
       continue
     }
 
     if (action === 'add_step' || action === 'update_step' || action === 'delete_step') {
       const questNode = ensureQuestNode(after.quest_id)
-      const ctxStep = after.step_id != null ? findStepInContext(before, after.step_id) : null
+      const ctxStep = after.step_id != null ? findStepIn(before, after.step_id) : null
       const stepNode = {
         id: after.step_id ?? `new:${item.index}`,
         kind: 'step',

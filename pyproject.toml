@@ -8,12 +8,21 @@ dependencies = [
     "sqlmodel>=0.0.22",
     "aiosqlite>=0.20",
     "alembic>=1.18.5",
+    "python-dotenv>=1.2.2",
+]
+
+# The api/llm-action path is pure Go now — the only Python left needs just
+# the core deps above (alembic migrations). Everything heavy is opt-in per
+# entrypoint so `docker build --target api` doesn't drag in Telegram/STT.
+[project.optional-dependencies]
+bot = [
     "aiogram>=3.30.0",
     "aiohttp>=3.9",
     "aiohttp-socks>=0.11.0",
     "cursor-sdk>=1.0.26",
-    "python-dotenv>=1.2.2",
     "faster-whisper>=1.2.1",
+]
+mcp = [
     "mcp>=2.0.0",
 ]
 
@@ -22,7 +31,6 @@ quests = "quests.cli:main"
 quests-migrate = "quests.migrate:main"
 quests-telegram = "quests.telegram.main:main"
 quests-mcp = "quests.mcp_server:main"
-quests-llm = "quests.llm.service:main"
 
 [build-system]
 requires = ["hatchling"]

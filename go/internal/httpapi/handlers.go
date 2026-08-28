@@ -22,6 +22,10 @@ type Server struct {
 	CORS    []string
 	DataDir string
 	Root    string
+	// SelfBase is this server's own loopback URL (http://127.0.0.1:PORT) —
+	// used by the LLM action-batch assistant to call the same HTTP API the
+	// frontend/CLI use, in-process, regardless of what host QUESTS_HOST binds.
+	SelfBase string
 }
 
 func (s *Server) Handler() http.Handler {
