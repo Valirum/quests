@@ -197,7 +197,10 @@ func MaterializeDue(ctx context.Context, st *store.Store, hub *events.Hub, now t
 			Title:        createdQ.Title,
 			Description:  createdQ.Description,
 			Detail:       detail,
-			Toast:        true,
+			// Periodic materialization is routine, not something to notice —
+			// a fullscreen major toast for every daily template at midnight
+			// is exactly the "pack of identical alerts" this was meant to fix.
+			Toast:        false,
 			Source:       "system",
 			Significance: string(createdQ.Significance),
 			Sound:        strPtr("quest_created"),
