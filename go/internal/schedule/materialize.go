@@ -193,10 +193,10 @@ func MaterializeDue(ctx context.Context, st *store.Store, hub *events.Hub, now t
 		qid := createdQ.ID
 		detail := "Период " + key
 		hub.Publish("quest_appeared", events.PublishOpts{
-			QuestID:      &qid,
-			Title:        createdQ.Title,
-			Description:  createdQ.Description,
-			Detail:       detail,
+			QuestID:     &qid,
+			Title:       createdQ.Title,
+			Description: createdQ.Description,
+			Detail:      detail,
 			// Periodic materialization is routine, not something to notice —
 			// a fullscreen major toast for every daily template at midnight
 			// is exactly the "pack of identical alerts" this was meant to fix.

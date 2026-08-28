@@ -38,6 +38,8 @@ COPY src ./src
 COPY alembic ./alembic
 COPY alembic.ini ./
 
+# Core only (alembic/sqlmodel/dotenv) — api needs nothing heavier than this;
+# the action-batch assistant is pure Go now (go/internal/llmassist).
 RUN uv sync --locked --no-dev
 
 # --- API runtime: Go server + SPA + Alembic migrate ---
@@ -56,20 +58,11 @@ VOLUME ["/app/data"]
 ENTRYPOINT ["/entrypoint.sh"]
 CMD ["quests-server"]
 
-# --- Telegram bot ---
+# --- Telegram bot: needs the heavy stuff (aiogram/STT/cursor-sdk) ---
 FROM python-base AS bot
+RUN uv sync --locked --no-dev --extra bot
 COPY deploy/docker/entrypoint-bot.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 VOLUME ["/app/data"]
 ENTRYPOINT ["/entrypoint.sh"]
 CMD ["quests-telegram"]
-
-# --- LLM service: action-batch assistant (Groq) behind its own small process ---
-FROM python-base AS llm
-COPY deploy/docker/entrypoint-generic.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
-ENV QUESTS_LLM_HOST=0.0.0.0 \
-    QUESTS_LLM_SERVICE_PORT=8766
-EXPOSE 8766
-ENTRYPOINT ["/entrypoint.sh"]
-CMD ["quests-llm"]

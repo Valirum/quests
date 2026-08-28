@@ -19,10 +19,6 @@ name: CI
         description: Force rebuild/push quests-bot
         type: boolean
         default: false
-      force_llm:
-        description: Force rebuild/push quests-llm
-        type: boolean
-        default: false
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -39,7 +35,6 @@ jobs:
       api: ${{ steps.filter.outputs.api }}
       frontend: ${{ steps.filter.outputs.frontend }}
       bot: ${{ steps.filter.outputs.bot }}
-      llm: ${{ steps.filter.outputs.llm }}
     steps:
       # depth 1 (checkout default) breaks push diffs → filters stay false,
       # so build-* only run via workflow_dispatch force_* inputs.
@@ -66,7 +61,7 @@ jobs:
               - 'deploy/docker/nginx.conf'
               - 'deploy/docker/docker-compose.yml'
             bot:
-              # Bot image runs telegram + STT/LLM only; shared API code is via HTTP.
+              # Bot image runs telegram + STT/LLM draft only; shared API code is via HTTP.
               - 'src/quests/telegram/**'
               - 'src/quests/llm/**'
               - 'src/quests/stt/**'
@@ -79,19 +74,6 @@ jobs:
               - 'deploy/docker/Dockerfile'
               - 'deploy/docker/docker-bake.hcl'
               - 'deploy/docker/entrypoint-bot.sh'
-            llm:
-              # Action-batch assistant service — its own image, its own network needs.
-              - 'src/quests/llm/**'
-              - 'src/quests/actions_exec.py'
-              - 'src/quests/refs.py'
-              - 'src/quests/models.py'
-              - 'src/quests/config.py'
-              - 'src/quests/envload.py'
-              - 'pyproject.toml'
-              - 'uv.lock'
-              - 'deploy/docker/Dockerfile'
-              - 'deploy/docker/docker-bake.hcl'
-              - 'deploy/docker/entrypoint-generic.sh'
 
   test:
     runs-on: ubuntu-latest
@@ -116,10 +98,10 @@ jobs:
 
       - name: Sync + pytest
         run: |
-          uv sync --locked --group dev
+          uv sync --locked --group dev --all-extras
           uv run pytest
 
-  # One BuildKit session → api+bot+llm share python-base layer digests on GHCR.
+  # One BuildKit session → api+bot share python-base layer digests on GHCR.
   build-images:
     needs: [changes, test]
     if: |
@@ -129,8 +111,7 @@ jobs:
         needs.changes.outputs.api == 'true' ||
         needs.changes.outputs.frontend == 'true' ||
         needs.changes.outputs.bot == 'true' ||
-        needs.changes.outputs.llm == 'true' ||
-        (github.event_name == 'workflow_dispatch' && (inputs.force_api || inputs.force_bot || inputs.force_llm))
+        (github.event_name == 'workflow_dispatch' && (inputs.force_api || inputs.force_bot))
       )
     runs-on: ubuntu-latest
     permissions:
@@ -146,12 +127,10 @@ jobs:
           owner="${GITHUB_REPOSITORY_OWNER,,}"
           echo "API_IMAGE=ghcr.io/${owner}/quests-api" >> "$GITHUB_ENV"
           echo "BOT_IMAGE=ghcr.io/${owner}/quests-bot" >> "$GITHUB_ENV"
-          echo "LLM_IMAGE=ghcr.io/${owner}/quests-llm" >> "$GITHUB_ENV"
 
           targets=()
           want_api=false
           want_bot=false
-          want_llm=false
           if [ "${{ needs.changes.outputs.api }}" = "true" ] \
             || [ "${{ needs.changes.outputs.frontend }}" = "true" ] \
             || { [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.force_api }}" = "true" ]; }; then
@@ -161,14 +140,9 @@ jobs:
             || { [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.force_bot }}" = "true" ]; }; then
             want_bot=true
           fi
-          if [ "${{ needs.changes.outputs.llm }}" = "true" ] \
-            || { [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.force_llm }}" = "true" ]; }; then
-            want_llm=true
-          fi
 
           $want_api && targets+=(api)
           $want_bot && targets+=(bot)
-          $want_llm && targets+=(llm)
           if [ ${#targets[@]} -eq 0 ]; then
             echo "No bake targets resolved" >&2
             exit 1
@@ -195,7 +169,6 @@ jobs:
           vars: |
             API_IMAGE=${{ env.API_IMAGE }}
             BOT_IMAGE=${{ env.BOT_IMAGE }}
-            LLM_IMAGE=${{ env.LLM_IMAGE }}
             TAG=${{ github.sha }}
           set: |
             *.cache-from=type=gha,scope=quests

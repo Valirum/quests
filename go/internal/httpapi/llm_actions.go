@@ -1,71 +1,84 @@
 package httpapi
 
 import (
-	"bytes"
-	"io"
+	"context"
+	"encoding/json"
 	"net/http"
-	"os"
 	"strings"
 	"time"
+
+	"github.com/valirum/quests/go/internal/llmassist"
 )
 
 // registerLLMActions wires the web-form path for the LLM action-batch
 // feature: free text -> Groq -> dry-run preview -> (user confirms) -> apply.
-// Both handlers proxy to the standalone quests-llm service (aiohttp,
-// src/quests/llm/service.py) — a small long-lived process that owns the
-// Groq/proxy networking concern, instead of shelling into a fresh `uv run`
-// subprocess per request.
+// Runs in-process (llmassist package), calling this same server over
+// loopback (SelfBase) for the actual quest CRUD — same code path the
+// frontend/CLI use, just one hop shorter than going through a separate
+// service/container.
 func (s *Server) registerLLMActions(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/llm/actions/preview", s.postLLMActionsPreview)
 	mux.HandleFunc("POST /api/llm/actions/apply", s.postLLMActionsApply)
 }
 
-func llmServiceBase() string {
-	if v := strings.TrimSpace(os.Getenv("QUESTS_LLM_SERVICE_URL")); v != "" {
-		return strings.TrimRight(v, "/")
-	}
-	return "http://127.0.0.1:8766"
-}
-
-var llmHTTPClient = &http.Client{Timeout: 120 * time.Second}
-
-// proxyToLLMService forwards the request body as-is to the quests-llm
-// service and relays its JSON response (and status code) back verbatim —
-// that service already returns {ok, ...} / {ok:false, error} shapes.
-func proxyToLLMService(w http.ResponseWriter, r *http.Request, path string) {
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid body")
-		return
-	}
-	req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, llmServiceBase()+path, bytes.NewReader(body))
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := llmHTTPClient.Do(req)
-	if err != nil {
-		writeErr(w, http.StatusBadGateway, "quests-llm unreachable: "+err.Error())
-		return
-	}
-	defer resp.Body.Close()
-
-	out, err := io.ReadAll(resp.Body)
-	if err != nil {
-		writeErr(w, http.StatusBadGateway, err.Error())
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(resp.StatusCode)
-	_, _ = w.Write(out)
-}
-
 func (s *Server) postLLMActionsPreview(w http.ResponseWriter, r *http.Request) {
-	proxyToLLMService(w, r, "/preview")
+	var body struct {
+		Text string `json:"text"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+	text := strings.TrimSpace(body.Text)
+	if text == "" {
+		writeErr(w, http.StatusBadRequest, "text is required")
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Minute)
+	defer cancel()
+	settings := llmassist.LoadSettings()
+	batch, err := llmassist.ExtractActionBatch(ctx, settings, text)
+	if err != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]any{"ok": false, "error": err.Error()})
+		return
+	}
+	if batch.NeedsClarification {
+		writeJSON(w, http.StatusOK, map[string]any{
+			"ok": false, "needs_clarification": true, "clarify_question": batch.ClarifyQuestion,
+		})
+		return
+	}
+
+	executor := llmassist.NewExecutor(s.SelfBase)
+	preview, err := executor.Run(batch, true)
+	if err != nil {
+		writeJSON(w, http.StatusUnprocessableEntity, map[string]any{"ok": false, "error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok": true, "needs_clarification": false, "batch": batch, "preview": preview,
+	})
 }
 
 func (s *Server) postLLMActionsApply(w http.ResponseWriter, r *http.Request) {
-	proxyToLLMService(w, r, "/apply")
+	var body struct {
+		Batch llmassist.ActionBatch `json:"batch"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+	if len(body.Batch.Actions) == 0 {
+		writeErr(w, http.StatusBadRequest, "batch is required")
+		return
+	}
+
+	executor := llmassist.NewExecutor(s.SelfBase)
+	results, err := executor.Run(body.Batch, false)
+	if err != nil {
+		writeJSON(w, http.StatusUnprocessableEntity, map[string]any{"ok": false, "error": err.Error(), "results": results})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "results": results})
 }

@@ -36,7 +36,6 @@ sudo pacman -S gtk4 gtk4-layer-shell python-gobject
 | CLI | `./scripts/quests` / `go/bin/quests` | см. [`docs/cli.md`](docs/cli.md) |
 | Оверлей | `./scripts/run-overlay-smoke.sh` | или `python -m overlay` |
 | Telegram | `./scripts/run-telegram.sh` | HTTP-клиент к API |
-| LLM-сервис | `./scripts/run-llm.sh` | http://127.0.0.1:8766 — нужен для кнопки «Команда» (текст → квесты); `QUESTS_LLM_SERVICE_URL` в API указывает на него |
 | Шаблоны | UI «Шаблоны» / `/api/templates` | daily/weekly → инстансы-квесты |
 
 Оверлей (IPC):

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -18,6 +19,7 @@ import (
 )
 
 func main() {
+	config.LoadDotenv(config.Load().Root)
 	cfg := config.Load()
 
 	sqlDB, err := db.Open(cfg.DBPath)
@@ -29,12 +31,13 @@ func main() {
 	hub := events.New()
 	st := &store.Store{DB: sqlDB}
 	srv := &httpapi.Server{
-		Store:   st,
-		Health:  health.New(),
-		Hub:     hub,
-		CORS:    cfg.CORS,
-		DataDir: cfg.DataDir,
-		Root:    cfg.Root,
+		Store:    st,
+		Health:   health.New(),
+		Hub:      hub,
+		CORS:     cfg.CORS,
+		DataDir:  cfg.DataDir,
+		Root:     cfg.Root,
+		SelfBase: fmt.Sprintf("http://127.0.0.1:%d", cfg.Port),
 	}
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

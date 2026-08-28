@@ -13,7 +13,6 @@ from zoneinfo import ZoneInfo
 import aiohttp
 from pydantic import ValidationError
 
-from quests.llm.actions import ActionBatch, action_batch_json_schema, actions_system_prompt
 from quests.llm.config import LlmSettings, load_llm_settings
 from quests.llm.schema import (
     QuestDraft,
@@ -294,117 +293,6 @@ def extract_quest_draft_sync(
     if settings.provider == "ollama":
         return _extract_ollama_sync(user_text, settings=settings, history=history)
     return _extract_cursor_sync(user_text, settings=settings, history=history)
-
-
-def _parse_action_batch(raw: str | dict[str, Any]) -> ActionBatch:
-    if isinstance(raw, dict):
-        data = raw
-    else:
-        text = raw.strip()
-        if text.startswith("```"):
-            text = text.strip("`")
-            if text.lower().startswith("json"):
-                text = text[4:].lstrip()
-        if not text.startswith("{"):
-            start = text.find("{")
-            end = text.rfind("}")
-            if start >= 0 and end > start:
-                text = text[start : end + 1]
-        try:
-            data = json.loads(text)
-        except json.JSONDecodeError as e:
-            raise LlmError(f"модель вернула не-JSON: {e}") from e
-    if not isinstance(data, dict):
-        raise LlmError("модель вернула не объект JSON")
-    try:
-        return ActionBatch.model_validate(data)
-    except ValidationError as e:
-        raise LlmError(f"батч действий не прошёл валидацию: {e}") from e
-
-
-def _actions_messages(
-    user_text: str, *, history: list[tuple[str, str]] | None
-) -> list[dict[str, str]]:
-    messages: list[dict[str, str]] = [
-        {"role": "system", "content": actions_system_prompt()},
-    ]
-    for role, content in history or []:
-        if role in {"user", "assistant"} and content.strip():
-            messages.append({"role": role, "content": content})
-    messages.append({"role": "user", "content": user_text.strip()})
-    return messages
-
-
-def extract_action_batch_sync(
-    user_text: str,
-    *,
-    settings: LlmSettings | None = None,
-    history: list[tuple[str, str]] | None = None,
-) -> ActionBatch:
-    """Groq-only for now (the batch/action feature doesn't target Cursor/Ollama)."""
-    import urllib.error
-    import urllib.request
-
-    settings = settings or load_llm_settings()
-    if not user_text.strip():
-        raise LlmError("пустой текст")
-    if settings.provider != "groq":
-        raise LlmError(
-            f"action-batch извлечение поддерживается только через Groq "
-            f"(текущий provider={settings.provider!r})"
-        )
-    if not settings.api_key:
-        raise LlmError(
-            "нужен GROQ_API_KEY или QUESTS_GROQ_API_KEY (console.groq.com → API Keys)"
-        )
-
-    payload = {
-        "model": settings.model,
-        "messages": _actions_messages(user_text, history=history),
-        "temperature": settings.temperature,
-        "response_format": {
-            "type": "json_schema",
-            "json_schema": {
-                "name": "action_batch",
-                "schema": action_batch_json_schema(),
-            },
-        },
-    }
-    url = f"{settings.base_url}/chat/completions"
-    req = urllib.request.Request(
-        url,
-        data=json.dumps(payload).encode("utf-8"),
-        headers={
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-            "Authorization": f"Bearer {settings.api_key}",
-            "User-Agent": "quests-bot/1.0",
-        },
-        method="POST",
-    )
-    opener = (
-        urllib.request.build_opener(
-            urllib.request.ProxyHandler(
-                {"http": settings.proxy, "https": settings.proxy}
-            )
-        )
-        if settings.proxy
-        else urllib.request.build_opener()
-    )
-    try:
-        with opener.open(req, timeout=settings.timeout) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-    except urllib.error.HTTPError as e:
-        detail = e.read().decode("utf-8", errors="replace")[:400]
-        raise LlmError(f"Groq HTTP {e.code}: {detail}") from e
-    except urllib.error.URLError as e:
-        raise LlmError(f"не удалось связаться с Groq: {e.reason}") from e
-
-    choices = data.get("choices") or [] if isinstance(data, dict) else []
-    content = (choices[0].get("message") or {}).get("content") if choices else None
-    if content is None:
-        raise LlmError(f"пустой ответ Groq: {data!r}"[:300])
-    return _parse_action_batch(content)
 
 
 async def extract_quest_draft(

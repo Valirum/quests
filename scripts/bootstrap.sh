@@ -11,7 +11,7 @@ if ! command -v uv >/dev/null 2>&1; then
 fi
 
 echo "==> syncing Python deps (uv)"
-uv sync --group dev
+uv sync --group dev --all-extras
 
 if command -v npm >/dev/null 2>&1; then
   echo "==> installing frontend deps (npm)"
