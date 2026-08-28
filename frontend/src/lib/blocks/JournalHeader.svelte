@@ -10,6 +10,7 @@
    *   onOpenTemplates: () => void,
    *   onOpenCreateQuestline: () => void,
    *   onOpenCreateQuest: () => void,
+   *   onOpenAssistant: () => void,
    * }} */
   let {
     view,
@@ -20,6 +21,7 @@
     onOpenTemplates,
     onOpenCreateQuestline,
     onOpenCreateQuest,
+    onOpenAssistant,
   } = $props()
 
   /** Map WS states onto the same chip palette as API/HUD/Bot. */
@@ -116,6 +118,10 @@
     </button>
   </div>
   <div class="header-actions">
+    <button type="button" class="btn" onclick={onOpenAssistant} aria-label="Командная строка журнала">
+      <Icon name="terminal" />
+      <span class="btn__text">Команда</span>
+    </button>
     <button type="button" class="btn" onclick={onOpenSettings} aria-label="Настройки">
       <Icon name="settings" />
       <span class="btn__text">Настройки</span>

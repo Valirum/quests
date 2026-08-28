@@ -42,6 +42,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("PATCH /api/quests/{id}/steps/{step_id}", s.patchStep)
 	mux.HandleFunc("DELETE /api/quests/{id}/steps/{step_id}", s.deleteStep)
 	s.registerParity(mux)
+	s.registerLLMActions(mux)
 	s.mountSPA(mux)
 	return s.cors(mux)
 }
