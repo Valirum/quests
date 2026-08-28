@@ -56,6 +56,8 @@
   let durationMinutes = $state('')
   /** Collapsed = no deadline; expanded shows date/time/duration. */
   let deadlineOpen = $state(false)
+  /** Unchecked = duration_seconds explicitly 0 ("no window", no auto-expire). */
+  let windowEnabled = $state(true)
   /** @type {{ key: string, title: string, progress_current: number, progress_total: number }[]} */
   let steps = $state([])
   let saving = $state(false)
@@ -119,10 +121,11 @@
     deadlineDate = ''
     durationHours = ''
     durationMinutes = ''
+    windowEnabled = true
   }
 
-  function toggleDeadline() {
-    if (deadlineOpen) {
+  function setDeadlineEnabled(on) {
+    if (!on) {
       deadlineOpen = false
       clearDeadline()
       return
@@ -168,13 +171,22 @@
       deadlineOpen = false
       clearDeadline()
     }
-    const dur = Number(q.duration_seconds) || 0
-    if (dur > 0) {
-      durationHours = String(Math.floor(dur / 3600))
-      durationMinutes = String(Math.floor((dur % 3600) / 60))
-    } else {
+    // duration_seconds === 0 is an explicit "no window" (distinct from
+    // null/undefined, which just means "let the server auto-compute").
+    if (q.duration_seconds === 0) {
+      windowEnabled = false
       durationHours = ''
       durationMinutes = ''
+    } else {
+      windowEnabled = true
+      const dur = Number(q.duration_seconds) || 0
+      if (dur > 0) {
+        durationHours = String(Math.floor(dur / 3600))
+        durationMinutes = String(Math.floor((dur % 3600) / 60))
+      } else {
+        durationHours = ''
+        durationMinutes = ''
+      }
     }
     steps =
       q.steps?.length > 0
@@ -295,14 +307,19 @@
     formError = ''
     try {
       const deadline_at = deadlineOpen ? localInputToUtcIso(deadlineLocal) : null
-      const h = Number(durationHours)
-      const m = Number(durationMinutes)
       let duration_seconds = null
-      if (deadline_at && (Number.isFinite(h) || Number.isFinite(m))) {
-        const hours = Number.isFinite(h) ? Math.max(0, h) : 0
-        const mins = Number.isFinite(m) ? Math.max(0, m) : 0
-        const total = Math.round(hours * 3600 + mins * 60)
-        if (total > 0) duration_seconds = total
+      if (deadline_at && !windowEnabled) {
+        // Explicit 0 = no urgency window, no auto-expire (see NormalizeDeadline).
+        duration_seconds = 0
+      } else if (deadline_at) {
+        const h = Number(durationHours)
+        const m = Number(durationMinutes)
+        if (Number.isFinite(h) || Number.isFinite(m)) {
+          const hours = Number.isFinite(h) ? Math.max(0, h) : 0
+          const mins = Number.isFinite(m) ? Math.max(0, m) : 0
+          const total = Math.round(hours * 3600 + mins * 60)
+          if (total > 0) duration_seconds = total
+        }
       }
       const payload = {
         title: title.trim(),
@@ -508,42 +525,41 @@
         </label>
 
         <div class="deadline-block">
-          <button
-            type="button"
-            class="deadline-toggle"
-            aria-expanded={deadlineOpen}
-            onclick={toggleDeadline}
-          >
-            <span class="deadline-toggle__label">Срок ({localTimeZone()}, 24ч)</span>
-            <span class="deadline-toggle__hint">
-              {deadlineOpen ? 'задан' : 'не задан'}
-            </span>
-            <span class="deadline-toggle__chevron" aria-hidden="true">
-              <Icon name={deadlineOpen ? 'chevron-down' : 'chevron-right'} size={14} />
-            </span>
-          </button>
+          <label class="check">
+            <input
+              type="checkbox"
+              checked={deadlineOpen}
+              onchange={(e) => setDeadlineEnabled(e.currentTarget.checked)}
+            />
+            Указать срок ({localTimeZone()}, 24ч)
+          </label>
           {#if deadlineOpen}
             <div class="deadline-body">
-              <div class="deadline-row">
-                <label class="field field--deadline">
-                  <span class="label">Дата и время</span>
-                  <div class="deadline-inputs">
-                    <input type="date" lang="ru-RU" bind:value={deadlineDate} required />
-                    <div class="time-24" title="Часы:минуты (0–23)">
-                      <select bind:value={deadlineHour} aria-label="Часы (0–23)">
-                        {#each HOURS_24 as h}
-                          <option value={h}>{h}</option>
-                        {/each}
-                      </select>
-                      <span class="time-24__sep">:</span>
-                      <select bind:value={deadlineMinute} aria-label="Минуты">
-                        {#each MINUTES_60 as m}
-                          <option value={m}>{m}</option>
-                        {/each}
-                      </select>
-                    </div>
+              <label class="field field--deadline">
+                <span class="label">Дата и время</span>
+                <div class="deadline-inputs">
+                  <input type="date" lang="ru-RU" bind:value={deadlineDate} required />
+                  <div class="time-24" title="Часы:минуты (0–23)">
+                    <select bind:value={deadlineHour} aria-label="Часы (0–23)">
+                      {#each HOURS_24 as h}
+                        <option value={h}>{h}</option>
+                      {/each}
+                    </select>
+                    <span class="time-24__sep">:</span>
+                    <select bind:value={deadlineMinute} aria-label="Минуты">
+                      {#each MINUTES_60 as m}
+                        <option value={m}>{m}</option>
+                      {/each}
+                    </select>
                   </div>
-                </label>
+                </div>
+              </label>
+
+              <label class="check">
+                <input type="checkbox" bind:checked={windowEnabled} />
+                Ограничить окно срочности
+              </label>
+              {#if windowEnabled}
                 <div class="field field--duration">
                   <span class="label">Длительность окна</span>
                   <div class="duration-row">
@@ -558,11 +574,15 @@
                     />
                   </div>
                 </div>
-              </div>
-              <p class="hint">
-                Длительность пусто = от создания/изменения до срока. Окно срочности = срок −
-                длительность. Свернуть строку «Срок» = убрать дедлайн.
-              </p>
+                <p class="hint">
+                  Длительность пусто = от создания/изменения до срока. Окно срочности = срок −
+                  длительность.
+                </p>
+              {:else}
+                <p class="hint">
+                  Без окна: срок — просто ориентир, без таймера-срочности и без автопросрочки.
+                </p>
+              {/if}
             </div>
           {/if}
         </div>
@@ -783,60 +803,14 @@
     overflow: hidden;
   }
 
-  .deadline-toggle {
-    display: grid;
-    grid-template-columns: 1fr auto auto;
-    align-items: center;
-    gap: var(--space-2, 0.5rem);
-    width: 100%;
-    margin: 0;
+  .deadline-block > .check {
     padding: var(--space-2, 0.5rem) var(--space-3, 0.75rem);
-    border: 0;
-    border-radius: 0;
-    background: transparent;
-    color: inherit;
-    font: inherit;
-    text-align: left;
-    cursor: pointer;
-  }
-
-  .deadline-toggle:hover {
-    background: color-mix(in srgb, var(--color-bg-hover, #2a2a2a) 70%, transparent);
-  }
-
-  .deadline-toggle__label {
-    font-size: var(--text-xs, 0.75rem);
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    color: var(--color-fg-muted, #9a9a9a);
-  }
-
-  .deadline-toggle__hint {
-    font-size: var(--text-xs, 0.75rem);
-    color: var(--color-fg-subtle, #6e6e6e);
-  }
-
-  .deadline-toggle__chevron {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    justify-self: end;
-    width: 1.25rem;
-    height: 1.25rem;
-    color: var(--color-fg-muted, #9a9a9a);
   }
 
   .deadline-body {
     display: grid;
     gap: var(--space-2, 0.5rem);
-    padding: 0 var(--space-3, 0.75rem) var(--space-3, 0.75rem);
-  }
-
-  .deadline-row {
-    display: grid;
-    grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
-    gap: var(--space-3, 0.75rem);
-    align-items: end;
+    padding: var(--space-2, 0.5rem) var(--space-3, 0.75rem) var(--space-3, 0.75rem);
   }
 
   .deadline-inputs {
@@ -1142,7 +1116,6 @@
   }
 
   @media (max-width: 520px) {
-    .deadline-row,
     .deadline-inputs {
       grid-template-columns: 1fr;
     }
