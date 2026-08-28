@@ -40,7 +40,10 @@ func (s *Server) postLLMActionsPreview(w http.ResponseWriter, r *http.Request) {
 	settings := llmassist.LoadSettings()
 	batch, err := llmassist.ExtractActionBatch(ctx, settings, text)
 	if err != nil {
-		writeJSON(w, http.StatusBadGateway, map[string]any{"ok": false, "error": err.Error()})
+		// "detail" (not "error") — that's the key api.js's request() reads
+		// for non-2xx bodies; otherwise the UI shows the bare HTTP
+		// statusText ("Bad Gateway") instead of the real reason.
+		writeErr(w, http.StatusBadGateway, err.Error())
 		return
 	}
 	if batch.NeedsClarification {
@@ -53,7 +56,7 @@ func (s *Server) postLLMActionsPreview(w http.ResponseWriter, r *http.Request) {
 	executor := llmassist.NewExecutor(s.SelfBase)
 	preview, err := executor.Run(batch, true)
 	if err != nil {
-		writeJSON(w, http.StatusUnprocessableEntity, map[string]any{"ok": false, "error": err.Error()})
+		writeErr(w, http.StatusUnprocessableEntity, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -77,7 +80,7 @@ func (s *Server) postLLMActionsApply(w http.ResponseWriter, r *http.Request) {
 	executor := llmassist.NewExecutor(s.SelfBase)
 	results, err := executor.Run(body.Batch, false)
 	if err != nil {
-		writeJSON(w, http.StatusUnprocessableEntity, map[string]any{"ok": false, "error": err.Error(), "results": results})
+		writeJSON(w, http.StatusUnprocessableEntity, map[string]any{"ok": false, "detail": err.Error(), "results": results})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "results": results})
