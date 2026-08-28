@@ -1,4 +1,4 @@
-# Bake definition for Quests images (Go API + Python bot).
+# Bake definition for Quests images (Go API + Python bot + Python LLM service).
 #
 # Local:
 #   docker buildx bake -f deploy/docker/docker-bake.hcl api
@@ -12,6 +12,10 @@ variable "API_IMAGE" {
 
 variable "BOT_IMAGE" {
   default = "quests-bot:local"
+}
+
+variable "LLM_IMAGE" {
+  default = "quests-llm:local"
 }
 
 variable "TAG" {
@@ -44,6 +48,15 @@ target "bot" {
   ]
 }
 
+target "llm" {
+  inherits = ["_common"]
+  target   = "llm"
+  tags = [
+    "${LLM_IMAGE}:main",
+    "${LLM_IMAGE}:${TAG}",
+  ]
+}
+
 group "default" {
-  targets = ["api", "bot"]
+  targets = ["api", "bot", "llm"]
 }

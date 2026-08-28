@@ -31,6 +31,7 @@ services:
       QUESTS_HOST: "0.0.0.0"
       QUESTS_PORT: "8765"
       QUESTS_RELOAD: "0"
+      QUESTS_LLM_SERVICE_URL: http://llm:8766
     volumes:
       - quests-data:/app/data
     ports:
@@ -41,6 +42,34 @@ services:
       timeout: 3s
       retries: 5
       start_period: 20s
+
+  # Action-batch assistant (text -> Groq -> quest actions), its own small
+  # long-lived process — keeps the Groq-proxy networking need (see
+  # extra_hosts below) off the main api container.
+  llm:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile
+      target: llm
+    image: ${QUESTS_LLM_IMAGE:-quests-llm:local}
+    container_name: quests-llm
+    restart: unless-stopped
+    env_file:
+      - path: ../../.env
+        required: false
+    environment:
+      QUESTS_ROOT: /app
+      QUESTS_API: http://api:8765
+      QUESTS_LLM_HOST: "0.0.0.0"
+      QUESTS_LLM_SERVICE_PORT: "8766"
+      # bridge network can't reach 127.0.0.1:12334 on the host directly —
+      # host.docker.internal (via extra_hosts below) is the bridge-safe way in.
+      QUESTS_LLM_PROXY: ${QUESTS_LLM_PROXY:-http://host.docker.internal:12334}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      api:
+        condition: service_healthy
 
   # host network: proxy on 127.0.0.1:12334 is reachable (bridge → host.docker.internal is not)
   bot:
