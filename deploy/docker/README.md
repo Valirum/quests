@@ -77,6 +77,23 @@ connection refused.
 `QUESTS_TG_PROXY=http://host.docker.internal:12334` (убери `network_mode: host`,
 верни `QUESTS_API=http://api:8765`).
 
+### Прокси для `api` (ассистент «Команда» → Groq)
+
+Кнопка «Команда» в веб-UI (текст → квесты) — это чистый Go внутри
+`quests-server`, он сам ходит в Groq. `api` сидит на обычной bridge-сети (не
+`host`), поэтому в compose ему заданы `extra_hosts: host.docker.internal:host-gateway`
+и `QUESTS_LLM_PROXY=http://host.docker.internal:12334` (override через `.env`,
+как и `QUESTS_TG_PROXY`). Тем самым применима та же оговорка про loopback-only
+прокси, что и у бота — прокси должен слушать `0.0.0.0:12334`, а не только
+`127.0.0.1`, иначе `host.docker.internal` до него не достучится.
+
+**Важно:** это структурная правка контейнера (не только образ) — Watchtower
+её не применит, он лишь подменяет образ у уже существующего контейнера с его
+старым конфигом. После обновления `docker-compose.yml` нужен реальный
+`docker compose up -d` (или `--force-recreate`) на актуальном чекауте, иначе
+`extra_hosts` останется пустым и запросы в Groq полетят напрямую (Cloudflare
+забанит по региону, HTTP 403).
+
 ## HUD (не Docker)
 
 ```bash
@@ -97,3 +114,4 @@ SQLite — volume `quests-data` (`/app/data`).
 - `QUESTS_API` у бота: `http://127.0.0.1:8765` (host network)
 - `QUESTS_RELOAD=0`
 - `QUESTS_API_IMAGE` / `QUESTS_BOT_IMAGE` — опционально GHCR
+- `GROQ_API_KEY` (или `QUESTS_GROQ_API_KEY`) — нужен `api` для кнопки «Команда»; без ключа сама кнопка просто вернёт ошибку, остальной UI не пострадает
