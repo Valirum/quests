@@ -39,8 +39,11 @@ type Executor struct {
 	Client *cli.Client
 }
 
-func NewExecutor(apiBase string) *Executor {
-	return &Executor{Client: cli.NewClient(apiBase, true)}
+func NewExecutor(apiBase, token string) *Executor {
+	c := cli.NewClient(apiBase, true)
+	// Loopback calls to our own API must carry credentials once accounts are on.
+	c.Token = token
+	return &Executor{Client: c}
 }
 
 func (e *Executor) Run(batch ActionBatch, dryRun bool) ([]ActionResult, error) {

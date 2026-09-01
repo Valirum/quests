@@ -38,8 +38,21 @@ except ValueError:
     DEFAULT_TIMEOUT = 1.5
 
 
+# Bearer token for an instance with accounts enabled. Empty against an open
+# local API, which keeps the usual localhost workflow unchanged.
+API_TOKEN = (os.environ.get("QUESTS_API_TOKEN") or "").strip()
+
+
+def auth_headers(extra: dict[str, str] | None = None) -> dict[str, str]:
+    headers = dict(extra or {})
+    if API_TOKEN:
+        headers["Authorization"] = f"Bearer {API_TOKEN}"
+    return headers
+
+
 def fetch_json(url: str, timeout: float | None = None):
-    with urllib.request.urlopen(url, timeout=timeout if timeout is not None else DEFAULT_TIMEOUT) as resp:
+    req = urllib.request.Request(url, headers=auth_headers())
+    with urllib.request.urlopen(req, timeout=timeout if timeout is not None else DEFAULT_TIMEOUT) as resp:
         return json.loads(resp.read().decode())
 
 
@@ -48,7 +61,7 @@ def post_json(url: str, body: dict, timeout: float | None = None) -> dict | None
     req = urllib.request.Request(
         url,
         data=raw,
-        headers={"Content-Type": "application/json"},
+        headers=auth_headers({"Content-Type": "application/json"}),
         method="POST",
     )
     with urllib.request.urlopen(req, timeout=timeout if timeout is not None else DEFAULT_TIMEOUT) as resp:

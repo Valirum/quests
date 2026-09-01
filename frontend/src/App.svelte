@@ -10,6 +10,9 @@
     updateQuest,
     updateQuestStep,
     fetchHealth,
+    fetchAuthState,
+    logout as apiLogout,
+    setUnauthorizedHandler,
   } from './lib/js/api.js'
   import { subscribeQuestEvents } from './lib/js/live.js'
   import { applyTheme, loadSavedTheme } from './lib/js/theme.js'
@@ -30,6 +33,15 @@
   import QuestSidebar from './lib/blocks/QuestSidebar.svelte'
   import QuestDetail from './lib/blocks/QuestDetail.svelte'
   import ActivityCalendar from './lib/blocks/ActivityCalendar.svelte'
+  import LoginScreen from './lib/blocks/LoginScreen.svelte'
+
+  /** Auth gate: null = still checking, true/false = decided. */
+  let authed = $state(null)
+  /** Whether this instance uses accounts at all (false on an open local one). */
+  let authRequired = $state(false)
+  let username = $state('')
+  /** Cleanup for the live subscription + timers, so logout can tear them down. */
+  let stopApp = null
 
   let quests = $state([])
   let selectedId = $state(null)
@@ -609,8 +621,8 @@
     }
   }
 
-  onMount(() => {
-    applyTheme(loadSavedTheme())
+  /** Boots data loading and live updates. Only runs once authenticated. */
+  function startApp() {
     const fromUrl = questIdFromUrl()
     if (fromUrl != null) {
       pendingSelectId = fromUrl
@@ -645,6 +657,64 @@
       clearInterval(healthTick)
       stop()
     }
+  }
+
+  function onAuthenticated(name) {
+    username = name
+    authed = true
+    stopApp = startApp()
+  }
+
+  async function doLogout() {
+    try {
+      await apiLogout()
+    } catch {
+      /* dropping the session locally is what matters */
+    }
+    if (stopApp) stopApp()
+    stopApp = null
+    quests = []
+    selectedId = null
+    authed = false
+  }
+
+  onMount(() => {
+    applyTheme(loadSavedTheme())
+    // A 401 from any later call means the session lapsed — fall back to login.
+    setUnauthorizedHandler(() => {
+      if (authed === false) return
+      if (stopApp) stopApp()
+      stopApp = null
+      authed = false
+    })
+
+    let cancelled = false
+    ;(async () => {
+      let state
+      try {
+        state = await fetchAuthState()
+      } catch {
+        // Auth state is unreachable; treat as open so a local instance with a
+        // temporarily unhappy API still renders its usual error banner.
+        state = { auth_required: false, authenticated: true }
+      }
+      if (cancelled) return
+      authRequired = !!state.auth_required
+      if (state.auth_required && !state.authenticated) {
+        authed = false
+        loading = false
+        return
+      }
+      username = state.username ?? ''
+      authed = true
+      stopApp = startApp()
+    })()
+
+    return () => {
+      cancelled = true
+      if (stopApp) stopApp()
+      stopApp = null
+    }
   })
 
   // Esc in journal (no modal): clear selection → empty detail prompt.
@@ -671,6 +741,11 @@
   })
 </script>
 
+{#if authed === false}
+  <LoginScreen {onAuthenticated} />
+{:else if authed === null}
+  <div class="boot-gate"></div>
+{:else}
 <div class="journal">
   <JournalHeader
     {view}
@@ -792,6 +867,8 @@
   onClose={() => (settingsOpen = false)}
   {health}
   {liveStatus}
+  {username}
+  onLogout={authRequired ? doLogout : null}
 />
 
 <ActionAssistantModal
@@ -832,3 +909,13 @@
   }}
   onConfirm={confirmDeleteQuestline}
 />
+{/if}
+
+<style>
+  /* Blank canvas while the auth probe is in flight — avoids flashing either
+     the login card or the journal before we know which one is right. */
+  .boot-gate {
+    min-height: 100vh;
+    background: var(--color-bg);
+  }
+</style>

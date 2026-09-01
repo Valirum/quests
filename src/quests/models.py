@@ -565,3 +565,39 @@ class HeroSheetRead(SQLModel):
     @field_serializer("momentum_updated_at", "updated_at", when_used="json")
     def _ser_utc(self, value: Optional[datetime]) -> Optional[str]:
         return to_utc_iso(value)
+
+
+class AppUser(SQLModel, table=True):
+    """Account for the web UI. Data itself is shared — this gates access, not ownership."""
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    username: str = Field(max_length=64, unique=True, index=True)
+    # pbkdf2_sha256$<iters>$<salt_b64>$<hash_b64>, written/verified by the Go server.
+    password_hash: str = Field(max_length=256)
+    is_active: bool = Field(default=True)
+    created_at: datetime = Field(default_factory=utcnow)
+    last_login_at: Optional[datetime] = Field(default=None)
+
+
+class UserSession(SQLModel, table=True):
+    """Browser session behind the cookie. Stored so sessions can be revoked server-side."""
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(foreign_key="appuser.id", index=True)
+    token_hash: str = Field(max_length=64, unique=True, index=True)
+    created_at: datetime = Field(default_factory=utcnow)
+    expires_at: datetime
+    last_seen_at: Optional[datetime] = Field(default=None)
+    user_agent: str = Field(default="", max_length=256)
+
+
+class ApiToken(SQLModel, table=True):
+    """Long-lived bearer token for headless clients (CLI, overlay, bot, MCP)."""
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(foreign_key="appuser.id", index=True)
+    name: str = Field(max_length=64)
+    token_hash: str = Field(max_length=64, unique=True, index=True)
+    created_at: datetime = Field(default_factory=utcnow)
+    last_used_at: Optional[datetime] = Field(default=None)
+    revoked_at: Optional[datetime] = Field(default=None)
