@@ -59,6 +59,10 @@ def api_request(
             url = f"{url}?{urllib.parse.urlencode(q)}"
     data = None
     headers = {"Accept": "application/json"}
+    # Bearer token for an instance with accounts enabled; empty when open.
+    token = (os.environ.get("QUESTS_API_TOKEN") or "").strip()
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
     if body is not None:
         data = json.dumps(body).encode("utf-8")
         headers["Content-Type"] = "application/json"

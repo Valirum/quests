@@ -16,6 +16,9 @@ type Client struct {
 	Base   string
 	HTTP   *http.Client
 	AsJSON bool
+	// Token is the bearer credential for a instance with accounts enabled.
+	// Defaults to QUESTS_API_TOKEN; empty against an open local instance.
+	Token string
 }
 
 func NewClient(base string, asJSON bool) *Client {
@@ -27,6 +30,7 @@ func NewClient(base string, asJSON bool) *Client {
 		Base:   base,
 		HTTP:   &http.Client{Timeout: 30 * time.Second},
 		AsJSON: asJSON,
+		Token:  strings.TrimSpace(os.Getenv("QUESTS_API_TOKEN")),
 	}
 }
 
@@ -80,6 +84,9 @@ func (c *Client) Do(method, path string, query map[string]string, body any) (jso
 		return nil, err
 	}
 	req.Header.Set("Accept", "application/json")
+	if c.Token != "" {
+		req.Header.Set("Authorization", "Bearer "+c.Token)
+	}
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}

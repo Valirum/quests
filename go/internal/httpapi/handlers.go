@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/valirum/quests/go/internal/auth"
 	"github.com/valirum/quests/go/internal/domain"
 	"github.com/valirum/quests/go/internal/events"
 	"github.com/valirum/quests/go/internal/health"
@@ -22,6 +23,16 @@ type Server struct {
 	CORS    []string
 	DataDir string
 	Root    string
+	// Auth backs login, sessions and API tokens.
+	Auth *auth.Store
+	// AuthRequired gates every /api/ route and /ws. Off only for a bootstrap
+	// instance with no accounts yet, bound to loopback.
+	AuthRequired bool
+	// SecureCookies marks the session cookie Secure (set when served over HTTPS).
+	SecureCookies bool
+	// InternalToken authenticates the server's own loopback calls (LLM assistant).
+	// Generated per process, never persisted.
+	InternalToken string
 	// SelfBase is this server's own loopback URL (http://127.0.0.1:PORT) —
 	// used by the LLM action-batch assistant to call the same HTTP API the
 	// frontend/CLI use, in-process, regardless of what host QUESTS_HOST binds.
@@ -45,10 +56,11 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/quests/{id}/steps", s.addStep)
 	mux.HandleFunc("PATCH /api/quests/{id}/steps/{step_id}", s.patchStep)
 	mux.HandleFunc("DELETE /api/quests/{id}/steps/{step_id}", s.deleteStep)
+	s.registerAuth(mux)
 	s.registerParity(mux)
 	s.registerLLMActions(mux)
 	s.mountSPA(mux)
-	return s.cors(mux)
+	return s.cors(s.requireAuth(mux))
 }
 
 func (s *Server) cors(next http.Handler) http.Handler {
@@ -61,7 +73,10 @@ func (s *Server) cors(next http.Handler) http.Handler {
 		if origin != "" && allowed[origin] {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Set("Access-Control-Allow-Methods", "GET,POST,PATCH,DELETE,OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+			// Session cookie must survive the Vite dev origin.
+			w.Header().Set("Access-Control-Allow-Credentials", "true")
+			w.Header().Set("Vary", "Origin")
 		}
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)

@@ -62,6 +62,19 @@ layer-rule {
 }
 ```
 
+## Доступ
+
+Локальный инстанс на `127.0.0.1` работает без логина, как раньше. Как только в
+БД появляется аккаунт — API закрывается целиком, а SPA просит войти:
+
+```bash
+quests-server useradd <username>   # пароль спрашивается интерактивно
+quests-server token add overlay    # bearer-токен для HUD / бота / CLI / MCP
+```
+
+Наружу инстанс без аккаунтов не поднимется — сервер откажется биндиться не на
+loopback. Подробности: [`docs/auth.md`](docs/auth.md).
+
 SQLite: `data/quests.db`.
 
 User systemd units: [`deploy/systemd/`](deploy/systemd/).  

@@ -31,6 +31,13 @@ services:
       QUESTS_HOST: "0.0.0.0"
       QUESTS_PORT: "8765"
       QUESTS_RELOAD: "0"
+      # Accounts: "auto" enforces auth as soon as an account exists. Create the
+      # first one with:
+      #   docker compose exec api quests-server useradd <username>
+      QUESTS_AUTH: ${QUESTS_AUTH:-auto}
+      # Set to 1 when this instance is served over HTTPS (marks the session
+      # cookie Secure). Leave 0 for plain http, or the browser drops the cookie.
+      QUESTS_SECURE_COOKIES: ${QUESTS_SECURE_COOKIES:-0}
       # Action-batch assistant (text -> Groq -> quest actions) is in-process
       # Go now — api itself needs Groq egress, hence extra_hosts below.
       # bridge network can't reach 127.0.0.1:12334 on the host directly —
@@ -43,7 +50,9 @@ services:
     ports:
       - "${QUESTS_PUBLISH_PORT:-8765}:8765"
     healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8765/api/health"]
+      # /api/ping, not /api/health: health is behind auth once accounts exist,
+      # and an unauthenticated probe would pin the container to "unhealthy".
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8765/api/ping"]
       interval: 10s
       timeout: 3s
       retries: 5
@@ -69,6 +78,8 @@ services:
       QUESTS_ROOT: /app
       QUESTS_DATA_DIR: /app/data
       QUESTS_API: http://127.0.0.1:${QUESTS_PUBLISH_PORT:-8765}
+      # Mint with: docker compose exec api quests-server token add telegram
+      QUESTS_API_TOKEN: ${QUESTS_API_TOKEN:-}
       QUESTS_TG_PROXY: ${QUESTS_TG_PROXY:-http://127.0.0.1:12334}
       # QUESTS_WHISPER_* from env_file (.env): small|medium|large — app default small
     volumes:
