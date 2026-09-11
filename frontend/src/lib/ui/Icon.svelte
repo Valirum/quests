@@ -12,6 +12,7 @@
   import flag from '../../assets/icons/flag.svg?raw'
   import layers from '../../assets/icons/layers.svg?raw'
   import map from '../../assets/icons/map.svg?raw'
+  import more from '../../assets/icons/more.svg?raw'
   import pin from '../../assets/icons/pin.svg?raw'
   import pinFilled from '../../assets/icons/pin-filled.svg?raw'
   import renew from '../../assets/icons/renew.svg?raw'
@@ -36,6 +37,7 @@
     flag,
     layers,
     map,
+    more,
     pin,
     'pin-filled': pinFilled,
     renew,

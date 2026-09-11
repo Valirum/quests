@@ -33,6 +33,7 @@
   import QuestSidebar from './lib/blocks/QuestSidebar.svelte'
   import QuestDetail from './lib/blocks/QuestDetail.svelte'
   import ActivityCalendar from './lib/blocks/ActivityCalendar.svelte'
+  import TocPage from './lib/blocks/TocPage.svelte'
   import LoginScreen from './lib/blocks/LoginScreen.svelte'
 
   /** Auth gate: null = still checking, true/false = decided. */
@@ -51,7 +52,7 @@
   /** @type {{ api: string, overlay: string, telegram: string, detail?: Record<string, any> }} */
   let health = $state({ api: 'unknown', overlay: 'unknown', telegram: 'unknown' })
   let searchQuery = $state('')
-  /** @type {'journal' | 'calendar' | 'hero' | 'stats'} */
+  /** @type {'journal' | 'toc' | 'calendar' | 'hero' | 'stats'} */
   let view = $state('journal')
   /** Bump to refresh hero silently after quest events. */
   let heroNonce = $state(0)
@@ -779,6 +780,21 @@
           selectQuestFromUi(id)
           view = 'journal'
         }}
+      />
+    </div>
+  {:else if view === 'toc'}
+    <div class="journal__toc">
+      <TocPage
+        {byCategory}
+        bind:searchQuery
+        bind:showAllQuests
+        {nowMs}
+        onSelectQuest={(id) => {
+          selectQuestFromUi(id)
+          view = 'journal'
+        }}
+        onLineContextMenu={openLineContextMenu}
+        onQuestContextMenu={openQuestContextMenu}
       />
     </div>
   {:else}
