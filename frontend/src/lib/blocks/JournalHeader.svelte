@@ -77,6 +77,12 @@
   let measureEl = $state(null)
   let collapsed = $state(false)
 
+  // Same idea, independently, for the health chips: labeled by default,
+  // dots-only only once the brand+health cluster actually doesn't fit.
+  let brandEl = $state(null)
+  let healthMeasureEl = $state(null)
+  let healthCollapsed = $state(false)
+
   function recomputeCollapse() {
     if (!headerEl || !leftEl || !tabsEl || !measureEl) return
     const styles = getComputedStyle(headerEl)
@@ -85,27 +91,48 @@
     collapsed = measureEl.scrollWidth > available
   }
 
+  function recomputeHealthCollapse() {
+    if (!headerEl || !leftEl || !tabsEl || !brandEl || !healthMeasureEl) return
+    const styles = getComputedStyle(headerEl)
+    const gap = (parseFloat(styles.columnGap) || 12) * 2
+    const actionsWidth = (collapsed ? measureEl : headerEl.querySelector('.header-actions:not(.header-actions--measure)'))
+      ?.offsetWidth ?? 0
+    const availableForLeft = headerEl.clientWidth - tabsEl.offsetWidth - actionsWidth - gap
+    const availableForHealth = availableForLeft - brandEl.offsetWidth - 12 /* header-left gap */
+    healthCollapsed = healthMeasureEl.scrollWidth > availableForHealth
+  }
+
   $effect(() => {
     // Re-run whenever the measurer's own content changes shape (e.g. the
     // Шаблоны/Квестлайн buttons appearing only on some views).
     void view
     recomputeCollapse()
-    const ro = new ResizeObserver(recomputeCollapse)
+    recomputeHealthCollapse()
+    const ro = new ResizeObserver(() => {
+      recomputeCollapse()
+      recomputeHealthCollapse()
+    })
     if (headerEl) ro.observe(headerEl)
     if (leftEl) ro.observe(leftEl)
     if (tabsEl) ro.observe(tabsEl)
     if (measureEl) ro.observe(measureEl)
-    window.addEventListener('resize', recomputeCollapse)
+    if (brandEl) ro.observe(brandEl)
+    if (healthMeasureEl) ro.observe(healthMeasureEl)
+    const onResize = () => {
+      recomputeCollapse()
+      recomputeHealthCollapse()
+    }
+    window.addEventListener('resize', onResize)
     return () => {
       ro.disconnect()
-      window.removeEventListener('resize', recomputeCollapse)
+      window.removeEventListener('resize', onResize)
     }
   })
 </script>
 
 <header class="journal__header" bind:this={headerEl}>
   <div class="header-left" bind:this={leftEl}>
-    <div class="brand">
+    <div class="brand" bind:this={brandEl}>
       <span class="brand__mark" aria-hidden="true">◈</span>
       <h1 class="brand__title">
         {#if view === 'hero'}
@@ -121,7 +148,8 @@
         {/if}
       </h1>
     </div>
-    <div class="health" role="status" aria-label="Состояние сервисов">
+
+    {#snippet healthChips()}
       <span
         class="health__chip"
         data-status={liveChip.status}
@@ -129,17 +157,46 @@
         aria-label={liveChip.title}
       >
         <span class="health__dot" aria-hidden="true"></span>
+        {#if !healthCollapsed}<span class="health__label">Live</span>{/if}
       </span>
       <span class="health__chip" data-status={health.api} title="API" aria-label="API">
         <span class="health__dot" aria-hidden="true"></span>
+        {#if !healthCollapsed}<span class="health__label">API</span>{/if}
       </span>
       <span class="health__chip" data-status={health.overlay} title="HUD / оверлей" aria-label="HUD / оверлей">
         <span class="health__dot" aria-hidden="true"></span>
+        {#if !healthCollapsed}<span class="health__label">HUD</span>{/if}
       </span>
       <span class="health__chip" data-status={health.telegram} title="Telegram-бот" aria-label="Telegram-бот">
         <span class="health__dot" aria-hidden="true"></span>
+        {#if !healthCollapsed}<span class="health__label">Bot</span>{/if}
       </span>
+    {/snippet}
+
+    <div class="health" role="status" aria-label="Состояние сервисов">
+      {@render healthChips()}
     </div>
+  </div>
+
+  <!-- Off-screen twin of the labeled health row, always at natural width,
+       used only to decide whether the labels fit. -->
+  <div class="health health--measure" bind:this={healthMeasureEl} aria-hidden="true" inert>
+    <span class="health__chip">
+      <span class="health__dot" aria-hidden="true"></span>
+      <span class="health__label">Live</span>
+    </span>
+    <span class="health__chip">
+      <span class="health__dot" aria-hidden="true"></span>
+      <span class="health__label">API</span>
+    </span>
+    <span class="health__chip">
+      <span class="health__dot" aria-hidden="true"></span>
+      <span class="health__label">HUD</span>
+    </span>
+    <span class="health__chip">
+      <span class="health__dot" aria-hidden="true"></span>
+      <span class="health__label">Bot</span>
+    </span>
   </div>
   <div class="view-tabs" role="tablist" aria-label="Раздел" bind:this={tabsEl}>
     <button
@@ -171,26 +228,6 @@
       onclick={() => onViewChange('calendar')}
     >
       Календарь
-    </button>
-    <button
-      type="button"
-      class="view-tab"
-      class:view-tab--on={view === 'hero'}
-      role="tab"
-      aria-selected={view === 'hero'}
-      onclick={() => onViewChange('hero')}
-    >
-      Лист
-    </button>
-    <button
-      type="button"
-      class="view-tab"
-      class:view-tab--on={view === 'stats'}
-      role="tab"
-      aria-selected={view === 'stats'}
-      onclick={() => onViewChange('stats')}
-    >
-      Статистика
     </button>
   </div>
   {#snippet fullActions()}

@@ -57,7 +57,10 @@ server = MCPServer(
         "delete_step (do not replace the whole steps array). "
         "To change quest lifecycle or metadata use update_quest "
         "(status: active|delayed|completed|failed|archived; pin; title; …) — "
-        "do not curl the Quests API or dig into the Quests repo for that."
+        "do not curl the Quests API or dig into the Quests repo for that. "
+        "If you're blocked on the user's input and they may not be watching this "
+        "conversation, use ping_user — it's the only tool guaranteed to interrupt "
+        "them via the overlay HUD."
     ),
 )
 
@@ -308,6 +311,27 @@ def create_quest(
             for s in steps
         ]
     q = _api("POST", "/api/quests", query=_tool_query(quiet=quiet), body=body)
+    return _quest_mutation_result(q)
+
+
+@server.tool(
+    description=(
+        "Ping the user when you're blocked on their input and they may have stepped "
+        "away from this conversation — creates a quest the normal (never quiet) way, "
+        "so it rides the same overlay fullscreen-toast/HUD path a human-created quest "
+        "does and is hard to miss. Not for routine progress updates or anything you "
+        "can just say in chat — only when you are genuinely stuck without their answer. "
+        "message becomes the quest title; details is an optional longer note."
+    )
+)
+def ping_user(
+    message: str,
+    details: str | None = None,
+) -> dict[str, Any]:
+    body: dict[str, Any] = {"title": message, "pinned": True, "significance": "legendary"}
+    if details is not None:
+        body["description"] = details
+    q = _api("POST", "/api/quests", query=_tool_query(quiet=False), body=body)
     return _quest_mutation_result(q)
 
 
