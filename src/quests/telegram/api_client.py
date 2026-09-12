@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from typing import Any
 
 import aiohttp
@@ -15,9 +16,15 @@ class ApiError(Exception):
 
 
 class QuestsApi:
-    def __init__(self, base: str, session: aiohttp.ClientSession) -> None:
+    def __init__(
+        self, base: str, session: aiohttp.ClientSession, token: str | None = None
+    ) -> None:
         self.base = base.rstrip("/")
         self._session = session
+        # Bearer token for an instance with accounts enabled; empty when open.
+        self._token = (
+            token if token is not None else (os.environ.get("QUESTS_API_TOKEN") or "")
+        ).strip()
 
     async def request(
         self,
@@ -29,12 +36,14 @@ class QuestsApi:
     ) -> Any:
         url = f"{self.base}{path}"
         params = {k: v for k, v in (query or {}).items() if v is not None} or None
+        headers = {"Authorization": f"Bearer {self._token}"} if self._token else None
         try:
             async with self._session.request(
                 method.upper(),
                 url,
                 json=body,
                 params=params,
+                headers=headers,
                 timeout=aiohttp.ClientTimeout(total=30),
             ) as resp:
                 raw = await resp.read()

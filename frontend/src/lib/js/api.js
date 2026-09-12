@@ -1,10 +1,30 @@
 const BASE = ''
 
+/** Set by App when a request comes back 401 — flips the UI to the login screen. */
+let onUnauthorized = null
+
+export function setUnauthorizedHandler(fn) {
+  onUnauthorized = fn
+}
+
+/** Thrown on 401 so callers can tell "logged out" from a real failure. */
+export class UnauthorizedError extends Error {
+  constructor() {
+    super('Требуется вход')
+    this.name = 'UnauthorizedError'
+  }
+}
+
 async function request(path, options = {}) {
   const res = await fetch(`${BASE}${path}`, {
+    credentials: 'same-origin',
     headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
     ...options,
   })
+  if (res.status === 401) {
+    if (onUnauthorized) onUnauthorized()
+    throw new UnauthorizedError()
+  }
   if (res.status === 204) return null
 
   const text = await res.text()
@@ -258,3 +278,39 @@ export const QUEST_SIGNIFICANCES = [
   { id: 'epic', label: 'эпическое' },
   { id: 'legendary', label: 'легендарное' },
 ]
+
+
+// --- auth ---
+
+/** Whether this instance requires accounts, and who is signed in. */
+export function fetchAuthState() {
+  return request('/api/auth/state')
+}
+
+/**
+ * Sign in. Deliberately bypasses `request()`: a 401 here means "wrong
+ * password", not "session expired", so it must not trip the global handler.
+ */
+export async function login(username, password) {
+  const res = await fetch(`${BASE}/api/auth/login`, {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, password }),
+  })
+  const text = await res.text()
+  let data = null
+  try {
+    data = text ? JSON.parse(text) : null
+  } catch {
+    /* fall through to a generic message */
+  }
+  if (!res.ok) {
+    throw new Error(data?.detail || `Не удалось войти (HTTP ${res.status})`)
+  }
+  return data
+}
+
+export function logout() {
+  return request('/api/auth/logout', { method: 'POST' })
+}

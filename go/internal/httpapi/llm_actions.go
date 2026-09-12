@@ -53,7 +53,7 @@ func (s *Server) postLLMActionsPreview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	executor := llmassist.NewExecutor(s.SelfBase)
+	executor := llmassist.NewExecutor(s.SelfBase, s.InternalToken)
 	preview, err := executor.Run(batch, true)
 	if err != nil {
 		writeErr(w, http.StatusUnprocessableEntity, err.Error())
@@ -77,7 +77,7 @@ func (s *Server) postLLMActionsApply(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	executor := llmassist.NewExecutor(s.SelfBase)
+	executor := llmassist.NewExecutor(s.SelfBase, s.InternalToken)
 	results, err := executor.Run(body.Batch, false)
 	if err != nil {
 		writeJSON(w, http.StatusUnprocessableEntity, map[string]any{"ok": false, "detail": err.Error(), "results": results})

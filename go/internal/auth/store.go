@@ -1,0 +1,292 @@
+package auth
+
+import (
+	"database/sql"
+	"errors"
+	"strings"
+	"time"
+
+	"github.com/valirum/quests/go/internal/timeutil"
+)
+
+// SessionTTL is how long a browser stays logged in without re-entering the password.
+const SessionTTL = 30 * 24 * time.Hour
+
+var (
+	ErrNoUser       = errors.New("user not found")
+	ErrBadPassword  = errors.New("invalid credentials")
+	ErrUserExists   = errors.New("user already exists")
+	ErrWeakPassword = errors.New("password must be at least 8 characters")
+)
+
+type Store struct{ DB *sql.DB }
+
+type User struct {
+	ID       int64
+	Username string
+	IsActive bool
+}
+
+// Principal is whoever made a request: a user, plus how they proved it.
+type Principal struct {
+	User User
+	// Via is "session" for the SPA cookie or "token" for a headless client.
+	Via string
+	// TokenName is set when Via == "token".
+	TokenName string
+}
+
+func normUsername(s string) string { return strings.ToLower(strings.TrimSpace(s)) }
+
+// CountUsers reports how many accounts exist. Zero means the instance has never
+// been bootstrapped, which the server treats as "unconfigured".
+func (s *Store) CountUsers() (int, error) {
+	var n int
+	err := s.DB.QueryRow(`SELECT COUNT(*) FROM appuser`).Scan(&n)
+	return n, err
+}
+
+func (s *Store) CreateUser(username, password string) (User, error) {
+	username = normUsername(username)
+	if username == "" {
+		return User{}, errors.New("username must not be empty")
+	}
+	if len([]rune(password)) < 8 {
+		return User{}, ErrWeakPassword
+	}
+	hash, err := HashPassword(password)
+	if err != nil {
+		return User{}, err
+	}
+	res, err := s.DB.Exec(
+		`INSERT INTO appuser (username, password_hash, is_active, created_at) VALUES (?, ?, 1, ?)`,
+		username, hash, timeutil.ToDBUTC(timeutil.NowUTC()),
+	)
+	if err != nil {
+		if strings.Contains(err.Error(), "UNIQUE") {
+			return User{}, ErrUserExists
+		}
+		return User{}, err
+	}
+	id, err := res.LastInsertId()
+	if err != nil {
+		return User{}, err
+	}
+	return User{ID: id, Username: username, IsActive: true}, nil
+}
+
+func (s *Store) SetPassword(username, password string) error {
+	if len([]rune(password)) < 8 {
+		return ErrWeakPassword
+	}
+	hash, err := HashPassword(password)
+	if err != nil {
+		return err
+	}
+	res, err := s.DB.Exec(`UPDATE appuser SET password_hash = ? WHERE username = ?`, hash, normUsername(username))
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNoUser
+	}
+	return nil
+}
+
+func (s *Store) ListUsers() ([]User, error) {
+	rows, err := s.DB.Query(`SELECT id, username, is_active FROM appuser ORDER BY id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []User
+	for rows.Next() {
+		var u User
+		if err := rows.Scan(&u.ID, &u.Username, &u.IsActive); err != nil {
+			return nil, err
+		}
+		out = append(out, u)
+	}
+	return out, rows.Err()
+}
+
+// Authenticate checks a username/password pair. It always runs a full hash
+// comparison, so a missing user costs the same time as a wrong password.
+func (s *Store) Authenticate(username, password string) (User, error) {
+	var (
+		u    User
+		hash string
+	)
+	err := s.DB.QueryRow(
+		`SELECT id, username, password_hash, is_active FROM appuser WHERE username = ?`,
+		normUsername(username),
+	).Scan(&u.ID, &u.Username, &hash, &u.IsActive)
+	if errors.Is(err, sql.ErrNoRows) {
+		// Burn comparable time against a dummy hash to avoid a user-enumeration oracle.
+		dummy, _ := HashPassword("quests-timing-equalizer")
+		VerifyPassword(password, dummy)
+		return User{}, ErrBadPassword
+	}
+	if err != nil {
+		return User{}, err
+	}
+	if !VerifyPassword(password, hash) {
+		return User{}, ErrBadPassword
+	}
+	if !u.IsActive {
+		return User{}, ErrBadPassword
+	}
+	_, _ = s.DB.Exec(`UPDATE appuser SET last_login_at = ? WHERE id = ?`,
+		timeutil.ToDBUTC(timeutil.NowUTC()), u.ID)
+	return u, nil
+}
+
+// --- sessions ---
+
+func (s *Store) CreateSession(userID int64, userAgent string) (secret string, expires time.Time, err error) {
+	secret, hash, err := NewToken()
+	if err != nil {
+		return "", time.Time{}, err
+	}
+	now := timeutil.NowUTC()
+	expires = now.Add(SessionTTL)
+	if len(userAgent) > 256 {
+		userAgent = userAgent[:256]
+	}
+	_, err = s.DB.Exec(
+		`INSERT INTO usersession (user_id, token_hash, created_at, expires_at, user_agent) VALUES (?, ?, ?, ?, ?)`,
+		userID, hash, timeutil.ToDBUTC(now), timeutil.ToDBUTC(expires), userAgent,
+	)
+	if err != nil {
+		return "", time.Time{}, err
+	}
+	return secret, expires, nil
+}
+
+func (s *Store) LookupSession(secret string) (User, error) {
+	var (
+		u         User
+		expiresAt string
+	)
+	err := s.DB.QueryRow(
+		`SELECT u.id, u.username, u.is_active, s.expires_at
+		   FROM usersession s JOIN appuser u ON u.id = s.user_id
+		  WHERE s.token_hash = ?`,
+		HashToken(secret),
+	).Scan(&u.ID, &u.Username, &u.IsActive, &expiresAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return User{}, ErrNoUser
+	}
+	if err != nil {
+		return User{}, err
+	}
+	exp, err := timeutil.ParseFlexible(expiresAt)
+	if err != nil || !exp.IsZero() && timeutil.NowUTC().After(exp) {
+		return User{}, ErrNoUser
+	}
+	if !u.IsActive {
+		return User{}, ErrNoUser
+	}
+	_, _ = s.DB.Exec(`UPDATE usersession SET last_seen_at = ? WHERE token_hash = ?`,
+		timeutil.ToDBUTC(timeutil.NowUTC()), HashToken(secret))
+	return u, nil
+}
+
+func (s *Store) DeleteSession(secret string) error {
+	_, err := s.DB.Exec(`DELETE FROM usersession WHERE token_hash = ?`, HashToken(secret))
+	return err
+}
+
+// PurgeExpiredSessions drops rows past expiry; called opportunistically.
+func (s *Store) PurgeExpiredSessions() error {
+	_, err := s.DB.Exec(`DELETE FROM usersession WHERE expires_at < ?`, timeutil.ToDBUTC(timeutil.NowUTC()))
+	return err
+}
+
+// --- API tokens ---
+
+type TokenInfo struct {
+	ID         int64
+	Name       string
+	Username   string
+	CreatedAt  string
+	LastUsedAt *string
+}
+
+// CreateAPIToken returns the secret exactly once; only its hash is persisted.
+func (s *Store) CreateAPIToken(userID int64, name string) (string, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		name = "unnamed"
+	}
+	secret, hash, err := NewToken()
+	if err != nil {
+		return "", err
+	}
+	_, err = s.DB.Exec(
+		`INSERT INTO apitoken (user_id, name, token_hash, created_at) VALUES (?, ?, ?, ?)`,
+		userID, name, hash, timeutil.ToDBUTC(timeutil.NowUTC()),
+	)
+	if err != nil {
+		return "", err
+	}
+	return secret, nil
+}
+
+func (s *Store) LookupAPIToken(secret string) (User, string, error) {
+	var (
+		u    User
+		name string
+	)
+	hash := HashToken(secret)
+	err := s.DB.QueryRow(
+		`SELECT u.id, u.username, u.is_active, t.name
+		   FROM apitoken t JOIN appuser u ON u.id = t.user_id
+		  WHERE t.token_hash = ? AND t.revoked_at IS NULL`,
+		hash,
+	).Scan(&u.ID, &u.Username, &u.IsActive, &name)
+	if errors.Is(err, sql.ErrNoRows) {
+		return User{}, "", ErrNoUser
+	}
+	if err != nil {
+		return User{}, "", err
+	}
+	if !u.IsActive {
+		return User{}, "", ErrNoUser
+	}
+	_, _ = s.DB.Exec(`UPDATE apitoken SET last_used_at = ? WHERE token_hash = ?`,
+		timeutil.ToDBUTC(timeutil.NowUTC()), hash)
+	return u, name, nil
+}
+
+func (s *Store) ListAPITokens() ([]TokenInfo, error) {
+	rows, err := s.DB.Query(
+		`SELECT t.id, t.name, u.username, t.created_at, t.last_used_at
+		   FROM apitoken t JOIN appuser u ON u.id = t.user_id
+		  WHERE t.revoked_at IS NULL ORDER BY t.id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []TokenInfo
+	for rows.Next() {
+		var t TokenInfo
+		if err := rows.Scan(&t.ID, &t.Name, &t.Username, &t.CreatedAt, &t.LastUsedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, t)
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) RevokeAPIToken(id int64) error {
+	res, err := s.DB.Exec(`UPDATE apitoken SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL`,
+		timeutil.ToDBUTC(timeutil.NowUTC()), id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return errors.New("no such active token")
+	}
+	return nil
+}

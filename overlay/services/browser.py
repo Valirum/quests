@@ -11,7 +11,7 @@ import urllib.request
 import webbrowser
 from typing import Any
 
-from .api_client import API_BASE
+from .api_client import API_BASE, auth_headers
 
 
 def _probe(url: str, timeout: float = 0.35) -> bool:
@@ -167,7 +167,7 @@ def focus_quest(quest_id: int) -> str:
             f"{API_BASE}/api/ui/focus-quest",
             data=json.dumps({"quest_id": qid}).encode(),
             method="POST",
-            headers={"Content-Type": "application/json"},
+            headers=auth_headers({"Content-Type": "application/json"}),
         )
         with urllib.request.urlopen(req, timeout=1.5) as resp:
             data = json.loads(resp.read().decode())

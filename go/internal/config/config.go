@@ -14,6 +14,10 @@ type Config struct {
 	Host    string
 	Port    int
 	CORS    []string
+	// AuthMode is "auto" (enforce as soon as an account exists), "on" or "off".
+	AuthMode string
+	// SecureCookies marks the session cookie Secure. Enable behind HTTPS.
+	SecureCookies bool
 }
 
 func Load() Config {
@@ -45,13 +49,30 @@ func Load() Config {
 			}
 		}
 	}
+	authMode := strings.ToLower(strings.TrimSpace(os.Getenv("QUESTS_AUTH")))
+	switch authMode {
+	case "on", "off", "auto":
+	case "1", "true", "yes":
+		authMode = "on"
+	case "0", "false", "no":
+		authMode = "off"
+	default:
+		authMode = "auto"
+	}
+	secure := false
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("QUESTS_SECURE_COOKIES"))) {
+	case "1", "true", "yes", "on":
+		secure = true
+	}
 	return Config{
-		Root:    root,
-		DataDir: data,
-		DBPath:  filepath.Join(data, "quests.db"),
-		Host:    host,
-		Port:    port,
-		CORS:    cors,
+		AuthMode:      authMode,
+		SecureCookies: secure,
+		Root:          root,
+		DataDir:       data,
+		DBPath:        filepath.Join(data, "quests.db"),
+		Host:          host,
+		Port:          port,
+		CORS:          cors,
 	}
 }
 
@@ -79,4 +100,14 @@ func findRepoRoot() string {
 
 func (c Config) Addr() string {
 	return c.Host + ":" + strconv.Itoa(c.Port)
+}
+
+// IsLoopbackBind reports whether the server only accepts local connections.
+// A non-loopback bind with no accounts is refused at startup.
+func (c Config) IsLoopbackBind() bool {
+	switch c.Host {
+	case "127.0.0.1", "::1", "localhost":
+		return true
+	}
+	return false
 }

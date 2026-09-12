@@ -2,12 +2,14 @@
   import { THEMES, applyTheme, currentThemeId } from '../js/theme.js'
   import Icon from '../ui/Icon.svelte'
 
-  /** @type {{ open?: boolean, onClose: () => void, health?: { api: string, overlay: string, telegram: string, detail?: any }, liveStatus?: string }} */
+  /** @type {{ open?: boolean, onClose: () => void, health?: { api: string, overlay: string, telegram: string, detail?: any }, liveStatus?: string, username?: string, onLogout?: (() => void) | null }} */
   let {
     open = false,
     onClose,
     health = { api: 'unknown', overlay: 'unknown', telegram: 'unknown' },
     liveStatus = 'off',
+    username = '',
+    onLogout = null,
   } = $props()
 
   let themeId = $state(currentThemeId())
@@ -130,12 +132,52 @@
             {/each}
           </ul>
         </section>
+
+        {#if onLogout}
+          <section class="block">
+            <h3 class="block__title">Аккаунт</h3>
+            <div class="account">
+              <span class="account__name">{username || 'вы вошли'}</span>
+              <button type="button" class="account__logout" onclick={onLogout}>
+                Выйти
+              </button>
+            </div>
+          </section>
+        {/if}
       </div>
     </div>
   </div>
 {/if}
 
 <style>
+  .account {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  .account__name {
+    font-family: var(--font-ui);
+    font-size: 0.85rem;
+    color: var(--color-fg);
+  }
+
+  .account__logout {
+    padding: 6px 12px;
+    font-family: var(--font-ui);
+    font-size: 0.82rem;
+    color: var(--color-danger);
+    background: transparent;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+  }
+
+  .account__logout:hover {
+    border-color: var(--color-danger);
+  }
+
   .backdrop {
     position: fixed;
     inset: 0;

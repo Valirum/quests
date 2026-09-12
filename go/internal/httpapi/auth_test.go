@@ -1,0 +1,388 @@
+package httpapi
+
+import (
+	"bytes"
+	"database/sql"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+
+	_ "modernc.org/sqlite"
+
+	"github.com/valirum/quests/go/internal/auth"
+)
+
+// newTestServer wires just enough of Server to exercise requireAuth + the
+// auth endpoints — no Store/Health/Hub, since login/logout/state/gating
+// never touch them.
+func newTestServer(t *testing.T, authRequired bool) (*Server, *auth.Store) {
+	t.Helper()
+	// A unique DSN per test — shared-cache in-memory SQLite is keyed by name,
+	// so reusing "file::memory:" across tests can collide on leftover tables.
+	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
+	db, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	db.SetMaxOpenConns(1)
+	t.Cleanup(func() { _ = db.Close() })
+
+	const schema = `
+	CREATE TABLE appuser (
+		id INTEGER NOT NULL PRIMARY KEY,
+		username VARCHAR(64) NOT NULL,
+		password_hash VARCHAR(256) NOT NULL,
+		is_active BOOLEAN NOT NULL DEFAULT 1,
+		created_at DATETIME NOT NULL,
+		last_login_at DATETIME
+	);
+	CREATE UNIQUE INDEX ix_appuser_username ON appuser (username);
+	CREATE TABLE usersession (
+		id INTEGER NOT NULL PRIMARY KEY,
+		user_id INTEGER NOT NULL REFERENCES appuser(id) ON DELETE CASCADE,
+		token_hash VARCHAR(64) NOT NULL,
+		created_at DATETIME NOT NULL,
+		expires_at DATETIME NOT NULL,
+		last_seen_at DATETIME,
+		user_agent VARCHAR(256) NOT NULL DEFAULT ''
+	);
+	CREATE UNIQUE INDEX ix_usersession_token_hash ON usersession (token_hash);
+	CREATE TABLE apitoken (
+		id INTEGER NOT NULL PRIMARY KEY,
+		user_id INTEGER NOT NULL REFERENCES appuser(id) ON DELETE CASCADE,
+		name VARCHAR(64) NOT NULL,
+		token_hash VARCHAR(64) NOT NULL,
+		created_at DATETIME NOT NULL,
+		last_used_at DATETIME,
+		revoked_at DATETIME
+	);
+	CREATE UNIQUE INDEX ix_apitoken_token_hash ON apitoken (token_hash);
+	`
+	if _, err := db.Exec(schema); err != nil {
+		t.Fatalf("create schema: %v", err)
+	}
+
+	authStore := &auth.Store{DB: db}
+	s := &Server{Auth: authStore, AuthRequired: authRequired}
+	return s, authStore
+}
+
+// testHandler mirrors the relevant slice of Server.Handler(): the public auth
+// routes plus one protected dummy route, wrapped by requireAuth — without
+// needing Store/Health/Hub/CORS.
+func (s *Server) testHandler() http.Handler {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/protected", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, http.StatusOK, map[string]string{"ok": "yes"})
+	})
+	s.registerAuth(mux)
+	return s.requireAuth(mux)
+}
+
+func doJSON(t *testing.T, h http.Handler, method, path string, body any, headers map[string]string) *httptest.ResponseRecorder {
+	t.Helper()
+	var r *http.Request
+	if body != nil {
+		b, err := json.Marshal(body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		r = httptest.NewRequest(method, path, bytes.NewReader(b))
+	} else {
+		r = httptest.NewRequest(method, path, nil)
+	}
+	for k, v := range headers {
+		r.Header.Set(k, v)
+	}
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	return w
+}
+
+func TestRequireAuth_DisabledPassesThrough(t *testing.T) {
+	s, _ := newTestServer(t, false)
+	w := doJSON(t, s.testHandler(), "GET", "/api/protected", nil, nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (auth disabled)", w.Code)
+	}
+}
+
+func TestRequireAuth_PublicRoutesAlwaysOpen(t *testing.T) {
+	s, _ := newTestServer(t, true)
+	h := s.testHandler()
+
+	for _, path := range []string{"/api/auth/state", "/api/ping"} {
+		w := doJSON(t, h, "GET", path, nil, nil)
+		if w.Code != http.StatusOK {
+			t.Errorf("GET %s = %d, want 200 even with no credentials", path, w.Code)
+		}
+	}
+}
+
+func TestRequireAuth_ProtectedRouteNeedsCredentials(t *testing.T) {
+	s, _ := newTestServer(t, true)
+	h := s.testHandler()
+
+	w := doJSON(t, h, "GET", "/api/protected", nil, nil)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401 with no credentials", w.Code)
+	}
+}
+
+func TestLogin_WrongPassword(t *testing.T) {
+	s, authStore := newTestServer(t, true)
+	if _, err := authStore.CreateUser("alice", "correcthorse"); err != nil {
+		t.Fatal(err)
+	}
+	h := s.testHandler()
+
+	w := doJSON(t, h, "POST", "/api/auth/login",
+		map[string]string{"username": "alice", "password": "wrong"}, nil)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401", w.Code)
+	}
+}
+
+func TestLogin_DisabledInstanceRejectsLogin(t *testing.T) {
+	s, authStore := newTestServer(t, false)
+	if _, err := authStore.CreateUser("alice", "correcthorse"); err != nil {
+		t.Fatal(err)
+	}
+	h := s.testHandler()
+
+	w := doJSON(t, h, "POST", "/api/auth/login",
+		map[string]string{"username": "alice", "password": "correcthorse"}, nil)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400 (auth not required on this instance)", w.Code)
+	}
+}
+
+func TestLogin_SetsCookieThatUnlocksProtectedRoutes(t *testing.T) {
+	s, authStore := newTestServer(t, true)
+	if _, err := authStore.CreateUser("alice", "correcthorse"); err != nil {
+		t.Fatal(err)
+	}
+	h := s.testHandler()
+
+	w := doJSON(t, h, "POST", "/api/auth/login",
+		map[string]string{"username": "alice", "password": "correcthorse"}, nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("login status = %d, want 200", w.Code)
+	}
+	resp := w.Result()
+	cookies := resp.Cookies()
+	if len(cookies) != 1 || cookies[0].Name != SessionCookie {
+		t.Fatalf("cookies = %+v, want exactly one %q cookie", cookies, SessionCookie)
+	}
+	cookie := cookies[0]
+	if !cookie.HttpOnly {
+		t.Error("session cookie must be HttpOnly")
+	}
+	if cookie.SameSite != http.SameSiteLaxMode {
+		t.Errorf("SameSite = %v, want Lax", cookie.SameSite)
+	}
+	if cookie.Secure {
+		t.Error("cookie should not be Secure when SecureCookies is unset")
+	}
+
+	// Re-request the protected route carrying the cookie.
+	r := httptest.NewRequest("GET", "/api/protected", nil)
+	r.AddCookie(cookie)
+	w2 := httptest.NewRecorder()
+	h.ServeHTTP(w2, r)
+	if w2.Code != http.StatusOK {
+		t.Fatalf("protected route with session cookie = %d, want 200", w2.Code)
+	}
+}
+
+func TestLogin_RejectsCrossOriginPost(t *testing.T) {
+	s, authStore := newTestServer(t, true)
+	if _, err := authStore.CreateUser("alice", "correcthorse"); err != nil {
+		t.Fatal(err)
+	}
+	h := s.testHandler()
+
+	w := doJSON(t, h, "POST", "/api/auth/login",
+		map[string]string{"username": "alice", "password": "correcthorse"},
+		map[string]string{"Origin": "https://evil.example"})
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("cross-origin login status = %d, want 403", w.Code)
+	}
+}
+
+func TestRequireAuth_RejectsSessionCookieFromForeignOrigin(t *testing.T) {
+	s, authStore := newTestServer(t, true)
+	if _, err := authStore.CreateUser("alice", "correcthorse"); err != nil {
+		t.Fatal(err)
+	}
+	h := s.testHandler()
+
+	loginResp := doJSON(t, h, "POST", "/api/auth/login",
+		map[string]string{"username": "alice", "password": "correcthorse"}, nil)
+	cookie := loginResp.Result().Cookies()[0]
+
+	r := httptest.NewRequest("GET", "/api/protected", nil)
+	r.AddCookie(cookie)
+	r.Header.Set("Origin", "https://evil.example")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403 for a cookie ridden in from a foreign origin", w.Code)
+	}
+}
+
+func TestLogout_InvalidatesSessionServerSide(t *testing.T) {
+	s, authStore := newTestServer(t, true)
+	if _, err := authStore.CreateUser("alice", "correcthorse"); err != nil {
+		t.Fatal(err)
+	}
+	h := s.testHandler()
+
+	loginResp := doJSON(t, h, "POST", "/api/auth/login",
+		map[string]string{"username": "alice", "password": "correcthorse"}, nil)
+	cookie := loginResp.Result().Cookies()[0]
+
+	logoutReq := httptest.NewRequest("POST", "/api/auth/logout", nil)
+	logoutReq.AddCookie(cookie)
+	logoutW := httptest.NewRecorder()
+	h.ServeHTTP(logoutW, logoutReq)
+	if logoutW.Code != http.StatusNoContent {
+		t.Fatalf("logout status = %d, want 204", logoutW.Code)
+	}
+
+	// The same cookie value must no longer work — logout has to delete the
+	// session server-side, not just tell the browser to drop it.
+	r := httptest.NewRequest("GET", "/api/protected", nil)
+	r.AddCookie(cookie)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("protected route after logout = %d, want 401", w.Code)
+	}
+}
+
+func TestBearerToken_AuthenticatesAndBypassesOriginCheck(t *testing.T) {
+	s, authStore := newTestServer(t, true)
+	u, err := authStore.CreateUser("alice", "correcthorse")
+	if err != nil {
+		t.Fatal(err)
+	}
+	secret, err := authStore.CreateAPIToken(u.ID, "cli")
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := s.testHandler()
+
+	r := httptest.NewRequest("GET", "/api/protected", nil)
+	r.Header.Set("Authorization", "Bearer "+secret)
+	r.Header.Set("Origin", "https://evil.example") // tokens aren't ambient — no CSRF exposure
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 for a valid bearer token regardless of Origin", w.Code)
+	}
+}
+
+func TestBearerToken_RevokedTokenRejected(t *testing.T) {
+	s, authStore := newTestServer(t, true)
+	u, err := authStore.CreateUser("alice", "correcthorse")
+	if err != nil {
+		t.Fatal(err)
+	}
+	secret, err := authStore.CreateAPIToken(u.ID, "cli")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tokens, err := authStore.ListAPITokens()
+	if err != nil || len(tokens) != 1 {
+		t.Fatalf("ListAPITokens: %+v, %v", tokens, err)
+	}
+	if err := authStore.RevokeAPIToken(tokens[0].ID); err != nil {
+		t.Fatal(err)
+	}
+
+	h := s.testHandler()
+	r := httptest.NewRequest("GET", "/api/protected", nil)
+	r.Header.Set("Authorization", "Bearer "+secret)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401 for a revoked token", w.Code)
+	}
+}
+
+func TestBearerToken_InternalTokenAuthenticates(t *testing.T) {
+	s, _ := newTestServer(t, true)
+	s.InternalToken = "loopback-secret"
+	h := s.testHandler()
+
+	r := httptest.NewRequest("GET", "/api/protected", nil)
+	r.Header.Set("Authorization", "Bearer loopback-secret")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 for the internal loopback token", w.Code)
+	}
+
+	r2 := httptest.NewRequest("GET", "/api/protected", nil)
+	r2.Header.Set("Authorization", "Bearer wrong-secret")
+	w2 := httptest.NewRecorder()
+	h.ServeHTTP(w2, r2)
+	if w2.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401 for a wrong bearer token", w2.Code)
+	}
+}
+
+func TestGetAuthState(t *testing.T) {
+	t.Run("auth disabled", func(t *testing.T) {
+		s, _ := newTestServer(t, false)
+		w := doJSON(t, s.testHandler(), "GET", "/api/auth/state", nil, nil)
+		var body map[string]any
+		if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+			t.Fatal(err)
+		}
+		if body["auth_required"] != false || body["authenticated"] != true {
+			t.Errorf("body = %+v, want auth_required=false authenticated=true", body)
+		}
+	})
+
+	t.Run("auth enabled, no credentials", func(t *testing.T) {
+		s, authStore := newTestServer(t, true)
+		if _, err := authStore.CreateUser("alice", "correcthorse"); err != nil {
+			t.Fatal(err)
+		}
+		w := doJSON(t, s.testHandler(), "GET", "/api/auth/state", nil, nil)
+		var body map[string]any
+		if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+			t.Fatal(err)
+		}
+		if body["auth_required"] != true || body["authenticated"] != false {
+			t.Errorf("body = %+v, want auth_required=true authenticated=false", body)
+		}
+	})
+
+	t.Run("auth enabled, logged in", func(t *testing.T) {
+		s, authStore := newTestServer(t, true)
+		if _, err := authStore.CreateUser("alice", "correcthorse"); err != nil {
+			t.Fatal(err)
+		}
+		h := s.testHandler()
+		loginResp := doJSON(t, h, "POST", "/api/auth/login",
+			map[string]string{"username": "alice", "password": "correcthorse"}, nil)
+		cookie := loginResp.Result().Cookies()[0]
+
+		r := httptest.NewRequest("GET", "/api/auth/state", nil)
+		r.AddCookie(cookie)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		var body map[string]any
+		if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+			t.Fatal(err)
+		}
+		if body["authenticated"] != true || body["username"] != "alice" {
+			t.Errorf("body = %+v, want authenticated=true username=alice", body)
+		}
+	})
+}
