@@ -29,14 +29,16 @@ curl -sS http://127.0.0.1:8080/api/health
 
 ### CI / GHCR (ветка `main`)
 
-GitHub Actions (`.github/workflows/main.yml`, workflow **CI**) только собирает и пушит образы
-(без SSH-деплоя):
+GitHub Actions (`.github/workflows/main.yml`, workflow **CI**):
 
-1. `pytest` на push/PR
+1. `pytest` + `go build`/`go test` на push/PR
 2. Path-filter: `api` (+ frontend SPA) и узкий `bot` (telegram/llm/stt + deps)
-3. Один job **`build-images`**: `docker buildx bake` (`deploy/docker/docker-bake.hcl`) —
+3. Job **`build-images`**: `docker buildx bake` (`deploy/docker/docker-bake.hcl`) —
    если нужны оба target’а, `python-base` собирается один раз → общие layer digests на GHCR
 4. Push `ghcr.io/<owner>/quests-api:main` / `quests-bot:main` (BuildKit cache `scope=quests`)
+5. Job **`deploy`** (только push на `main`, после успешного `build-images`): SSH на прод,
+   `git reset --hard origin/main` + `compose pull` + `compose up -d` —
+   [`deploy/docker/ci-deploy.sh`](ci-deploy.sh). Настройка: [`docs/deploy-ssh.md`](../../docs/deploy-ssh.md).
 
 На сервере в `.env`:
 
@@ -48,6 +50,8 @@ QUESTS_BOT_IMAGE=ghcr.io/<owner>/quests-bot:main
 Один раз: `echo $CR_PAT | docker login ghcr.io -u USER --password-stdin`
 (пакеты GitHub часто private — нужен PAT с `read:packages`).
 
+Ручной прогон (без ожидания CI):
+
 ```bash
 docker compose --env-file .env -f deploy/docker/docker-compose.yml pull
 docker compose --env-file .env -f deploy/docker/docker-compose.yml up -d
@@ -55,12 +59,8 @@ docker compose --env-file .env -f deploy/docker/docker-compose.yml up -d
 
 (`env_file:` в compose кормит контейнеры; `--env-file` нужен для подстановки `image: ${QUESTS_*_IMAGE}`.)
 
-Обновление контейнеров — вручную (команды выше) или Watchtower:
-
-Файл: [`docker-compose.watchtower.yml`](docker-compose.watchtower.yml)
-(poll 60s, только `quests-api` и `quests-bot`).
-
-Ручной прогон сборки: Actions → **CI** → Run workflow (`force_api` / `force_bot`).
+Ручной прогон сборки: Actions → **CI** → Run workflow (`force_api` / `force_bot`) — деплой всё
+равно подхватит новый образ на следующем push в `main`, либо гони `ci-deploy.sh` руками на сервере.
 
 Локально по-прежнему: без `QUESTS_*_IMAGE` → `quests-*:local` и `up --build`.
 

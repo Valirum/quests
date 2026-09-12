@@ -173,3 +173,30 @@ jobs:
           set: |
             *.cache-from=type=gha,scope=quests
             *.cache-to=type=gha,mode=max,scope=quests
+
+  # Replaces Watchtower's poll-and-swap: an explicit step at the end of a
+  # green run on main, instead of the server discovering new images on its
+  # own schedule. The SSH key used here is forced (in the server's
+  # authorized_keys) to run only deploy/docker/ci-deploy.sh — a leaked key
+  # can redeploy from origin/main, nothing else. See docs/deploy-ssh.md.
+  deploy:
+    needs: build-images
+    # A job with an explicit `if:` stops inheriting the implicit "needs
+    # succeeded" gate, so it's spelled out here — otherwise this would also
+    # run when build-images was skipped (no relevant paths changed).
+    if: |
+      github.event_name == 'push' && github.ref == 'refs/heads/main' &&
+      needs.build-images.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: SSH deploy
+        run: |
+          umask 077
+          mkdir -p ~/.ssh
+          printf '%s\n' "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          ssh-keyscan -H "${{ secrets.DEPLOY_SSH_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
+          ssh -i ~/.ssh/id_deploy -o BatchMode=yes \
+            "${{ secrets.DEPLOY_SSH_USER }}@${{ secrets.DEPLOY_SSH_HOST }}"
