@@ -1,50 +1,72 @@
-# Деплой: GitHub Actions → SSH (замена Watchtower)
+# Деплой: self-hosted GitHub Actions runner (замена Watchtower)
 
 Раньше сервер сам поллил GHCR (Watchtower, 60–300с). Теперь `deploy`-job в
 `.github/workflows/main.yml` после зелёного `build-images` на пуше в `main`
-сам заходит на сервер по SSH и гонит `deploy/docker/ci-deploy.sh` — деплой
-привязан к конкретному коммиту, а не к таймеру.
+сам гонит `deploy/docker/ci-deploy.sh` — деплой привязан к конкретному
+коммиту, а не к таймеру.
 
-## Ключ уже сгенерирован и стоит на сервере
+## Почему self-hosted, а не SSH из облачного раннера
 
-Отдельный ed25519-ключ (не личный), приватная часть — **только** у тебя, я её
-не сохранял нигде кроме как отдать сейчас. Публичная часть уже добавлена в
-`~/.ssh/authorized_keys` на 192.168.1.11 с ограничением:
+Первая версия дёргала сервер по SSH из обычного `ubuntu-latest`-раннера — не
+взлетело: `192.168.1.11` приватный адрес, у GitHub-раннеров в облаке до него
+физически нет маршрута. Раннер живёт прямо на сервере — деплой-шаг просто
+локально выполняет `ci-deploy.sh`, никакого SSH-хопа.
 
+## !!! Важно про безопасность — репо публичный !!!
+
+GitHub прямым текстом предупреждает: self-hosted раннер на публичном репо —
+дыра, если он видит `pull_request`-события (форк открывает PR → его код
+исполняется на твоём железе). У нас это закрыто тем, что джоба `deploy`
+гейтится **строго** на прямой пуш в `main`:
+
+```yaml
+if: |
+  github.event_name == 'push' && github.ref == 'refs/heads/main' &&
+  needs.build-images.result == 'success'
 ```
-command="bash /home/amarant/Documents/projects/quests/deploy/docker/ci-deploy.sh",no-port-forwarding,no-X11-forwarding,no-agent-forwarding,no-pty ssh-ed25519 AAAAC3... quests-ci-deploy
+
+Форк не может запушить в `main` — write-доступ есть только у владельца репо.
+Правила, которые нельзя нарушать (иначе self-hosted реально станет дырой):
+
+- не вешать `self-hosted` на `changes`/`test` — они реагируют и на чужие PR
+- никогда не заводить `pull_request_target` в этом файле
+- не расширять `deploy`'s `if:` на что-либо, кроме прямого пуша в `main`
+
+Подробный комментарий с тем же текстом лежит прямо над джобой в
+`.github/workflows/main.yml` — читать его перед любой правкой триггеров.
+
+## Установка раннера на сервере
+
+Регистрационный токен разовый (~1 час), берётся в GitHub UI:
+**Settings → Actions → Runners → New self-hosted runner** (Linux x64) —
+дальше используется одноразово при `config.sh`, для повседневной работы
+раннера не нужен (сервис сам обновляет свою сессию).
+
+Раннер поднят как systemd-сервис (`actions.runner.*.service`) под пользователем
+`amarant`, с доступом к docker (в группе `docker`) и к чекауту репозитория
+в `~/Documents/projects/quests`.
+
+## SSH-ключ (`DEPLOY_SSH_KEY` / `DEPLOY_SSH_HOST` / `DEPLOY_SSH_USER`) — больше не используется деплоем
+
+Это была первая (нерабочая для облачного раннера) версия. Сам forced-key в
+`~/.ssh/authorized_keys` на сервере оставлен как ручной резервный путь —
+можно всё ещё дёрнуть деплой без раннера:
+
+```bash
+ssh -i quests_ci_deploy amarant@192.168.1.11
 ```
 
-Т.е. даже если приватный ключ утечёт из GitHub Secrets — им можно **только**
-перезапустить деплой из `origin/main`, никакой произвольный shell.
-
-## Что добавить в GitHub (Settings → Secrets and variables → Actions → New repository secret)
-
-| Имя секрета | Значение |
-|---|---|
-| `DEPLOY_SSH_HOST` | `192.168.1.11` |
-| `DEPLOY_SSH_USER` | `amarant` |
-| `DEPLOY_SSH_KEY` | приватный ключ целиком, весь файл `quests_ci_deploy` (включая `-----BEGIN...` / `-----END...` строки) |
-
-Приватный ключ лежит у меня в `/tmp/claude-1000/.../deploy-key/quests_ci_deploy`
-(scratch-директория сессии) — скопируй его содержимое в секрет и потом смело
-сотри файл, он больше не нужен нигде кроме GitHub Secrets и `authorized_keys`
-на сервере.
+GitHub-секреты `DEPLOY_SSH_*` можно удалить (Settings → Secrets → Actions) —
+CI ими больше не пользуется, лежат мёртвым грузом.
 
 ## Проверка
 
-После добавления секретов — любой пуш в `main` (или ре-ран последнего workflow
-run в Actions UI) прогонит job `deploy`. Смотреть: Actions → **CI** → последний
-ран → job `deploy`.
+Любой пуш в `main` (или ре-ран последнего workflow run в Actions UI) прогонит
+job `deploy` на самом раннере. Смотреть: Actions → **CI** → последний ран →
+job `deploy`.
 
 Ручками, в обход CI, то же самое можно прогнать прямо на сервере:
 
 ```bash
 bash /home/amarant/Documents/projects/quests/deploy/docker/ci-deploy.sh
 ```
-
-## Если нужно отозвать ключ
-
-Удалить соответствующую строку из `~/.ssh/authorized_keys` на сервере — без
-доступа к самому серверу ключ бесполезен (это не токен API, а SSH-ключ,
-центрального реестра для отзыва нет).
