@@ -16,16 +16,11 @@
   }
 
   .journal__header {
+    position: relative;
     flex-shrink: 0;
-    display: grid;
-    /* Side columns size to their own content; the middle one absorbs all
-       leftover space (tabs stay justify-self:center within it). Equal 1fr
-       sides looked more "centered" but silently capped the actions column
-       to whatever width header-left happened to need — so on a wide
-       window the labeled button row would wrap/collapse for no visible
-       reason. */
-    grid-template-columns: minmax(0, auto) 1fr minmax(0, auto);
+    display: flex;
     align-items: center;
+    justify-content: space-between;
     gap: var(--space-3, 0.75rem);
     min-height: var(--header-height, 3.25rem);
     padding: var(--space-3, 0.75rem) var(--space-4, 1rem);
@@ -39,7 +34,6 @@
     flex-wrap: wrap;
     gap: var(--space-3, 0.75rem);
     min-width: 0;
-    justify-self: start;
   }
 
   .brand {
@@ -76,7 +70,6 @@
     align-items: center;
     justify-content: flex-end;
     gap: var(--space-2, 0.5rem);
-    justify-self: end;
     font-family: var(--font-ui, sans-serif);
   }
 
@@ -98,9 +91,16 @@
     gap: 0;
   }
 
+  /* True page-center regardless of how wide header-left/actions end up —
+     a shared grid track for centering only works when both sides are the
+     same width, which stopped being true once actions/health got their
+     own content-driven widths. */
   .view-tabs {
     display: inline-flex;
-    justify-self: center;
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
     border: 1px solid var(--color-border, #333);
     border-radius: var(--radius-lg, 12px);
     overflow: hidden;
@@ -154,24 +154,52 @@
     flex-direction: column;
   }
 
-  /* A small fixed "table" of status dots — 2 columns, wraps into as many
-     mini-rows as items need. Detail lives in the title tooltip, not text,
-     so the whole thing stays compact next to the tab title. */
+  /* One row of status chips, labeled by default — a 2-column grid needs
+     upkeep as items come and go, a line doesn't. Collapses to dot-only
+     (label dropped, title tooltip carries the detail) only once it no
+     longer fits; see JournalHeader's ResizeObserver. */
   .health {
-    display: grid;
-    grid-template-columns: repeat(2, auto);
-    gap: 0.15rem;
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
     flex-shrink: 0;
+  }
+
+  .health--measure {
+    position: fixed;
+    left: -9999px;
+    top: 0;
+    visibility: hidden;
+    pointer-events: none;
   }
 
   .health__chip {
     display: inline-flex;
     align-items: center;
-    justify-content: center;
+    gap: 0.3rem;
+    height: 1.65rem;
+    padding: 0 0.45rem;
+    border: 1px solid var(--color-border, #333);
+    border-radius: 999px;
+    font-family: var(--font-mono, monospace);
+    font-size: 0.65rem;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--color-fg-muted, #9a9a9a);
+  }
+
+  /* Dot-only (collapsed): shrink the pill down to a small square instead
+     of a wide chip with nothing but a dot rattling around in it. */
+  .health__chip:not(:has(.health__label)) {
     width: 1.1rem;
     height: 1.1rem;
+    padding: 0;
+    justify-content: center;
     border-radius: var(--radius-sm, 2px);
-    color: var(--color-fg-muted, #9a9a9a);
+  }
+
+  .health__label {
+    line-height: 1;
   }
 
   .health__dot {
@@ -179,6 +207,7 @@
     height: 0.45rem;
     border-radius: 50%;
     background: currentColor;
+    flex-shrink: 0;
   }
 
   .health__chip[data-status='ok'] {
@@ -1761,25 +1790,18 @@
 
   @media (orientation: portrait) {
     .journal__header {
-      grid-template-columns: minmax(0, 1fr) auto;
-      grid-template-areas:
-        "left actions"
-        "tabs tabs";
+      flex-wrap: wrap;
     }
 
-    .header-left {
-      grid-area: left;
-    }
-
-    .header-actions {
-      grid-area: actions;
-    }
-
+    /* No room to float the tabs centered over one line — drop them onto
+       their own full-width row below brand/actions instead. */
     .view-tabs {
-      grid-area: tabs;
+      position: static;
+      transform: none;
+      order: 3;
+      flex: 1 1 100%;
       display: flex;
       width: 100%;
-      justify-self: stretch;
     }
 
     .view-tab {
