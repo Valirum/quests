@@ -66,7 +66,7 @@ func (s *Store) ListQuests(ctx context.Context, f ListFilter) ([]domain.Quest, e
 	q := `
 		SELECT q.id, q.title, q.description, q.status, q.significance, q.pinned, q.sort_order,
 			q.deadline_at, q.duration_seconds, q.reward_attrs, q.category_id, q.questline_id,
-			q.created_at, q.updated_at, q.completed_at, q.template_id, q.period_key,
+			q.created_at, q.updated_at, q.completed_at, q.template_id, q.period_key, q.automated,
 			c.slug, c.label, c.color,
 			l.title, l.color, l.icon, l.custom_icon, l.updated_at
 		FROM quest q
@@ -127,7 +127,7 @@ func (s *Store) GetQuest(ctx context.Context, id int64) (domain.Quest, error) {
 	row := s.DB.QueryRowContext(ctx, `
 		SELECT q.id, q.title, q.description, q.status, q.significance, q.pinned, q.sort_order,
 			q.deadline_at, q.duration_seconds, q.reward_attrs, q.category_id, q.questline_id,
-			q.created_at, q.updated_at, q.completed_at, q.template_id, q.period_key,
+			q.created_at, q.updated_at, q.completed_at, q.template_id, q.period_key, q.automated,
 			c.slug, c.label, c.color,
 			l.title, l.color, l.icon, l.custom_icon, l.updated_at
 		FROM quest q
@@ -159,14 +159,14 @@ func scanQuest(row rowScanner) (domain.Quest, error) {
 	var duration sql.NullInt64
 	var reward, period sql.NullString
 	var catID, lineID, tmplID sql.NullInt64
-	var pinned int
+	var pinned, automated int
 	var cSlug, cLabel, cColor sql.NullString
 	var lTitle, lColor, lIcon, lCustom sql.NullString
 	var lUpdated sql.NullString
 	err := row.Scan(
 		&q.ID, &q.Title, &q.Description, &q.Status, &q.Significance, &pinned, &q.SortOrder,
 		&deadline, &duration, &reward, &catID, &lineID,
-		&created, &updated, &completed, &tmplID, &period,
+		&created, &updated, &completed, &tmplID, &period, &automated,
 		&cSlug, &cLabel, &cColor,
 		&lTitle, &lColor, &lIcon, &lCustom, &lUpdated,
 	)
@@ -174,6 +174,7 @@ func scanQuest(row rowScanner) (domain.Quest, error) {
 		return q, err
 	}
 	q.Pinned = pinned != 0
+	q.Automated = automated != 0
 	if deadline.Valid {
 		t, err := timeutil.ParseFlexible(deadline.String)
 		if err != nil {
@@ -267,7 +268,8 @@ func scanQuest(row rowScanner) (domain.Quest, error) {
 func (s *Store) loadSteps(ctx context.Context, questID int64) ([]domain.Step, error) {
 	rows, err := s.DB.QueryContext(ctx, `
 		SELECT id, quest_id, title, description, progress_current, progress_total, sort_order,
-			check_command, check_interval_seconds, check_last_run_at
+			check_command, check_interval_seconds, check_last_run_at,
+			wait_previous, run_mode, run_status
 		FROM queststep WHERE quest_id = ? ORDER BY sort_order, id`, questID)
 	if err != nil {
 		return nil, err
@@ -280,7 +282,13 @@ func (s *Store) loadSteps(ctx context.Context, questID int64) ([]domain.Step, er
 		var interval sql.NullInt64
 		var last sql.NullString
 		var qid sql.NullInt64
-		if err := rows.Scan(&st.ID, &qid, &st.Title, &st.Description, &st.ProgressCurrent, &st.ProgressTotal, &st.SortOrder, &cmd, &interval, &last); err != nil {
+		var waitPrev int
+		var runMode sql.NullString
+		var runStatus sql.NullString
+		if err := rows.Scan(
+			&st.ID, &qid, &st.Title, &st.Description, &st.ProgressCurrent, &st.ProgressTotal, &st.SortOrder,
+			&cmd, &interval, &last, &waitPrev, &runMode, &runStatus,
+		); err != nil {
 			return nil, err
 		}
 		if qid.Valid {
@@ -300,6 +308,15 @@ func (s *Store) loadSteps(ctx context.Context, questID int64) ([]domain.Step, er
 				return nil, err
 			}
 			st.CheckLastRunAt = &t
+		}
+		st.WaitPrevious = waitPrev != 0
+		st.RunMode = domain.RunModePoll
+		if runMode.Valid && strings.TrimSpace(runMode.String) != "" {
+			st.RunMode = NormalizeRunMode(runMode.String)
+		}
+		if runStatus.Valid && strings.TrimSpace(runStatus.String) != "" {
+			s := strings.TrimSpace(runStatus.String)
+			st.RunStatus = &s
 		}
 		domain.ClampStep(&st)
 		out = append(out, st)
@@ -331,11 +348,11 @@ func (s *Store) createQuest(ctx context.Context, q domain.Quest, changeKind, cha
 		INSERT INTO quest (
 			title, description, status, significance, pinned, sort_order,
 			deadline_at, duration_seconds, reward_attrs, category_id, questline_id,
-			created_at, updated_at, completed_at, template_id, period_key
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			created_at, updated_at, completed_at, template_id, period_key, automated
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		q.Title, q.Description, string(q.Status), string(q.Significance), boolInt(q.Pinned), q.SortOrder,
 		nullTime(q.DeadlineAt), nullInt(q.DurationSeconds), nullStr(q.RewardAttrs), nullI64(q.CategoryID), nullI64(q.QuestlineID),
-		timeutil.ToDBUTC(q.CreatedAt), timeutil.ToDBUTC(q.UpdatedAt), nullTime(q.CompletedAt), nullI64(q.TemplateID), nullStr(q.PeriodKey),
+		timeutil.ToDBUTC(q.CreatedAt), timeutil.ToDBUTC(q.UpdatedAt), nullTime(q.CompletedAt), nullI64(q.TemplateID), nullStr(q.PeriodKey), boolInt(q.Automated),
 	)
 	if err != nil {
 		return domain.Quest{}, err
@@ -346,14 +363,17 @@ func (s *Store) createQuest(ctx context.Context, q domain.Quest, changeKind, cha
 	}
 	for i := range q.Steps {
 		st := q.Steps[i]
+		NormalizeStepCheck(&st)
 		domain.ClampStep(&st)
 		_, err := tx.ExecContext(ctx, `
 			INSERT INTO queststep (
 				quest_id, title, description, progress_current, progress_total, sort_order,
-				check_command, check_interval_seconds, check_last_run_at
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				check_command, check_interval_seconds, check_last_run_at,
+				wait_previous, run_mode, run_status
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			qid, st.Title, st.Description, st.ProgressCurrent, st.ProgressTotal, st.SortOrder,
 			nullStr(st.CheckCommand), nullInt(st.CheckIntervalSeconds), nullTime(st.CheckLastRunAt),
+			boolInt(st.WaitPrevious), nullRunMode(st.RunMode), nullStr(st.RunStatus),
 		)
 		if err != nil {
 			return domain.Quest{}, err
@@ -379,17 +399,17 @@ func (s *Store) UpdateQuest(ctx context.Context, q domain.Quest, changeKind, cha
 		UPDATE quest SET
 			title=?, description=?, status=?, significance=?, pinned=?, sort_order=?,
 			deadline_at=?, duration_seconds=?, reward_attrs=?, category_id=?, questline_id=?,
-			updated_at=?, completed_at=?
+			updated_at=?, completed_at=?, automated=?
 		WHERE id=?`,
 		q.Title, q.Description, string(q.Status), string(q.Significance), boolInt(q.Pinned), q.SortOrder,
 		nullTime(q.DeadlineAt), nullInt(q.DurationSeconds), nullStr(q.RewardAttrs), nullI64(q.CategoryID), nullI64(q.QuestlineID),
-		timeutil.ToDBUTC(q.UpdatedAt), nullTime(q.CompletedAt), q.ID,
+		timeutil.ToDBUTC(q.UpdatedAt), nullTime(q.CompletedAt), boolInt(q.Automated), q.ID,
 	)
 	if err != nil {
 		return domain.Quest{}, err
 	}
 	if changeKind != "" {
-		if err := stageChange(tx, ctx, changeKind, &q.ID, q.Title, changeDetail, string(q.Significance)); err != nil {
+		if err := stageChangeComment(tx, ctx, changeKind, &q.ID, q.Title, changeDetail, string(q.Significance), ""); err != nil {
 			return domain.Quest{}, err
 		}
 	}
@@ -431,14 +451,17 @@ func (s *Store) AddStep(ctx context.Context, questID int64, st domain.Step, q do
 		return domain.Quest{}, err
 	}
 	defer func() { _ = tx.Rollback() }()
+	NormalizeStepCheck(&st)
 	domain.ClampStep(&st)
 	_, err = tx.ExecContext(ctx, `
 		INSERT INTO queststep (
 			quest_id, title, description, progress_current, progress_total, sort_order,
-			check_command, check_interval_seconds, check_last_run_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			check_command, check_interval_seconds, check_last_run_at,
+			wait_previous, run_mode, run_status
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		questID, st.Title, st.Description, st.ProgressCurrent, st.ProgressTotal, st.SortOrder,
 		nullStr(st.CheckCommand), nullInt(st.CheckIntervalSeconds), nullTime(st.CheckLastRunAt),
+		boolInt(st.WaitPrevious), nullRunMode(st.RunMode), nullStr(st.RunStatus),
 	)
 	if err != nil {
 		return domain.Quest{}, err
@@ -461,14 +484,17 @@ func (s *Store) UpdateStep(ctx context.Context, st domain.Step, q domain.Quest, 
 		return domain.Quest{}, err
 	}
 	defer func() { _ = tx.Rollback() }()
+	NormalizeStepCheck(&st)
 	domain.ClampStep(&st)
 	_, err = tx.ExecContext(ctx, `
 		UPDATE queststep SET
 			title=?, description=?, progress_current=?, progress_total=?, sort_order=?,
-			check_command=?, check_interval_seconds=?
+			check_command=?, check_interval_seconds=?, check_last_run_at=?,
+			wait_previous=?, run_mode=?, run_status=?
 		WHERE id=? AND quest_id=?`,
 		st.Title, st.Description, st.ProgressCurrent, st.ProgressTotal, st.SortOrder,
-		nullStr(st.CheckCommand), nullInt(st.CheckIntervalSeconds), st.ID, st.QuestID,
+		nullStr(st.CheckCommand), nullInt(st.CheckIntervalSeconds), nullTime(st.CheckLastRunAt),
+		boolInt(st.WaitPrevious), nullRunMode(st.RunMode), nullStr(st.RunStatus), st.ID, st.QuestID,
 	)
 	if err != nil {
 		return domain.Quest{}, err
@@ -482,7 +508,7 @@ func (s *Store) UpdateStep(ctx context.Context, st domain.Step, q domain.Quest, 
 	if detail == "" {
 		detail = "изменено"
 	}
-	if err := stageChange(tx, ctx, kind, &q.ID, q.Title, detail, string(q.Significance)); err != nil {
+	if err := stageChangeComment(tx, ctx, kind, &q.ID, q.Title, detail, string(q.Significance), ""); err != nil {
 		return domain.Quest{}, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -526,6 +552,10 @@ func persistQuestRow(tx *sql.Tx, ctx context.Context, q domain.Quest) error {
 }
 
 func stageChange(tx *sql.Tx, ctx context.Context, kind string, questID *int64, title, detail, significance string) error {
+	return stageChangeComment(tx, ctx, kind, questID, title, detail, significance, "")
+}
+
+func stageChangeComment(tx *sql.Tx, ctx context.Context, kind string, questID *int64, title, detail, significance, comment string) error {
 	skip := map[string]bool{"startup": true, "step_progress": true, "quest_started": true}
 	if skip[kind] || kind == "" {
 		return nil
@@ -539,6 +569,9 @@ func stageChange(tx *sql.Tx, ctx context.Context, kind string, questID *int64, t
 	if len(kind) > 32 {
 		kind = kind[:32]
 	}
+	if len(comment) > 2000 {
+		comment = comment[:2000]
+	}
 	var sig any
 	if significance != "" {
 		if len(significance) > 16 {
@@ -546,10 +579,14 @@ func stageChange(tx *sql.Tx, ctx context.Context, kind string, questID *int64, t
 		}
 		sig = significance
 	}
+	var cmt any
+	if strings.TrimSpace(comment) != "" {
+		cmt = comment
+	}
 	_, err := tx.ExecContext(ctx, `
-		INSERT INTO questchangelog (at, kind, quest_id, title, detail, significance, revision)
-		VALUES (?, ?, ?, ?, ?, ?, NULL)`,
-		timeutil.ToDBUTC(timeutil.NowUTC()), kind, nullI64(questID), title, detail, sig,
+		INSERT INTO questchangelog (at, kind, quest_id, title, detail, significance, revision, comment)
+		VALUES (?, ?, ?, ?, ?, ?, NULL, ?)`,
+		timeutil.ToDBUTC(timeutil.NowUTC()), kind, nullI64(questID), title, detail, sig, cmt,
 	)
 	return err
 }
@@ -615,14 +652,121 @@ func NormalizeCheck(cmd *string, interval *int) (*string, *int) {
 		return nil, nil
 	}
 	if interval == nil {
-		v := 15
-		return &c, &v
+		return &c, nil
 	}
 	v := *interval
 	if v < 15 {
 		v = 15
 	}
 	return &c, &v
+}
+
+func NormalizeRunMode(s string) string {
+	if strings.EqualFold(strings.TrimSpace(s), domain.RunModeOnce) {
+		return domain.RunModeOnce
+	}
+	return domain.RunModePoll
+}
+
+func NormalizeStepCheck(st *domain.Step) {
+	if st.RunMode == "" {
+		st.RunMode = domain.RunModePoll
+	} else {
+		st.RunMode = NormalizeRunMode(st.RunMode)
+	}
+	if st.CheckCommand == nil || strings.TrimSpace(*st.CheckCommand) == "" {
+		st.CheckCommand = nil
+		st.CheckIntervalSeconds = nil
+		st.WaitPrevious = false
+		st.RunMode = domain.RunModePoll
+		st.RunStatus = nil
+		return
+	}
+	if st.RunMode == domain.RunModePoll && st.CheckIntervalSeconds == nil {
+		v := 15
+		st.CheckIntervalSeconds = &v
+	}
+	if st.RunMode == domain.RunModeOnce && (st.RunStatus == nil || strings.TrimSpace(*st.RunStatus) == "") {
+		idle := domain.RunIdle
+		st.RunStatus = &idle
+	}
+}
+
+func nullRunMode(s string) string {
+	if strings.TrimSpace(s) == "" {
+		return domain.RunModePoll
+	}
+	return NormalizeRunMode(s)
+}
+
+func (s *Store) UpdateQuestComment(ctx context.Context, q domain.Quest, changeKind, changeDetail, comment string) (domain.Quest, error) {
+	tx, err := s.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return domain.Quest{}, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	_, err = tx.ExecContext(ctx, `
+		UPDATE quest SET
+			title=?, description=?, status=?, significance=?, pinned=?, sort_order=?,
+			deadline_at=?, duration_seconds=?, reward_attrs=?, category_id=?, questline_id=?,
+			updated_at=?, completed_at=?, automated=?
+		WHERE id=?`,
+		q.Title, q.Description, string(q.Status), string(q.Significance), boolInt(q.Pinned), q.SortOrder,
+		nullTime(q.DeadlineAt), nullInt(q.DurationSeconds), nullStr(q.RewardAttrs), nullI64(q.CategoryID), nullI64(q.QuestlineID),
+		timeutil.ToDBUTC(q.UpdatedAt), nullTime(q.CompletedAt), boolInt(q.Automated), q.ID,
+	)
+	if err != nil {
+		return domain.Quest{}, err
+	}
+	if changeKind != "" {
+		if err := stageChangeComment(tx, ctx, changeKind, &q.ID, q.Title, changeDetail, string(q.Significance), comment); err != nil {
+			return domain.Quest{}, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return domain.Quest{}, err
+	}
+	return s.GetQuest(ctx, q.ID)
+}
+
+func (s *Store) UpdateStepComment(ctx context.Context, st domain.Step, q domain.Quest, kind, detail, comment string) (domain.Quest, error) {
+	tx, err := s.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return domain.Quest{}, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	NormalizeStepCheck(&st)
+	domain.ClampStep(&st)
+	_, err = tx.ExecContext(ctx, `
+		UPDATE queststep SET
+			title=?, description=?, progress_current=?, progress_total=?, sort_order=?,
+			check_command=?, check_interval_seconds=?, check_last_run_at=?,
+			wait_previous=?, run_mode=?, run_status=?
+		WHERE id=? AND quest_id=?`,
+		st.Title, st.Description, st.ProgressCurrent, st.ProgressTotal, st.SortOrder,
+		nullStr(st.CheckCommand), nullInt(st.CheckIntervalSeconds), nullTime(st.CheckLastRunAt),
+		boolInt(st.WaitPrevious), nullRunMode(st.RunMode), nullStr(st.RunStatus), st.ID, st.QuestID,
+	)
+	if err != nil {
+		return domain.Quest{}, err
+	}
+	if err := persistQuestRow(tx, ctx, q); err != nil {
+		return domain.Quest{}, err
+	}
+	if kind == "" {
+		kind = "quest_updated"
+	}
+	if detail == "" {
+		detail = "изменено"
+	}
+	if err := stageChangeComment(tx, ctx, kind, &q.ID, q.Title, detail, string(q.Significance), comment); err != nil {
+		return domain.Quest{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return domain.Quest{}, err
+	}
+	return s.GetQuest(ctx, q.ID)
 }
 
 func ValidateCategoryID(ctx context.Context, s *Store, id *int64) (*int64, error) {

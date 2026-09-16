@@ -65,6 +65,7 @@ func ExpireOverdue(ctx context.Context, st *store.Store, hub *events.Hub) ([]int
 			Toast:        true,
 			Source:       "system",
 			Significance: string(updated.Significance),
+			Automated:    updated.Automated,
 		})
 		delayed = append(delayed, qid)
 	}
@@ -129,6 +130,7 @@ func (w *WindowNotifier) Notify(ctx context.Context, st *store.Store, hub *event
 			Toast:        true,
 			Source:       "system",
 			Significance: string(q.Significance),
+			Automated:    q.Automated,
 		})
 		fired = append(fired, qid)
 	}

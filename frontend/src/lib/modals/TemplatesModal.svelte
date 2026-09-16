@@ -33,6 +33,7 @@
   let pinned = $state(false)
   let significance = $state('common')
   let enabled = $state(true)
+  let automated = $state(false)
   let freq = $state('daily')
   let emitMode = $state('fixed')
   /** Empty string = no category. */
@@ -57,7 +58,7 @@
   let deadlineMinute = $state('00')
   let durationHours = $state('')
   let durationMinutes = $state('')
-  /** @type {{ key: string, title: string, progress_range: string, check_command: string, check_interval_seconds: string, check_open: boolean }[]} */
+  /** @type {{ key: string, title: string, progress_range: string, check_command: string, check_interval_seconds: string, wait_previous: boolean, run_mode: string, check_open: boolean }[]} */
   let steps = $state([])
   let saving = $state(false)
   let deleting = $state(false)
@@ -101,6 +102,8 @@
       progress_range: '1',
       check_command: '',
       check_interval_seconds: '',
+      wait_previous: false,
+      run_mode: 'poll',
       check_open: false,
     }
   }
@@ -161,6 +164,7 @@
       pinned = false
       significance = 'common'
       enabled = true
+      automated = false
       freq = 'daily'
       emitMode = 'fixed'
       categoryId = ''
@@ -183,6 +187,7 @@
     pinned = Boolean(t.pinned)
     significance = t.significance ?? 'common'
     enabled = t.enabled !== false
+    automated = Boolean(t.automated)
     freq = t.freq ?? 'daily'
     emitMode = t.emit_mode === 'surprise' ? 'surprise' : 'fixed'
     categoryId = t.category_id != null ? String(t.category_id) : ''
@@ -225,6 +230,8 @@
             check_command: s.check_command ?? '',
             check_interval_seconds:
               s.check_interval_seconds != null ? String(s.check_interval_seconds) : '',
+            wait_previous: Boolean(s.wait_previous),
+            run_mode: s.run_mode === 'once' ? 'once' : 'poll',
             check_open: Boolean(String(s.check_command || '').trim()),
           }))
         : [blankStep()]
@@ -335,6 +342,8 @@
           sort_order: i,
           check_command: cmd || null,
           check_interval_seconds: cmd ? interval : null,
+          wait_previous: cmd ? Boolean(s.wait_previous) : false,
+          run_mode: cmd && s.run_mode === 'once' ? 'once' : 'poll',
         }
       })
       .filter((s) => s.title)
@@ -345,6 +354,7 @@
         description: description.trim(),
         pinned,
         enabled,
+        automated,
         significance,
         freq,
         weekdays: [...weekdays].sort((a, b) => a - b).join(','),
@@ -367,6 +377,7 @@
       description: description.trim(),
       pinned,
       enabled,
+      automated,
       significance,
       freq,
       weekdays: [...weekdays].sort((a, b) => a - b).join(','),
@@ -850,6 +861,10 @@
             <input type="checkbox" bind:checked={enabled} />
             Включён (создавать инстансы)
           </label>
+          <label class="check">
+            <input type="checkbox" bind:checked={automated} />
+            Автоквест (создание/старт — тихий тост)
+          </label>
 
           <div class="steps">
             <div class="steps__head">
@@ -895,7 +910,7 @@
                     <input
                       type="text"
                       class="step-check__cmd"
-                      placeholder="команда проверки (опц.)"
+                      placeholder="команда: опрос или разово"
                       bind:value={s.check_command}
                       spellcheck="false"
                     />
@@ -907,8 +922,38 @@
                       placeholder="сек"
                       title="Интервал (сек)"
                       bind:value={s.check_interval_seconds}
-                      disabled={!String(s.check_command || '').trim()}
+                      disabled={!String(s.check_command || '').trim() || s.run_mode === 'once'}
                     />
+                  </div>
+                  <div class="step-check__opts">
+                    <label class="check check--inline">
+                      <input type="checkbox" bind:checked={s.wait_previous} disabled={!String(s.check_command || '').trim()} />
+                      ждать предыдущий
+                    </label>
+                    <div class="opt-slider opt-slider--compact" role="radiogroup" aria-label="Режим автошага">
+                      <button
+                        type="button"
+                        class="opt-slider__opt"
+                        class:opt-slider__opt--on={s.run_mode !== 'once'}
+                        role="radio"
+                        aria-checked={s.run_mode !== 'once'}
+                        disabled={!String(s.check_command || '').trim()}
+                        onclick={() => (s.run_mode = 'poll')}
+                      >
+                        опрос
+                      </button>
+                      <button
+                        type="button"
+                        class="opt-slider__opt"
+                        class:opt-slider__opt--on={s.run_mode === 'once'}
+                        role="radio"
+                        aria-checked={s.run_mode === 'once'}
+                        disabled={!String(s.check_command || '').trim()}
+                        onclick={() => (s.run_mode = 'once')}
+                      >
+                        разово
+                      </button>
+                    </div>
                   </div>
                 {/if}
               </div>
@@ -1260,6 +1305,21 @@
     display: grid;
     grid-template-columns: 1fr 4.5rem;
     gap: 0.35rem;
+  }
+
+  .step-check__opts {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.75rem;
+  }
+
+  .check--inline {
+    margin: 0;
+  }
+
+  .opt-slider--compact {
+    width: auto;
   }
 
   .step-check__cmd {

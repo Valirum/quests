@@ -63,7 +63,8 @@ CREATE TABLE quest (
 	updated_at DATETIME NOT NULL,
 	completed_at DATETIME,
 	template_id INTEGER,
-	period_key TEXT
+	period_key TEXT,
+	automated INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE queststep (
 	id INTEGER PRIMARY KEY,
@@ -75,7 +76,10 @@ CREATE TABLE queststep (
 	sort_order INTEGER NOT NULL DEFAULT 0,
 	check_command TEXT,
 	check_interval_seconds INTEGER,
-	check_last_run_at DATETIME
+	check_last_run_at DATETIME,
+	wait_previous INTEGER NOT NULL DEFAULT 0,
+	run_mode TEXT NOT NULL DEFAULT 'poll',
+	run_status TEXT
 );
 CREATE TABLE questchangelog (
 	id INTEGER PRIMARY KEY,

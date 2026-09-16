@@ -42,6 +42,7 @@ type templateRow struct {
 	RewardAttrs     sql.NullString
 	CategoryID      sql.NullInt64
 	QuestlineID     sql.NullInt64
+	Automated       bool
 }
 
 type templateStepRow struct {
@@ -52,6 +53,8 @@ type templateStepRow struct {
 	ProgressMax          int
 	CheckCommand         sql.NullString
 	CheckIntervalSeconds sql.NullInt64
+	WaitPrevious         bool
+	RunMode              string
 }
 
 // MaterializeDue creates quest instances for due templates (fixed + surprise).
@@ -65,7 +68,7 @@ func MaterializeDue(ctx context.Context, st *store.Store, hub *events.Hub, now t
 	rows, err := st.DB.QueryContext(ctx, `
 		SELECT id, title, description, pinned, sort_order, duration_seconds, freq, weekdays,
 			enabled, timezone, deadline_time, significance, emit_mode, emit_chance,
-			emit_window_start, emit_window_end, reward_attrs, category_id, questline_id
+			emit_window_start, emit_window_end, reward_attrs, category_id, questline_id, automated
 		FROM questtemplate WHERE enabled = 1 ORDER BY sort_order, id`)
 	if err != nil {
 		return nil, err
@@ -74,16 +77,17 @@ func MaterializeDue(ctx context.Context, st *store.Store, hub *events.Hub, now t
 	var templates []templateRow
 	for rows.Next() {
 		var t templateRow
-		var pinned, enabled int
+		var pinned, enabled, automated int
 		if err := rows.Scan(
 			&t.ID, &t.Title, &t.Description, &pinned, &t.SortOrder, &t.DurationSeconds, &t.Freq, &t.Weekdays,
 			&enabled, &t.Timezone, &t.DeadlineTime, &t.Significance, &t.EmitMode, &t.EmitChance,
-			&t.EmitWindowStart, &t.EmitWindowEnd, &t.RewardAttrs, &t.CategoryID, &t.QuestlineID,
+			&t.EmitWindowStart, &t.EmitWindowEnd, &t.RewardAttrs, &t.CategoryID, &t.QuestlineID, &automated,
 		); err != nil {
 			return nil, err
 		}
 		t.Pinned = pinned != 0
 		t.Enabled = enabled != 0
+		t.Automated = automated != 0
 		templates = append(templates, t)
 	}
 	if err := rows.Err(); err != nil {
@@ -158,6 +162,7 @@ func MaterializeDue(ctx context.Context, st *store.Store, hub *events.Hub, now t
 			DurationSeconds: duration,
 			CreatedAt:       now,
 			UpdatedAt:       now,
+			Automated:       tmpl.Automated,
 			Steps:           steps,
 		}
 		if tmpl.Significance == "" {
@@ -203,6 +208,7 @@ func MaterializeDue(ctx context.Context, st *store.Store, hub *events.Hub, now t
 			Toast:        false,
 			Source:       "system",
 			Significance: string(createdQ.Significance),
+			Automated:    createdQ.Automated,
 			Sound:        strPtr("quest_created"),
 		})
 		created = append(created, qid)
@@ -397,7 +403,8 @@ func pickScheduledAt(localDay time.Time, windowStart, windowEnd string, rng *ran
 
 func loadTemplateSteps(ctx context.Context, st *store.Store, tmpl templateRow, rng *rand.Rand) ([]domain.Step, error) {
 	rows, err := st.DB.QueryContext(ctx, `
-		SELECT title, description, sort_order, progress_min, progress_max, check_command, check_interval_seconds
+		SELECT title, description, sort_order, progress_min, progress_max, check_command, check_interval_seconds,
+			wait_previous, run_mode
 		FROM questtemplatestep WHERE template_id = ? ORDER BY sort_order, id`, tmpl.ID)
 	if err != nil {
 		return nil, err
@@ -406,8 +413,15 @@ func loadTemplateSteps(ctx context.Context, st *store.Store, tmpl templateRow, r
 	var src []templateStepRow
 	for rows.Next() {
 		var s templateStepRow
-		if err := rows.Scan(&s.Title, &s.Description, &s.SortOrder, &s.ProgressMin, &s.ProgressMax, &s.CheckCommand, &s.CheckIntervalSeconds); err != nil {
+		var waitPrev int
+		var runMode sql.NullString
+		if err := rows.Scan(&s.Title, &s.Description, &s.SortOrder, &s.ProgressMin, &s.ProgressMax, &s.CheckCommand, &s.CheckIntervalSeconds, &waitPrev, &runMode); err != nil {
 			return nil, err
+		}
+		s.WaitPrevious = waitPrev != 0
+		s.RunMode = domain.RunModePoll
+		if runMode.Valid {
+			s.RunMode = store.NormalizeRunMode(runMode.String)
 		}
 		src = append(src, s)
 	}
@@ -440,14 +454,27 @@ func loadTemplateSteps(ctx context.Context, st *store.Store, tmpl templateRow, r
 		if s.CheckCommand.Valid && strings.TrimSpace(s.CheckCommand.String) != "" {
 			c := s.CheckCommand.String
 			st.CheckCommand = &c
-			iv := 15
-			if s.CheckIntervalSeconds.Valid {
-				iv = int(s.CheckIntervalSeconds.Int64)
-				if iv < 15 {
-					iv = 15
+			st.WaitPrevious = s.WaitPrevious
+			st.RunMode = s.RunMode
+			if st.RunMode == domain.RunModePoll {
+				iv := 15
+				if s.CheckIntervalSeconds.Valid {
+					iv = int(s.CheckIntervalSeconds.Int64)
+					if iv < 15 {
+						iv = 15
+					}
+				}
+				st.CheckIntervalSeconds = &iv
+			} else if s.CheckIntervalSeconds.Valid {
+				iv := int(s.CheckIntervalSeconds.Int64)
+				if iv >= 15 {
+					st.CheckIntervalSeconds = &iv
 				}
 			}
-			st.CheckIntervalSeconds = &iv
+			if st.RunMode == domain.RunModeOnce {
+				idle := domain.RunIdle
+				st.RunStatus = &idle
+			}
 		}
 		out = append(out, st)
 	}

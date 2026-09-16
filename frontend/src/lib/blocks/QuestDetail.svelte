@@ -165,6 +165,9 @@
     {#if q.pinned}
       <span class="pinned-label">PINNED</span>
     {/if}
+    {#if q.automated}
+      <span class="auto-label" title="Автоквест: создание и старт без полноэкранного тоста">AUTO</span>
+    {/if}
     {#if q.significance}
       <span class="sig-badge" data-sig={q.significance}>{significanceLabel(q)}</span>
     {/if}
@@ -180,20 +183,41 @@
 
 {#snippet stepList(q)}
   {#if q.steps?.length}
-    <ol class="step-list">
-      {#each q.steps as step (step.id)}
+    {@const pipe = q.steps.some((s) => s.check_command || s.wait_previous)}
+    {@const currentId = pipe ? q.steps.find((s) => !s.done)?.id : null}
+    <ol class="step-list" class:step-list--pipe={pipe}>
+      {#each q.steps as step, i (step.id)}
+        {@const waiting =
+          Boolean(step.wait_previous) && i > 0 && !q.steps[i - 1].done && !step.done}
         <li
           class="step"
           class:step--done={step.done}
+          class:step--current={pipe && step.id === currentId}
+          class:step--current-run={pipe && step.id === currentId && step.run_status === 'running'}
           oncontextmenu={(e) => onStepContextMenu?.(e, step)}
         >
-          <span class="step__mark">{step.done ? '✓' : '○'}</span>
+          <span class="step__mark">{step.done ? '✓' : step.run_status === 'running' ? '▶' : '○'}</span>
           <span class="step__main">
             <span class="step__title">{step.title}</span>
             {#if step.check_command}
-              <span class="step__auto" title={step.check_command}
-                >auto {step.check_interval_seconds || '?'}s</span
+              <span
+                class="step__auto"
+                class:step__auto--run={step.run_status === 'running'}
+                class:step__auto--wait={waiting}
+                title={step.check_command}
               >
+                {#if waiting}
+                  ждёт
+                {:else if step.run_status === 'running'}
+                  идёт
+                {:else if step.run_status === 'fail'}
+                  сбой
+                {:else if step.run_mode === 'once'}
+                  разово
+                {:else}
+                  auto {step.check_interval_seconds || '?'}s
+                {/if}
+              </span>
             {/if}
           </span>
           <div class="step__controls">
