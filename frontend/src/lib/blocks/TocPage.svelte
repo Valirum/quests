@@ -218,25 +218,34 @@
     min-height: 0;
   }
 
+  /* Search gets its own row above the filter axes: it is one field against
+     three multi-option groups, so sharing a line left it lost at one end. */
   .toc__tools {
     flex-shrink: 0;
     display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: var(--space-3, 0.75rem) var(--space-4, 1rem);
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--space-3, 0.75rem);
     padding: var(--space-3, 0.75rem) var(--space-6, 2rem);
     border-bottom: 1px solid var(--color-border);
   }
 
   .toc__search {
-    flex: 0 1 16rem;
-    padding: var(--space-2, 0.5rem) var(--space-3, 0.75rem);
+    align-self: center;
+    width: min(28rem, 100%);
+    padding: var(--space-2, 0.5rem) var(--space-4, 1rem);
     background: var(--color-bg-muted);
     border: 1px solid var(--color-border);
-    border-radius: var(--radius-sm);
+    border-radius: 999px;
     color: var(--color-fg);
     font-family: var(--font-ui);
     font-size: var(--text-sm);
+    text-align: center;
+  }
+
+  .toc__search:focus {
+    outline: 1px solid var(--color-accent);
+    outline-offset: 1px;
   }
 
   .toc__filters {
@@ -248,7 +257,7 @@
     min-width: 0;
   }
 
-  .toc__filters > :global(.opt-slider) {
+  .toc__filters > :global(.opt-group) {
     flex: 1 1 auto;
     min-width: 12rem;
   }

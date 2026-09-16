@@ -198,19 +198,19 @@
     </ul>
   {:else if loading}
     <p class="block__body block__body--muted">Загрузка…</p>
-  {:else}
-    <p class="block__body block__body--muted">Вложений нет</p>
   {/if}
 
+  <!-- No "Вложений нет": an empty list already says that, and spelling it out
+       cost a line above the quest itself. The attach affordance reads as one
+       sentence — link plus its continuation — instead of a button. -->
   <div class="attach__drop">
     <button
       type="button"
-      class="btn"
+      class="attach__pick"
       disabled={uploading}
       onclick={() => fileInput?.click()}
     >
-      <Icon name="add" size={14} />
-      {uploading ? 'Сканирование…' : 'Прикрепить'}
+      {uploading ? 'Сканирование…' : 'Прикрепить файл'}
     </button>
     <span class="attach__hint">или перетащить сюда</span>
     <input
