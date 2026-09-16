@@ -2,6 +2,7 @@
   import { tick } from 'svelte'
   import Icon from '../ui/Icon.svelte'
   import QuestlineIcon from '../ui/QuestlineIcon.svelte'
+  import MarkdownBody from '../ui/MarkdownBody.svelte'
   import AttachmentsBlock from './AttachmentsBlock.svelte'
   import { formatLocal, localTimeZone } from '../js/time.js'
   import {
@@ -252,7 +253,7 @@
             {/if}
           </div>
           {#if step.description}
-            <p class="step__desc">{step.description}</p>
+            <MarkdownBody class="step__desc" source={step.description} />
           {/if}
         </li>
       {/each}
@@ -267,7 +268,7 @@
   {#if q.description}
     <div class="block">
       <h3 class="block__label">Описание</h3>
-      <p class="block__body">{q.description}</p>
+      <MarkdownBody class="block__body" source={q.description} />
     </div>
   {/if}
 

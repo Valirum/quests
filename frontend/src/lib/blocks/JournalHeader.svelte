@@ -55,7 +55,7 @@
 
   function openMenu(event) {
     const rect = event.currentTarget.getBoundingClientRect()
-    menuX = Math.max(8, rect.right - 190)
+    menuX = rect.right
     menuY = rect.bottom + 4
     menuOpen = true
   }
