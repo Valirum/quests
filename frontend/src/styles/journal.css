@@ -28,6 +28,7 @@
     flex-wrap: wrap;
     gap: var(--space-3, 0.75rem);
     min-width: 0;
+    z-index: 1;
   }
 
   .brand {
@@ -137,10 +138,10 @@
   .view-tabs {
     display: inline-flex;
     align-items: stretch;
-    position: static;
-    flex: 0 0 auto;
-    margin-left: auto;
-    margin-right: auto;
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
     gap: 0.15rem;
     border: 0;
     border-radius: 0;
@@ -2153,7 +2154,10 @@
        their own full-width row below brand/actions instead. */
     .view-tabs {
       position: static;
+      left: auto;
+      top: auto;
       transform: none;
+      margin: 0;
       order: 3;
       flex: 1 1 100%;
       display: flex;
