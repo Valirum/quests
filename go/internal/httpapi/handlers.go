@@ -9,11 +9,13 @@ import (
 	"time"
 
 	"github.com/valirum/quests/go/internal/auth"
+	"github.com/valirum/quests/go/internal/clamav"
 	"github.com/valirum/quests/go/internal/domain"
 	"github.com/valirum/quests/go/internal/events"
 	"github.com/valirum/quests/go/internal/health"
 	"github.com/valirum/quests/go/internal/store"
 	"github.com/valirum/quests/go/internal/timeutil"
+	"github.com/valirum/quests/go/internal/webdav"
 )
 
 type Server struct {
@@ -37,6 +39,13 @@ type Server struct {
 	// used by the LLM action-batch assistant to call the same HTTP API the
 	// frontend/CLI use, in-process, regardless of what host QUESTS_HOST binds.
 	SelfBase string
+	// WebDAV stores attachment bytes. Nil/unconfigured disables uploads.
+	WebDAV *webdav.Client
+	// ClamAV scans uploads. Unconfigured refuses uploads rather than storing
+	// anything unscanned.
+	ClamAV *clamav.Client
+	// MaxUploadBytes caps a single attachment.
+	MaxUploadBytes int64
 }
 
 func (s *Server) Handler() http.Handler {
@@ -57,6 +66,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("PATCH /api/quests/{id}/steps/{step_id}", s.patchStep)
 	mux.HandleFunc("DELETE /api/quests/{id}/steps/{step_id}", s.deleteStep)
 	s.registerAuth(mux)
+	s.registerAttachments(mux)
 	s.registerParity(mux)
 	s.registerLLMActions(mux)
 	s.mountSPA(mux)
