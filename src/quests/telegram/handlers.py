@@ -54,6 +54,7 @@ HELP = (
     f"{BTN_LIST} / /list — активные по разделам\n"
     f"{BTN_NEW} / /new — создать задачу\n"
     f"{BTN_NEW_LLM} / /new-llm — текст или голос → квест (Cursor)\n"
+    "Или просто напиши задачу в чат (больше 10 символов).\n"
     "/quest &lt;id&gt; — карточка, статус и шаги\n"
     f"{BTN_CANCEL} / /cancel — отменить диалог\n"
     f"{BTN_HELP} / /help — справка"
@@ -99,10 +100,10 @@ def _step_is_done(step: dict) -> bool:
 
 
 async def _edit_quest_card(
-    query: CallbackQuery, q: dict, *, page: int = 0
+    query: CallbackQuery, q: dict, *, page: int = 0, expanded: bool = False
 ) -> None:
     text = format_quest_card(q)
-    markup = quest_keyboard(q, page=page)
+    markup = quest_keyboard(q, page=page, expanded=expanded)
     msg = query.message
     if msg is None:
         return
@@ -328,6 +329,21 @@ def build_router(
         )
         await query.answer()
 
+    @router.callback_query(F.data.startswith("qe:"))
+    async def cb_edit_expand(query: CallbackQuery) -> None:
+        raw = (query.data or "").split(":", 1)[-1]
+        if not raw.isdigit():
+            await query.answer("bad id")
+            return
+        qid = int(raw)
+        try:
+            q = await api.get_quest(qid)
+        except ApiError as e:
+            await _on_quest_callback_error(query, e)
+            return
+        await _edit_quest_card(query, q, page=0, expanded=True)
+        await query.answer()
+
     @router.callback_query(F.data.startswith("qr:"))
     async def cb_refresh(query: CallbackQuery) -> None:
         parts = (query.data or "").split(":")
@@ -341,7 +357,7 @@ def build_router(
         except ApiError as e:
             await _on_quest_callback_error(query, e)
             return
-        await _edit_quest_card(query, q, page=page)
+        await _edit_quest_card(query, q, page=page, expanded=True)
         await query.answer("обновлено")
 
     @router.callback_query(F.data.startswith("qp:"))
@@ -357,7 +373,7 @@ def build_router(
         except ApiError as e:
             await _on_quest_callback_error(query, e)
             return
-        await _edit_quest_card(query, q, page=page)
+        await _edit_quest_card(query, q, page=page, expanded=True)
         await query.answer()
 
     @router.callback_query(F.data.startswith("qs:"))
@@ -372,11 +388,22 @@ def build_router(
             await query.answer("unknown status")
             return
         try:
+            current = await api.get_quest(qid)
+        except ApiError as e:
+            await _on_quest_callback_error(query, e)
+            return
+        if new_status == "completed" and str(current.get("status")) == "completed":
+            await _edit_quest_card(query, current, page=0, expanded=False)
+            await query.answer()
+            return
+        try:
             q = await api.patch_quest(qid, {"status": new_status})
         except ApiError as e:
             await _on_quest_callback_error(query, e)
             return
-        await _edit_quest_card(query, q, page=0)
+        await _edit_quest_card(
+            query, q, page=0, expanded=new_status != "completed"
+        )
         await query.answer(f"→ {new_status}")
 
     @router.callback_query(F.data.startswith("qt:"))
@@ -410,7 +437,7 @@ def build_router(
         except ApiError as e:
             await _on_quest_callback_error(query, e)
             return
-        await _edit_quest_card(query, q, page=page)
+        await _edit_quest_card(query, q, page=page, expanded=True)
         await query.answer("✓" if new_cur >= total else "сброс")
 
     # ── create dialog ─────────────────────────────────────────────────────
@@ -531,7 +558,7 @@ def build_router(
         await _purge_dialog(message.bot, state, chat_id)
         title = _esc_html(str(q.get("title") or data.get("title") or ""))
         await tg_retry(
-            lambda: message.answer(f"Создано задание «{title}»"),
+            lambda: message.answer(f"Создано задание «{title}»", reply_markup=reply_kb),
             label="created",
         )
 
@@ -906,6 +933,7 @@ def build_router(
                 lambda: query.bot.send_message(  # type: ignore[union-attr]
                     chat_id,
                     f"Создано задание «{title}»",
+                    reply_markup=reply_kb,
                 ),
                 label="llm-created",
             )
@@ -913,7 +941,23 @@ def build_router(
 
     @router.message(F.text)
     async def unhandled_text(message: Message, state: FSMContext) -> None:
-        """Any unmatched text → help (FSM / commands registered above take priority)."""
+        """Idle long text → LLM; otherwise help.
+
+        Telegram has no «chat opened» event, so the reply keyboard can stay
+        hidden until some message is sent. Treat a sentence as a quest draft.
+        """
+        text = (message.text or "").strip()
+        current = await state.get_state()
+        if (
+            current is None
+            and text
+            and not text.startswith("/")
+            and text not in _NAV_BUTTONS
+            and len(text) > 10
+        ):
+            await state.set_state(CreateLlm.text)
+            await _run_llm(message, state, text)
+            return
         await _purge_dialog(message.bot, state, message.chat.id if message.chat else None)
         await do_help(message)
 

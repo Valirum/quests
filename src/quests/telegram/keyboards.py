@@ -15,6 +15,7 @@ BTN_NEW = "➕ Новая"
 BTN_NEW_LLM = "✨ LLM"
 BTN_HELP = "❓ Помощь"
 BTN_CANCEL = "✖ Отмена"
+BTN_EDIT = "✏️ Редактировать"
 
 # Inline: statuses — qs:<qid>:<status>
 STATUSES = (
@@ -38,6 +39,7 @@ def main_reply_keyboard() -> ReplyKeyboardMarkup:
         ],
         resize_keyboard=True,
         is_persistent=True,
+        input_field_placeholder="задача текстом → LLM",
     )
 
 
@@ -103,9 +105,23 @@ def _clamp_page(page: int, n_steps: int) -> int:
     return max(0, min(int(page), pages - 1))
 
 
-def quest_keyboard(quest: dict, *, page: int = 0) -> InlineKeyboardMarkup:
-    """Статусы + бинарные шаги (ничего/всё) с листанием."""
+def quest_keyboard(
+    quest: dict, *, page: int = 0, expanded: bool = False
+) -> InlineKeyboardMarkup:
+    """Статусы + бинарные шаги. Выполненные по умолчанию — только «Редактировать»."""
     qid = int(quest["id"])
+    if str(quest.get("status") or "") == "completed" and not expanded:
+        return InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(
+                        text=BTN_EDIT,
+                        callback_data=f"qe:{qid}",
+                    )
+                ]
+            ]
+        )
+
     steps = list(quest.get("steps") or [])
     page = _clamp_page(page, len(steps))
 

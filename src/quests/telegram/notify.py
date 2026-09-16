@@ -21,18 +21,36 @@ from quests.timeutil import ensure_utc, is_in_urgent_window
 
 log = logging.getLogger("quests.telegram.notify")
 
-# Domain kinds → TG push.
+# Domain kinds → TG push. Same set as overlay major toasts (minus quest_created:
+# /new already replies in chat).
 NOTIFY_KINDS = {
     "quest_completed": "Выполнено",
     "quest_failed": "Провал",
     "quest_delayed": "Просрочено",
     "quest_started": "Задача началась",
-    # периодические инстансы (ручной create через /new уже отвечает в чат)
     "quest_appeared": "Новая задача",
 }
 
+# Overlay demotes these automated kinds off the major toast; dailies at midnight
+# also publish quest_appeared with toast=false. TG follows the same rule.
+_DEMOTE_AUTOMATED = frozenset(
+    {"quest_created", "quest_appeared", "quest_started"}
+)
+
 POLL_EVENTS_S = 3.0
 POLL_WINDOWS_S = 15.0
+
+
+def should_push_event(ev: dict[str, Any]) -> bool:
+    """True if overlay would show a major toast for this event."""
+    kind = str(ev.get("kind") or "")
+    if kind not in NOTIFY_KINDS:
+        return False
+    if not bool(ev.get("toast", True)):
+        return False
+    if bool(ev.get("automated")) and kind in _DEMOTE_AUTOMATED:
+        return False
+    return True
 
 
 def _html_escape(text: str) -> str:
@@ -193,7 +211,7 @@ async def _handle_event(
     ev: dict[str, Any],
 ) -> None:
     kind = str(ev.get("kind") or "")
-    if kind not in NOTIFY_KINDS:
+    if not should_push_event(ev):
         return
     quest_id = ev.get("quest_id")
     if quest_id is not None:
@@ -308,6 +326,8 @@ async def window_start_loop(
         try:
             for q in await _active_in_window(api):
                 qid = int(q["id"])
+                if q.get("automated"):
+                    continue
                 if not dedup.mark(qid, "quest_started"):
                     continue
                 text = (
