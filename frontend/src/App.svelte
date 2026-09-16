@@ -785,9 +785,10 @@
   {:else if view === 'toc'}
     <div class="journal__toc">
       <TocPage
-        {byCategory}
+        {matchedQuests}
+        {categories}
+        {questlines}
         bind:searchQuery
-        bind:showAllQuests
         {nowMs}
         onSelectQuest={(id) => {
           selectQuestFromUi(id)

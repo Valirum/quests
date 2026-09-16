@@ -1,25 +1,92 @@
 <script>
+  import FilterSlider from '../ui/FilterSlider.svelte'
   import QuestlineIcon from '../ui/QuestlineIcon.svelte'
+  import {
+    QUEST_SIGNIFICANCES,
+    QUEST_STATUS_LABELS,
+    QUEST_STATUSES,
+  } from '../js/api.js'
+  import { groupQuestsByCategory } from '../js/questGroups.js'
   import { questTimer, significanceLabel, statusColor } from '../js/questFormat.js'
 
   /** @type {{
-   *   byCategory: any[],
+   *   matchedQuests: any[],
+   *   categories: any[],
+   *   questlines: any[],
    *   searchQuery: string,
-   *   showAllQuests: boolean,
    *   nowMs: number,
    *   onSelectQuest: (id: number) => void,
    *   onLineContextMenu: (event: MouseEvent, line: any) => void,
    *   onQuestContextMenu: (event: MouseEvent, quest: any) => void,
    * }} */
   let {
-    byCategory,
+    matchedQuests = [],
+    categories = [],
+    questlines = [],
     searchQuery = $bindable(''),
-    showAllQuests = $bindable(false),
     nowMs,
     onSelectQuest,
     onLineContextMenu,
     onQuestContextMenu,
   } = $props()
+
+  /** @param {Set<string>} set @param {string} id */
+  function toggleIn(set, id) {
+    const next = new Set(set)
+    if (next.has(id)) next.delete(id)
+    else next.add(id)
+    return next
+  }
+
+  let statusFilter = $state(new Set(['active', 'delayed']))
+  let sigFilter = $state(new Set(QUEST_SIGNIFICANCES.map((s) => s.id)))
+  let catTouched = $state(false)
+  let catFilter = $state(new Set(['none']))
+
+  let catSelected = $derived(
+    catTouched
+      ? catFilter
+      : new Set(['none', ...categories.map((c) => String(c.id))]),
+  )
+
+  let catOptions = $derived([
+    { id: 'none', label: 'Нет', kind: 'cat' },
+    ...categories.map((c) => ({
+      id: String(c.id),
+      label: c.label,
+      kind: 'cat',
+      color: c.color || '#9a9a9a',
+    })),
+  ])
+
+  let statusOptions = $derived(
+    QUEST_STATUSES.map((s) => ({
+      id: s,
+      label: QUEST_STATUS_LABELS[s] ?? s,
+      kind: 'status',
+    })),
+  )
+
+  let sigOptions = $derived(
+    QUEST_SIGNIFICANCES.map((s) => ({
+      id: s.id,
+      label: s.label,
+      kind: 'sig',
+    })),
+  )
+
+  let listed = $derived(
+    matchedQuests.filter((q) => {
+      if (!statusFilter.has(q.status)) return false
+      if (!sigFilter.has(q.significance || 'common')) return false
+      const cat = q.category_id != null ? String(q.category_id) : 'none'
+      return catSelected.has(cat)
+    }),
+  )
+
+  let byCategory = $derived(
+    groupQuestsByCategory(listed, categories, questlines),
+  )
 
   function selectLine(line) {
     const first = line.quests?.[0]
@@ -36,10 +103,34 @@
       bind:value={searchQuery}
       aria-label="Поиск по названию, разделу, квестлайну, описанию, шагам"
     />
-    <label class="toc__filter">
-      <input type="checkbox" bind:checked={showAllQuests} />
-      <span>Показывать завершённые</span>
-    </label>
+    <div class="toc__filters">
+      <FilterSlider
+        label="Раздел"
+        wrap
+        options={catOptions}
+        selected={catSelected}
+        onToggle={(id) => {
+          catFilter = toggleIn(catSelected, id)
+          catTouched = true
+        }}
+      />
+      <FilterSlider
+        label="Статус"
+        options={statusOptions}
+        selected={statusFilter}
+        onToggle={(id) => {
+          statusFilter = toggleIn(statusFilter, id)
+        }}
+      />
+      <FilterSlider
+        label="Значимость"
+        options={sigOptions}
+        selected={sigFilter}
+        onToggle={(id) => {
+          sigFilter = toggleIn(sigFilter, id)
+        }}
+      />
+    </div>
   </div>
 
   <div class="toc__scroll">
@@ -130,14 +221,15 @@
   .toc__tools {
     flex-shrink: 0;
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
-    gap: var(--space-4, 1rem);
-    padding: var(--space-4, 1rem) var(--space-6, 2rem);
+    gap: var(--space-3, 0.75rem) var(--space-4, 1rem);
+    padding: var(--space-3, 0.75rem) var(--space-6, 2rem);
     border-bottom: 1px solid var(--color-border);
   }
 
   .toc__search {
-    flex: 0 1 20rem;
+    flex: 0 1 16rem;
     padding: var(--space-2, 0.5rem) var(--space-3, 0.75rem);
     background: var(--color-bg-muted);
     border: 1px solid var(--color-border);
@@ -147,14 +239,18 @@
     font-size: var(--text-sm);
   }
 
-  .toc__filter {
-    display: inline-flex;
+  .toc__filters {
+    flex: 1 1 28rem;
+    display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: var(--space-2, 0.5rem);
-    font-family: var(--font-ui);
-    font-size: var(--text-sm);
-    color: var(--color-fg-muted);
-    white-space: nowrap;
+    min-width: 0;
+  }
+
+  .toc__filters > :global(.opt-slider) {
+    flex: 1 1 auto;
+    min-width: 12rem;
   }
 
   .toc__scroll {

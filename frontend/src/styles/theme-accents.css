@@ -26,6 +26,18 @@
   color: var(--color-timer-urgent);
 }
 
+.opt-slider .opt-slider__opt.opt-slider__opt--on {
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, currentColor 55%, #fff);
+}
+
+.opt-slider .opt-slider__opt.opt-slider__opt--cat.opt-slider__opt--on {
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--opt-color, currentColor) 80%, #fff);
+}
+
+.opt-slider .opt-slider__opt.opt-slider__opt--cat[data-cat='none'].opt-slider__opt--on {
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--color-fg, #e8e8e8) 70%, #fff);
+}
+
 .opt-slider__opt.opt-slider__opt--sig[data-sig='common'] {
   color: var(--color-sig-common);
   background: color-mix(in srgb, var(--color-sig-common) 12%, transparent);
@@ -46,16 +58,67 @@
 .opt-slider__opt.opt-slider__opt--sig.opt-slider__opt--on[data-sig='common'] {
   color: var(--color-sig-common-on);
   background: color-mix(in srgb, var(--color-sig-common) 32%, var(--color-bg));
+  box-shadow: inset 0 0 0 2px var(--color-sig-common);
 }
 .opt-slider__opt.opt-slider__opt--sig.opt-slider__opt--on[data-sig='uncommon'] {
   color: var(--color-sig-uncommon-on);
   background: color-mix(in srgb, var(--color-sig-uncommon) 32%, var(--color-bg));
+  box-shadow: inset 0 0 0 2px var(--color-sig-uncommon);
 }
 .opt-slider__opt.opt-slider__opt--sig.opt-slider__opt--on[data-sig='epic'] {
   color: var(--color-sig-epic-on);
   background: color-mix(in srgb, var(--color-sig-epic) 34%, var(--color-bg));
+  box-shadow: inset 0 0 0 2px var(--color-sig-epic);
 }
 .opt-slider__opt.opt-slider__opt--sig.opt-slider__opt--on[data-sig='legendary'] {
   color: var(--color-sig-legendary-on);
   background: color-mix(in srgb, var(--color-sig-legendary) 34%, var(--color-bg));
+  box-shadow: inset 0 0 0 2px var(--color-sig-legendary);
+}
+
+.opt-slider__opt.opt-slider__opt--status[data-status='active'] {
+  color: var(--color-status-active);
+  background: color-mix(in srgb, var(--color-status-active) 12%, transparent);
+}
+.opt-slider__opt.opt-slider__opt--status[data-status='delayed'] {
+  color: var(--color-status-delayed);
+  background: color-mix(in srgb, var(--color-status-delayed) 12%, transparent);
+}
+.opt-slider__opt.opt-slider__opt--status[data-status='completed'] {
+  color: var(--color-status-completed);
+  background: color-mix(in srgb, var(--color-status-completed) 12%, transparent);
+}
+.opt-slider__opt.opt-slider__opt--status[data-status='failed'] {
+  color: var(--color-status-failed);
+  background: color-mix(in srgb, var(--color-status-failed) 12%, transparent);
+}
+.opt-slider__opt.opt-slider__opt--status[data-status='archived'] {
+  color: var(--color-status-archived);
+  background: color-mix(in srgb, var(--color-status-archived) 12%, transparent);
+}
+
+.opt-slider__opt.opt-slider__opt--status.opt-slider__opt--on[data-status='active'] {
+  color: color-mix(in srgb, var(--color-status-active) 85%, #fff);
+  background: color-mix(in srgb, var(--color-status-active) 32%, var(--color-bg));
+  box-shadow: inset 0 0 0 2px var(--color-status-active);
+}
+.opt-slider__opt.opt-slider__opt--status.opt-slider__opt--on[data-status='delayed'] {
+  color: color-mix(in srgb, var(--color-status-delayed) 85%, #fff);
+  background: color-mix(in srgb, var(--color-status-delayed) 32%, var(--color-bg));
+  box-shadow: inset 0 0 0 2px var(--color-status-delayed);
+}
+.opt-slider__opt.opt-slider__opt--status.opt-slider__opt--on[data-status='completed'] {
+  color: color-mix(in srgb, var(--color-status-completed) 85%, #fff);
+  background: color-mix(in srgb, var(--color-status-completed) 32%, var(--color-bg));
+  box-shadow: inset 0 0 0 2px var(--color-status-completed);
+}
+.opt-slider__opt.opt-slider__opt--status.opt-slider__opt--on[data-status='failed'] {
+  color: color-mix(in srgb, var(--color-status-failed) 85%, #fff);
+  background: color-mix(in srgb, var(--color-status-failed) 32%, var(--color-bg));
+  box-shadow: inset 0 0 0 2px var(--color-status-failed);
+}
+.opt-slider__opt.opt-slider__opt--status.opt-slider__opt--on[data-status='archived'] {
+  color: color-mix(in srgb, var(--color-status-archived) 85%, #fff);
+  background: color-mix(in srgb, var(--color-status-archived) 32%, var(--color-bg));
+  box-shadow: inset 0 0 0 2px var(--color-status-archived);
 }

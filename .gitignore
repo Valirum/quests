@@ -30,6 +30,10 @@ data/
 # Node / Vite (frontend/)
 node_modules/
 frontend/dist/
+# Leftovers from a root-owned docker/npm build. Delete with:
+#   sudo rm -rf frontend/node_modules-root-owned-orphan frontend/dist-root-owned-orphan
+frontend/node_modules-root-owned-orphan/
+frontend/dist-root-owned-orphan/
 dist-ssr/
 *.local
 npm-debug.log*

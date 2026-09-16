@@ -1,9 +1,67 @@
 <script>
+  import { tick } from 'svelte'
+
   /**
    * @typedef {{ id: string, label?: string, danger?: boolean, sep?: boolean }} CtxItem
    * @type {{ open: boolean, x: number, y: number, items: CtxItem[], onSelect: (id: string) => void, onClose: () => void }}
    */
   let { open = false, x = 0, y = 0, items = [], onSelect, onClose } = $props()
+
+  let menuEl = $state(/** @type {HTMLDivElement | null} */ (null))
+  let posX = $state(0)
+  let posY = $state(0)
+  let placed = $state(false)
+
+  const PAD = 8
+
+  function place() {
+    const el = menuEl
+    if (!el) return
+    const { width, height } = el.getBoundingClientRect()
+    const vw = window.innerWidth
+    const vh = window.innerHeight
+    let left = x
+    let top = y
+    if (left + width > vw - PAD) left = x - width
+    if (left < PAD) left = PAD
+    if (left + width > vw - PAD) left = Math.max(PAD, vw - width - PAD)
+    if (top + height > vh - PAD) top = y - height
+    if (top < PAD) top = PAD
+    if (top + height > vh - PAD) top = Math.max(PAD, vh - height - PAD)
+    posX = left
+    posY = top
+    placed = true
+  }
+
+  $effect(() => {
+    if (!open) {
+      placed = false
+      return
+    }
+    const ax = x
+    const ay = y
+    void items.length
+    posX = ax
+    posY = ay
+    placed = false
+    let cancelled = false
+    tick().then(() => {
+      if (cancelled) return
+      if (!menuEl) {
+        requestAnimationFrame(() => {
+          if (!cancelled) place()
+        })
+        return
+      }
+      place()
+    })
+    const onResize = () => place()
+    window.addEventListener('resize', onResize)
+    return () => {
+      cancelled = true
+      window.removeEventListener('resize', onResize)
+    }
+  })
 
   $effect(() => {
     if (!open) return
@@ -29,8 +87,10 @@
 
 {#if open}
   <div
+    bind:this={menuEl}
     class="ctx-menu"
-    style="left: {x}px; top: {y}px"
+    class:ctx-menu--placed={placed}
+    style="left: {posX}px; top: {posY}px"
     role="menu"
   >
     {#each items as item (item.id)}
@@ -59,11 +119,22 @@
     position: fixed;
     z-index: 80;
     min-width: 11.5rem;
+    max-height: calc(100vh - 16px);
+    overflow-y: auto;
     padding: 0.25rem;
     border: 1px solid var(--color-border-strong, #4a4a4a);
     border-radius: var(--radius-lg, 12px);
     background: var(--color-bg-raised, #1a1a1a);
     box-shadow: 0 10px 28px color-mix(in srgb, #000 40%, transparent);
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+  }
+
+  .ctx-menu--placed {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
   }
 
   .ctx-menu__item {
