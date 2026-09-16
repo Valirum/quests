@@ -75,6 +75,7 @@
   let leftEl = $state(null)
   let tabsEl = $state(null)
   let measureEl = $state(null)
+  let actionsEl = $state(null)
   let collapsed = $state(false)
 
   // Same idea, independently, for the health chips: labeled by default,
@@ -83,49 +84,79 @@
   let healthMeasureEl = $state(null)
   let healthCollapsed = $state(false)
 
+  /** Free width on each side of the tab block.
+   *
+   * The tabs are centred on the header itself, not on the space between the
+   * clusters — so the room left over is not (header - tabs) / 2. With a 324px
+   * brand cluster on the left and a 576px action row on the right, splitting
+   * the remainder evenly says everything fits while the right-hand side is in
+   * fact 19px short, and the labelled buttons slide under the tabs. Measure
+   * the actual gaps beside the tab block instead.
+   *
+   * In portrait the CSS drops the tabs onto their own row; then the two
+   * clusters share one line and only have to clear each other.
+   */
+  function headerSlots() {
+    const cs = getComputedStyle(headerEl)
+    const gap = parseFloat(cs.columnGap) || 12
+    const rect = headerEl.getBoundingClientRect()
+    const contentLeft = rect.left + (parseFloat(cs.paddingLeft) || 0)
+    const contentRight = rect.right - (parseFloat(cs.paddingRight) || 0)
+
+    if (getComputedStyle(tabsEl).position !== 'absolute') {
+      const width = contentRight - contentLeft
+      return {
+        left: width - (actionsEl?.offsetWidth ?? 0) - gap,
+        right: width - leftEl.offsetWidth - gap,
+      }
+    }
+    const tabs = tabsEl.getBoundingClientRect()
+    return {
+      left: tabs.left - contentLeft - gap,
+      right: contentRight - tabs.right - gap,
+    }
+  }
+
   function recomputeCollapse() {
     if (!headerEl || !leftEl || !tabsEl || !measureEl) return
-    const styles = getComputedStyle(headerEl)
-    const gap = (parseFloat(styles.columnGap) || 12) * 2
-    const available = headerEl.clientWidth - leftEl.offsetWidth - tabsEl.offsetWidth - gap
-    collapsed = measureEl.scrollWidth > available
+    collapsed = measureEl.scrollWidth > headerSlots().right
   }
 
   function recomputeHealthCollapse() {
     if (!headerEl || !leftEl || !tabsEl || !brandEl || !healthMeasureEl) return
-    const styles = getComputedStyle(headerEl)
-    const gap = (parseFloat(styles.columnGap) || 12) * 2
-    const actionsWidth = (collapsed ? measureEl : headerEl.querySelector('.header-actions:not(.header-actions--measure)'))
-      ?.offsetWidth ?? 0
-    const availableForLeft = headerEl.clientWidth - tabsEl.offsetWidth - actionsWidth - gap
-    const availableForHealth = availableForLeft - brandEl.offsetWidth - 12 /* header-left gap */
-    healthCollapsed = healthMeasureEl.scrollWidth > availableForHealth
+    const forHealth = headerSlots().left - brandEl.offsetWidth - 12 /* header-left gap */
+    healthCollapsed = healthMeasureEl.scrollWidth > forHealth
+  }
+
+  function recomputeAll() {
+    recomputeCollapse()
+    recomputeHealthCollapse()
   }
 
   $effect(() => {
     // Re-run whenever the measurer's own content changes shape (e.g. the
     // Шаблоны/Квестлайн buttons appearing only on some views).
     void view
-    recomputeCollapse()
-    recomputeHealthCollapse()
-    const ro = new ResizeObserver(() => {
-      recomputeCollapse()
-      recomputeHealthCollapse()
-    })
+    recomputeAll()
+    // First paint measures fallback-font widths: Literata and IBM Plex land
+    // afterwards and widen both the tabs and the buttons, which is exactly
+    // what this decision depends on. Re-measure once layout has settled and
+    // again once the real fonts are in.
+    const raf = requestAnimationFrame(recomputeAll)
+    document.fonts?.ready.then(recomputeAll)
+    const ro = new ResizeObserver(recomputeAll)
     if (headerEl) ro.observe(headerEl)
     if (leftEl) ro.observe(leftEl)
     if (tabsEl) ro.observe(tabsEl)
     if (measureEl) ro.observe(measureEl)
     if (brandEl) ro.observe(brandEl)
     if (healthMeasureEl) ro.observe(healthMeasureEl)
-    const onResize = () => {
-      recomputeCollapse()
-      recomputeHealthCollapse()
-    }
-    window.addEventListener('resize', onResize)
+    if (actionsEl) ro.observe(actionsEl)
+    window.addEventListener('resize', recomputeAll)
     return () => {
+      cancelAnimationFrame(raf)
       ro.disconnect()
-      window.removeEventListener('resize', onResize)
+      window.removeEventListener('resize', recomputeAll)
     }
   })
 </script>
@@ -256,11 +287,11 @@
   {/snippet}
 
   {#if !collapsed}
-    <div class="header-actions">
+    <div class="header-actions" bind:this={actionsEl}>
       {@render fullActions()}
     </div>
   {:else}
-    <div class="header-actions">
+    <div class="header-actions" bind:this={actionsEl}>
       <button type="button" class="btn" onclick={openMenu} aria-haspopup="menu" aria-expanded={menuOpen} aria-label="Ещё действия">
         <Icon name="more" />
       </button>
