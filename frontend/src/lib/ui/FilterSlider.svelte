@@ -15,36 +15,65 @@
    * }}
    */
   let { label, options, selected, wrap = false, onToggle } = $props()
+
+  // "Everything selected" is this control's resting state — it filters nothing.
+  // Painting each selected option in its own colour then makes the do-nothing
+  // default the loudest thing on the page. While the axis is untouched the row
+  // stays neutral; colour appears once it actually narrows something.
+  let filtering = $derived(!options.every((o) => selected.has(o.id)))
 </script>
 
-<div
-  class="opt-slider"
-  class:opt-slider--wrap={wrap}
-  role="group"
-  aria-label={label}
->
-  {#each options as opt (opt.id)}
-    {@const on = selected.has(opt.id)}
-    <button
-      type="button"
-      class="opt-slider__opt"
-      class:opt-slider__opt--on={on}
-      class:opt-slider__opt--sig={opt.kind === 'sig'}
-      class:opt-slider__opt--cat={opt.kind === 'cat'}
-      class:opt-slider__opt--status={opt.kind === 'status'}
-      data-sig={opt.kind === 'sig' ? opt.id : undefined}
-      data-status={opt.kind === 'status' ? opt.id : undefined}
-      data-cat={opt.id === 'none' ? 'none' : undefined}
-      style={opt.color ? `--opt-color: ${opt.color}` : undefined}
-      aria-pressed={on}
-      onclick={() => onToggle(opt.id)}
-    >
-      {opt.label}
-    </button>
-  {/each}
+<div class="opt-group">
+  <span class="opt-group__label">{label}</span>
+  <div
+    class="opt-slider"
+    class:opt-slider--wrap={wrap}
+    class:opt-slider--idle={!filtering}
+    role="group"
+    aria-label={label}
+  >
+    {#each options as opt (opt.id)}
+      {@const on = selected.has(opt.id)}
+      <button
+        type="button"
+        class="opt-slider__opt"
+        class:opt-slider__opt--on={on}
+        class:opt-slider__opt--sig={opt.kind === 'sig'}
+        class:opt-slider__opt--cat={opt.kind === 'cat'}
+        class:opt-slider__opt--status={opt.kind === 'status'}
+        data-sig={opt.kind === 'sig' ? opt.id : undefined}
+        data-status={opt.kind === 'status' ? opt.id : undefined}
+        data-cat={opt.id === 'none' ? 'none' : undefined}
+        style={opt.color ? `--opt-color: ${opt.color}` : undefined}
+        aria-pressed={on}
+        onclick={() => onToggle(opt.id)}
+      >
+        {opt.label}
+      </button>
+    {/each}
+  </div>
 </div>
 
 <style>
+  /* Which axis this row filters. It used to live only in aria-label, so on
+     screen three different questions — section, status, rarity — looked like
+     one undifferentiated wall of pills. */
+  .opt-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    min-width: 0;
+  }
+
+  .opt-group__label {
+    padding-left: 0.15rem;
+    font-family: var(--font-ui, sans-serif);
+    font-size: 0.65rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--color-fg-subtle, #6e6e6e);
+  }
+
   .opt-slider {
     display: flex;
     flex-direction: row;
@@ -76,38 +105,6 @@
     cursor: pointer;
   }
 
-  .opt-slider__opt:hover {
-    color: var(--color-fg, #e8e8e8);
-    background: color-mix(in srgb, var(--color-bg-hover, #2a2a2a) 80%, transparent);
-  }
-
-  .opt-slider__opt--on {
-    background: color-mix(in srgb, var(--color-accent, #c9a227) 22%, var(--color-bg, #121212));
-    color: var(--color-accent, #c9a227);
-    font-weight: 600;
-  }
-
-  .opt-slider__opt--cat {
-    color: var(--opt-color, var(--color-fg-muted, #9a9a9a));
-    background: color-mix(in srgb, var(--opt-color, #9a9a9a) 12%, transparent);
-  }
-
-  .opt-slider__opt--cat[data-cat='none'] {
-    color: var(--color-fg-muted, #9a9a9a);
-    background: transparent;
-  }
-
-  .opt-slider__opt--cat.opt-slider__opt--on {
-    color: color-mix(in srgb, var(--opt-color, #e8e8e8) 85%, #fff);
-    background: color-mix(
-      in srgb,
-      var(--opt-color, #9a9a9a) 34%,
-      var(--color-bg, #121212)
-    );
-  }
-
-  .opt-slider__opt--cat[data-cat='none'].opt-slider__opt--on {
-    color: var(--color-fg, #e8e8e8);
-    background: color-mix(in srgb, var(--color-bg-hover, #2a2a2a) 80%, transparent);
-  }
+  /* Colour per state (unpicked quiet, picked coloured) lives in
+     styles/theme-accents.css, shared with the pickers in the modals. */
 </style>

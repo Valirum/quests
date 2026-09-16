@@ -1852,8 +1852,32 @@
 
   .attach__drop {
     display: flex;
-    align-items: center;
-    gap: var(--space-3, 0.75rem);
+    align-items: baseline;
+    gap: 0.35rem;
+  }
+
+  /* Reads as a sentence — "Прикрепить файл или перетащить сюда" — so the
+     first half is a link, not a button box stacked above its own caption. */
+  .attach__pick {
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--color-accent, #c9a227);
+    font: inherit;
+    font-size: var(--text-sm, 0.875rem);
+    text-decoration: underline;
+    text-underline-offset: 0.2em;
+    cursor: pointer;
+  }
+
+  .attach__pick:hover:not(:disabled) {
+    color: color-mix(in srgb, var(--color-accent, #c9a227) 75%, #fff);
+  }
+
+  .attach__pick:disabled {
+    color: var(--color-fg-muted, #9a9a9a);
+    text-decoration: none;
+    cursor: default;
   }
 
   .attach__hint {
