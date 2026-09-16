@@ -18,6 +18,17 @@ type Config struct {
 	AuthMode string
 	// SecureCookies marks the session cookie Secure. Enable behind HTTPS.
 	SecureCookies bool
+
+	// WebDAV backs attachments. Quests stores only metadata; the bytes live
+	// here. Empty WebDAVURL disables attachment uploads entirely.
+	WebDAVURL  string
+	WebDAVUser string
+	WebDAVPass string
+	// ClamAVAddr is host:port of clamd. Empty means no scanning is available,
+	// which refuses uploads rather than accepting unscanned files.
+	ClamAVAddr string
+	// MaxUploadBytes caps a single attachment.
+	MaxUploadBytes int64
 }
 
 func Load() Config {
@@ -64,15 +75,26 @@ func Load() Config {
 	case "1", "true", "yes", "on":
 		secure = true
 	}
+	maxUpload := int64(25 << 20)
+	if raw := strings.TrimSpace(os.Getenv("QUESTS_MAX_UPLOAD_MB")); raw != "" {
+		if n, err := strconv.Atoi(raw); err == nil && n > 0 {
+			maxUpload = int64(n) << 20
+		}
+	}
 	return Config{
-		AuthMode:      authMode,
-		SecureCookies: secure,
-		Root:          root,
-		DataDir:       data,
-		DBPath:        filepath.Join(data, "quests.db"),
-		Host:          host,
-		Port:          port,
-		CORS:          cors,
+		AuthMode:       authMode,
+		SecureCookies:  secure,
+		Root:           root,
+		DataDir:        data,
+		DBPath:         filepath.Join(data, "quests.db"),
+		Host:           host,
+		Port:           port,
+		CORS:           cors,
+		WebDAVURL:      strings.TrimRight(strings.TrimSpace(os.Getenv("QUESTS_WEBDAV_URL")), "/"),
+		WebDAVUser:     strings.TrimSpace(os.Getenv("QUESTS_WEBDAV_USER")),
+		WebDAVPass:     os.Getenv("QUESTS_WEBDAV_PASS"),
+		ClamAVAddr:     strings.TrimSpace(os.Getenv("QUESTS_CLAMAV_ADDR")),
+		MaxUploadBytes: maxUpload,
 	}
 }
 

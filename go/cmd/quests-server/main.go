@@ -10,12 +10,14 @@ import (
 	"syscall"
 
 	"github.com/valirum/quests/go/internal/auth"
+	"github.com/valirum/quests/go/internal/clamav"
 	"github.com/valirum/quests/go/internal/config"
 	"github.com/valirum/quests/go/internal/db"
 	"github.com/valirum/quests/go/internal/events"
 	"github.com/valirum/quests/go/internal/health"
 	"github.com/valirum/quests/go/internal/httpapi"
 	"github.com/valirum/quests/go/internal/schedule"
+	"github.com/valirum/quests/go/internal/webdav"
 	"github.com/valirum/quests/go/internal/store"
 )
 
@@ -76,6 +78,10 @@ func main() {
 		DataDir:       cfg.DataDir,
 		Root:          cfg.Root,
 		SelfBase:      fmt.Sprintf("http://127.0.0.1:%d", cfg.Port),
+
+		WebDAV:         webdav.New(cfg.WebDAVURL, cfg.WebDAVUser, cfg.WebDAVPass),
+		ClamAV:         clamav.New(cfg.ClamAVAddr),
+		MaxUploadBytes: cfg.MaxUploadBytes,
 	}
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

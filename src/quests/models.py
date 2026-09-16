@@ -601,3 +601,66 @@ class ApiToken(SQLModel, table=True):
     created_at: datetime = Field(default_factory=utcnow)
     last_used_at: Optional[datetime] = Field(default=None)
     revoked_at: Optional[datetime] = Field(default=None)
+
+
+# --- Attachments ----------------------------------------------------------
+
+
+class AttachmentOwner(str, Enum):
+    quest = "quest"
+    questline = "questline"
+
+
+class AttachmentScanStatus(str, Enum):
+    """ClamAV verdict. A row only ever reaches the DB as clean — the other
+    states exist for rows whose scan could not be completed."""
+
+    pending = "pending"
+    clean = "clean"
+    infected = "infected"
+    error = "error"
+
+
+class Attachment(SQLModel, table=True):
+    """Metadata for a file attached to a quest or questline.
+
+    The bytes live on the WebDAV server, not here: this row only points at
+    them. Quests is an interface to a file server, not a second one.
+    """
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    owner_type: str = Field(max_length=16, index=True)
+    owner_id: int = Field(index=True)
+    # Original name, shown to humans. Never used to build the storage path.
+    filename: str = Field(max_length=255)
+    # Path inside the WebDAV root: attachments/<owner>-<id>/<uuid>-<filename>.
+    webdav_path: str = Field(max_length=512, unique=True, index=True)
+    size_bytes: int = Field(default=0)
+    # What the client claimed vs what the magic bytes say. A mismatch is the
+    # signal worth acting on; neither alone is a verdict.
+    content_type_declared: str = Field(default="", max_length=128)
+    content_type_detected: str = Field(default="", max_length=128)
+    # Free-form note: what this file is, why it is attached. Lets an agent
+    # judge relevance from the listing without downloading anything.
+    comment: str = Field(default="", max_length=500)
+    uploaded_at: datetime = Field(default_factory=utcnow)
+    scan_status: str = Field(default="pending", max_length=16)
+    scanned_at: Optional[datetime] = Field(default=None)
+
+
+class AttachmentRead(SQLModel):
+    id: int
+    owner_type: str
+    owner_id: int
+    filename: str
+    size_bytes: int
+    content_type_declared: str
+    content_type_detected: str
+    comment: str
+    uploaded_at: datetime
+    scan_status: str
+    scanned_at: Optional[datetime] = None
+
+    @field_serializer("uploaded_at", "scanned_at", when_used="json")
+    def _ser_utc(self, value: Optional[datetime]) -> Optional[str]:
+        return to_utc_iso(value)
