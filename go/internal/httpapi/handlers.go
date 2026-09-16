@@ -460,6 +460,7 @@ func (s *Server) deleteQuest(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	s.purgeOwnerAttachments(r.Context(), ownerQuest, id)
 	if err := s.Store.DeleteQuest(r.Context(), id, q.Title); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return

@@ -11,6 +11,7 @@ import (
 	"path"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gabriel-vasile/mimetype"
 	"github.com/google/uuid"
@@ -75,6 +76,9 @@ func (s *Server) attachmentFor(r *http.Request, ownerType string) (store.Attachm
 	return a, nil
 }
 
+func (s *Server) webdavOK() bool { return s.WebDAV != nil && s.WebDAV.Configured() }
+func (s *Server) clamavOK() bool { return s.ClamAV != nil && s.ClamAV.Configured() }
+
 func (s *Server) listAttachments(w http.ResponseWriter, r *http.Request, ownerType string) {
 	id, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	rows, err := s.Store.ListAttachments(r.Context(), ownerType, id)
@@ -82,11 +86,98 @@ func (s *Server) listAttachments(w http.ResponseWriter, r *http.Request, ownerTy
 		writeErr(w, 500, err.Error())
 		return
 	}
+	ownerUpdated := s.ownerUpdatedAt(r.Context(), ownerType, id)
+	probe := r.URL.Query().Get("stat") != "0"
 	out := make([]store.AttachmentRead, 0, len(rows))
 	for _, a := range rows {
-		out = append(out, store.AttachmentToRead(a))
+		out = append(out, s.decorateAttachment(r.Context(), a, ownerUpdated, probe))
 	}
 	writeJSON(w, 200, out)
+}
+
+func (s *Server) ownerUpdatedAt(ctx context.Context, ownerType string, id int64) *time.Time {
+	if ownerType == ownerQuestline {
+		row, err := s.Store.GetQuestline(ctx, id)
+		if err != nil {
+			return nil
+		}
+		raw, _ := row["updated_at"].(string)
+		if raw == "" {
+			return nil
+		}
+		t, err := timeutil.ParseFlexible(raw)
+		if err != nil {
+			return nil
+		}
+		return &t
+	}
+	q, err := s.Store.GetQuest(ctx, id)
+	if err != nil {
+		return nil
+	}
+	t := q.UpdatedAt
+	return &t
+}
+
+// decorateAttachment adds live file-server facts. available is false (and the
+// download link should hide) when WebDAV is down — not an error on the listing.
+// source_updated is the "актуализируй" marker: the file's Last-Modified is
+// newer than the quest/questline it is attached to.
+func (s *Server) decorateAttachment(ctx context.Context, a store.Attachment, ownerUpdated *time.Time, probe bool) store.AttachmentRead {
+	out := store.AttachmentToRead(a)
+	out["available"] = false
+	out["source_updated"] = false
+	out["last_modified"] = nil
+	if !probe || !s.webdavOK() {
+		return out
+	}
+	info, err := s.WebDAV.Stat(ctx, a.WebDAVPath)
+	if err != nil {
+		return out
+	}
+	out["available"] = true
+	if !info.LastModified.IsZero() {
+		out["last_modified"] = timeutil.ToUTCISO(&info.LastModified)
+		if ownerUpdated != nil && info.LastModified.After(ownerUpdated.UTC()) {
+			out["source_updated"] = true
+		}
+	}
+	return out
+}
+
+func (s *Server) attachmentsForOwner(ctx context.Context, ownerType string, ownerID int64, probe bool) []store.AttachmentRead {
+	rows, err := s.Store.ListAttachments(ctx, ownerType, ownerID)
+	if err != nil {
+		return []store.AttachmentRead{}
+	}
+	ownerUpdated := s.ownerUpdatedAt(ctx, ownerType, ownerID)
+	out := make([]store.AttachmentRead, 0, len(rows))
+	for _, a := range rows {
+		out = append(out, s.decorateAttachment(ctx, a, ownerUpdated, probe))
+	}
+	return out
+}
+
+// purgeOwnerAttachments drops metadata first, then the bytes. A leftover file
+// on WebDAV is inert; a row pointing at nothing is a broken link.
+func (s *Server) purgeOwnerAttachments(ctx context.Context, ownerType string, ownerID int64) {
+	paths, err := s.Store.AttachmentPathsForOwner(ctx, ownerType, ownerID)
+	if err != nil {
+		fmt.Printf("attachments: list paths for %s-%d: %v\n", ownerType, ownerID, err)
+		return
+	}
+	if err := s.Store.DeleteAttachmentsForOwner(ctx, ownerType, ownerID); err != nil {
+		fmt.Printf("attachments: delete rows for %s-%d: %v\n", ownerType, ownerID, err)
+		return
+	}
+	if !s.webdavOK() {
+		return
+	}
+	for _, p := range paths {
+		if err := s.WebDAV.Delete(ctx, p); err != nil && !errors.Is(err, webdav.ErrNotFound) {
+			fmt.Printf("attachments: file left on webdav %s: %v\n", p, err)
+		}
+	}
 }
 
 // safeFilename keeps the original name for humans but strips anything that
@@ -112,13 +203,13 @@ func safeFilename(name string) string {
 }
 
 func (s *Server) postAttachment(w http.ResponseWriter, r *http.Request, ownerType string) {
-	if !s.WebDAV.Configured() {
+	if !s.webdavOK() {
 		writeErr(w, 503, "attachment storage is not configured (QUESTS_WEBDAV_URL)")
 		return
 	}
 	// No scanner means no upload. Storing something unscanned and calling it
 	// "pending" would leave a file nobody ever goes back to check.
-	if !s.ClamAV.Configured() {
+	if !s.clamavOK() {
 		writeErr(w, 503, "virus scanning is not configured (QUESTS_CLAMAV_ADDR)")
 		return
 	}
@@ -210,7 +301,11 @@ func (s *Server) postAttachment(w http.ResponseWriter, r *http.Request, ownerTyp
 		writeErr(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 201, store.AttachmentToRead(a))
+	out := store.AttachmentToRead(a)
+	out["available"] = true
+	out["source_updated"] = false
+	out["last_modified"] = nil
+	writeJSON(w, 201, out)
 }
 
 func (s *Server) getAttachmentContent(w http.ResponseWriter, r *http.Request, ownerType string) {
@@ -223,7 +318,7 @@ func (s *Server) getAttachmentContent(w http.ResponseWriter, r *http.Request, ow
 		writeErr(w, 500, err.Error())
 		return
 	}
-	if !s.WebDAV.Configured() {
+	if !s.webdavOK() {
 		writeErr(w, 503, "attachment storage is not configured")
 		return
 	}
@@ -322,7 +417,7 @@ func (s *Server) deleteAttachment(w http.ResponseWriter, r *http.Request, ownerT
 		writeErr(w, 500, err.Error())
 		return
 	}
-	if s.WebDAV.Configured() {
+	if s.webdavOK() {
 		if err := s.WebDAV.Delete(r.Context(), a.WebDAVPath); err != nil && !errors.Is(err, webdav.ErrNotFound) {
 			// The row is already gone; report success but don't hide the miss.
 			fmt.Printf("attachment %d: file left on webdav: %v\n", a.ID, err)

@@ -1567,6 +1567,129 @@
     font-style: italic;
   }
 
+  .detail__line-attach {
+    padding: 0 var(--space-5, 1.5rem);
+  }
+
+  .attach {
+    display: grid;
+    gap: var(--space-3, 0.75rem);
+  }
+
+  .attach--over {
+    outline: 1px dashed var(--color-accent, #c9a227);
+    outline-offset: 4px;
+    border-radius: var(--radius-md, 4px);
+  }
+
+  .attach__error {
+    margin: 0;
+    color: var(--color-danger, #c45c5c);
+    font-size: var(--text-sm, 0.875rem);
+  }
+
+  .attach__list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    display: grid;
+    gap: var(--space-2, 0.5rem);
+  }
+
+  .attach__row {
+    display: grid;
+    grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) auto auto;
+    gap: var(--space-2, 0.5rem);
+    align-items: center;
+  }
+
+  .attach__row--off {
+    opacity: 0.55;
+  }
+
+  .attach__file {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    gap: 0.15rem;
+  }
+
+  .attach__name {
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .attach__meta {
+    font-family: var(--font-mono, monospace);
+    font-size: 0.7rem;
+    color: var(--color-fg-muted, #9a9a9a);
+  }
+
+  .attach__flag {
+    font-size: 0.7rem;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--color-accent, #c9a227);
+  }
+
+  .attach__flag--muted {
+    color: var(--color-fg-muted, #9a9a9a);
+  }
+
+  .attach__comment {
+    width: 100%;
+    min-width: 0;
+    padding: 0.25rem 0.4rem;
+    border: 1px solid var(--color-border, #333);
+    border-radius: var(--radius-md, 4px);
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    font-size: var(--text-sm, 0.875rem);
+  }
+
+  .attach__dl {
+    font-size: var(--text-sm, 0.875rem);
+    color: var(--color-accent, #c9a227);
+    text-decoration: none;
+  }
+
+  .attach__dl:hover {
+    text-decoration: underline;
+  }
+
+  .attach__dl--off {
+    color: var(--color-fg-muted, #9a9a9a);
+    cursor: default;
+  }
+
+  .attach__drop {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3, 0.75rem);
+  }
+
+  .attach__hint {
+    color: var(--color-fg-muted, #9a9a9a);
+    font-size: var(--text-sm, 0.875rem);
+  }
+
+  .attach__input {
+    display: none;
+  }
+
+  @media (max-width: 720px) {
+    .attach__row {
+      grid-template-columns: 1fr auto auto;
+    }
+
+    .attach__comment {
+      grid-column: 1 / -1;
+    }
+  }
+
   .step-list {
     margin: 0;
     padding: 0;

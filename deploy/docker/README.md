@@ -10,6 +10,7 @@ HUD в Docker нет — на рабочей станции: `./scripts/run-over
 | `api` | `8765` | Go API + собранный SPA + Alembic-миграции при старте |
 | `bot` | host net | Telegram-бот → `127.0.0.1:8765`, прокси `127.0.0.1:12334` |
 | `frontend` | `8080` | nginx → проксирует всё на `api` |
+| `clamav` | internal `3310` | clamd sidecar; сигнатуры в volume `clamav-sigs` |
 
 ```bash
 cd /path/to/Quests
@@ -116,3 +117,7 @@ SQLite — volume `quests-data` (`/app/data`).
 - `QUESTS_RELOAD=0`
 - `QUESTS_API_IMAGE` / `QUESTS_BOT_IMAGE` — опционально GHCR
 - `GROQ_API_KEY` (или `QUESTS_GROQ_API_KEY`) — нужен `api` для кнопки «Команда»; без ключа сама кнопка просто вернёт ошибку, остальной UI не пострадает
+- `QUESTS_WEBDAV_URL` / `QUESTS_WEBDAV_USER` / `QUESTS_WEBDAV_PASS` — внешний WebDAV (не в этом compose). Пустой URL = загрузка вложений выключена.
+- `QUESTS_CLAMAV_ADDR` — по умолчанию `clamav:3310`. Первый старт clamd качает сигнатуры; до готовности загрузки отвечают 503.
+
+WebDAV — отдельная инфра на хосте (сейчас `192.168.1.11:8082`), не сервис этого compose. Из контейнера `api` на тот же LAN-IP ходить можно как есть; если WebDAV на том же боксе, что и compose — `http://host.docker.internal:8082`.

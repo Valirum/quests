@@ -12,6 +12,7 @@
   import Icon from '../ui/Icon.svelte'
   import QuestlineIcon from '../ui/QuestlineIcon.svelte'
   import ConfirmModal from './ConfirmModal.svelte'
+  import AttachmentsBlock from '../blocks/AttachmentsBlock.svelte'
   import { untrack } from 'svelte'
 
   /** @type {{ open: boolean, mode: 'create' | 'edit', line?: any, onClose: () => void, onSaved: (line: any) => void, onDeleted?: (id: number) => void }} */
@@ -323,6 +324,13 @@
           </div>
           <p class="hint">Своя иконка только у этого квестлайна, в пул SVG не попадает.</p>
         </div>
+
+        {#if mode === 'edit' && line?.id}
+          <div class="field">
+            <span class="label">Вложения</span>
+            <AttachmentsBlock ownerType="questline" ownerId={line.id} />
+          </div>
+        {/if}
 
         <footer class="modal__foot">
           <button type="button" class="btn btn--ghost" onclick={onClose}>Отмена</button>

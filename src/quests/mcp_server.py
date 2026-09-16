@@ -23,6 +23,7 @@ Or: ``QUESTS_API=… uv run quests-mcp --api http://…``
 from __future__ import annotations
 
 import argparse
+import base64
 import json
 import os
 import sys
@@ -58,6 +59,10 @@ server = MCPServer(
         "To change quest lifecycle or metadata use update_quest "
         "(status: active|delayed|completed|failed|archived; pin; title; …) — "
         "do not curl the Quests API or dig into the Quests repo for that. "
+        "Attachments: get_context and list_quests return metadata only "
+        "(filename, size, type, scan_status, comment, available, "
+        "source_updated) — never file bytes. Use get_attachment when you "
+        "actually need the contents of one file. "
         "If you're blocked on the user's input and they may not be watching this "
         "conversation, use ping_user — it's the only tool guaranteed to interrupt "
         "them via the overlay HUD."
@@ -105,8 +110,69 @@ def _api(
         ) from e
 
 
+def _api_raw(
+    method: str,
+    path: str,
+    *,
+    query: dict[str, Any] | None = None,
+) -> tuple[bytes, dict[str, str]]:
+    url = f"{API_BASE}{path}"
+    if query:
+        q = {k: v for k, v in query.items() if v is not None}
+        if q:
+            url = f"{url}?{urllib.parse.urlencode(q)}"
+    headers = {"Accept": "*/*"}
+    token = (os.environ.get("QUESTS_API_TOKEN") or "").strip()
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    req = urllib.request.Request(url, headers=headers, method=method.upper())
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            raw = resp.read()
+            hdrs = {k.lower(): v for k, v in resp.headers.items()}
+            return raw, hdrs
+    except urllib.error.HTTPError as e:
+        detail = e.read().decode("utf-8", errors="replace")
+        try:
+            parsed = json.loads(detail)
+            detail = parsed.get("detail", detail)
+        except json.JSONDecodeError:
+            pass
+        raise RuntimeError(f"API {e.code}: {detail}") from e
+    except urllib.error.URLError as e:
+        raise RuntimeError(
+            f"cannot reach Quests API ({API_BASE}): {e.reason}"
+        ) from e
+
+
 def _api_get(path: str, query: dict[str, Any] | None = None) -> Any:
     return _api("GET", path, query=query)
+
+
+def _attachments_brief(owner_type: str, owner_id: int) -> list[dict[str, Any]]:
+    seg = "questlines" if owner_type == "questline" else "quests"
+    try:
+        rows = _api_get(f"/api/{seg}/{owner_id}/attachments", {"stat": "0"}) or []
+    except RuntimeError:
+        # Route missing on an older API, or owner gone — listing quests
+        # should still work.
+        return []
+    out: list[dict[str, Any]] = []
+    for a in rows:
+        out.append(
+            {
+                "id": a.get("id"),
+                "filename": a.get("filename"),
+                "size_bytes": a.get("size_bytes"),
+                "content_type": a.get("content_type_detected")
+                or a.get("content_type_declared"),
+                "scan_status": a.get("scan_status"),
+                "comment": a.get("comment"),
+                "available": a.get("available"),
+                "source_updated": a.get("source_updated"),
+            }
+        )
+    return out
 
 
 def _tool_query(*, quiet: bool) -> dict[str, str]:
@@ -190,8 +256,10 @@ def _quest_mutation_result(q: dict[str, Any]) -> dict[str, Any]:
 @server.tool(
     description=(
         "Full related context for a quest, step, or questline: questline (if any), "
-        "sibling quests on that line, and all steps/progress. Pass exactly one of "
-        "ref / quest / step / questline. ref accepts clipboard form: quest=23."
+        "sibling quests on that line, all steps/progress, and attachment metadata "
+        "(filename, size, type, scan_status, comment, available, source_updated) "
+        "without file bytes. Pass exactly one of ref / quest / step / questline. "
+        "ref accepts clipboard form: quest=23. Use get_attachment to read a file."
     )
 )
 def get_context(
@@ -221,7 +289,9 @@ def get_context(
 @server.tool(
     description=(
         "List quests (compact summaries, no step bodies). "
-        "Optional filters: status, questline_id, pinned."
+        "Optional filters: status, questline_id, pinned. "
+        "Includes attachment metadata (not file bytes) so you can judge "
+        "relevance from filename/comment before calling get_attachment."
     )
 )
 def list_quests(
@@ -237,7 +307,14 @@ def list_quests(
     rows = _api_get("/api/quests", query) or []
     if questline_id is not None:
         rows = [q for q in rows if q.get("questline_id") == questline_id]
-    return [_quest_summary(q) for q in rows]
+    out = []
+    for q in rows:
+        row = _quest_summary(q)
+        qid = q.get("id")
+        if qid is not None:
+            row["attachments"] = _attachments_brief("quest", int(qid))
+        out.append(row)
+    return out
 
 
 @server.tool(description="List all questlines (id, title, category, color, …).")
@@ -514,6 +591,88 @@ def delete_step(
         query=_tool_query(quiet=quiet),
     )
     return _quest_mutation_result(q)
+
+
+_GET_ATTACHMENT_MAX = 512 * 1024
+_TEXT_TYPES = (
+    "text/",
+    "application/json",
+    "application/xml",
+    "application/javascript",
+    "application/x-javascript",
+    "application/yaml",
+    "application/x-yaml",
+    "application/toml",
+    "+json",
+    "+xml",
+)
+
+
+def _looks_text(content_type: str, raw: bytes) -> bool:
+    ct = (content_type or "").lower()
+    if any(tok in ct for tok in _TEXT_TYPES):
+        return True
+    sample = raw[:512]
+    if b"\x00" in sample:
+        return False
+    try:
+        sample.decode("utf-8")
+        return True
+    except UnicodeDecodeError:
+        return False
+
+
+@server.tool(
+    description=(
+        "Fetch the contents of one attachment. Metadata is already on "
+        "list_quests / get_context — only call this when you decided the file "
+        "is relevant. Pass attachment_id plus exactly one of quest / questline. "
+        "Text is returned as utf-8; anything else as base64. Files over 512 KiB "
+        "come back truncated (metadata only plus a note)."
+    )
+)
+def get_attachment(
+    attachment_id: int,
+    quest: int | None = None,
+    questline: int | None = None,
+) -> dict[str, Any]:
+    chosen = [
+        (k, v) for k, v in (("quest", quest), ("questline", questline)) if v is not None
+    ]
+    if len(chosen) != 1:
+        raise ValueError("provide exactly one of: quest, questline")
+    kind, owner_id = chosen[0]
+    seg = "quests" if kind == "quest" else "questlines"
+    meta_rows = _api_get(f"/api/{seg}/{owner_id}/attachments", {"stat": "0"}) or []
+    meta = next((a for a in meta_rows if a.get("id") == attachment_id), None)
+    raw, _hdrs = _api_raw(
+        "GET", f"/api/{seg}/{owner_id}/attachments/{attachment_id}"
+    )
+    out: dict[str, Any] = {
+        "id": attachment_id,
+        "owner_type": kind,
+        "owner_id": owner_id,
+        "filename": (meta or {}).get("filename"),
+        "size_bytes": (meta or {}).get("size_bytes", len(raw)),
+        "content_type": (meta or {}).get("content_type_detected")
+        or (meta or {}).get("content_type_declared"),
+        "comment": (meta or {}).get("comment"),
+        "truncated": False,
+    }
+    if len(raw) > _GET_ATTACHMENT_MAX:
+        out["truncated"] = True
+        out["note"] = (
+            f"file is {len(raw)} bytes; contents omitted above "
+            f"{_GET_ATTACHMENT_MAX} bytes"
+        )
+        return out
+    if _looks_text(str(out.get("content_type") or ""), raw):
+        out["text"] = raw.decode("utf-8", errors="replace")
+        out["encoding"] = "utf-8"
+    else:
+        out["base64"] = base64.standard_b64encode(raw).decode("ascii")
+        out["encoding"] = "base64"
+    return out
 
 
 def main(argv: list[str] | None = None) -> None:

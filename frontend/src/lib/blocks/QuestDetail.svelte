@@ -2,6 +2,7 @@
   import { tick } from 'svelte'
   import Icon from '../ui/Icon.svelte'
   import QuestlineIcon from '../ui/QuestlineIcon.svelte'
+  import AttachmentsBlock from './AttachmentsBlock.svelte'
   import { formatLocal, localTimeZone } from '../js/time.js'
   import {
     OPEN_STATUSES,
@@ -275,6 +276,11 @@
     {@render stepList(q)}
   </div>
 
+  <div class="block">
+    <h3 class="block__label">Вложения</h3>
+    <AttachmentsBlock ownerType="quest" ownerId={q.id} />
+  </div>
+
   <dl class="dates">
     <div>
       <dt>Создан ({tzLabel})</dt>
@@ -330,6 +336,11 @@
         </div>
         <span class="detail__line-count">{lineQuests.length}</span>
       </header>
+
+      <div class="block detail__line-attach">
+        <h3 class="block__label">Вложения квестлайна</h3>
+        <AttachmentsBlock ownerType="questline" ownerId={selected.questline_id} />
+      </div>
 
       <div class="detail__line-quests">
         {#each lineQuests as q (q.id)}

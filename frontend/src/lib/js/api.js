@@ -314,3 +314,61 @@ export async function login(username, password) {
 export function logout() {
   return request('/api/auth/logout', { method: 'POST' })
 }
+
+// --- attachments (bytes live on WebDAV; we only ever talk to the API proxy) ---
+
+function ownerAttachmentsPath(ownerType, ownerId, attachmentId) {
+  const seg = ownerType === 'questline' ? 'questlines' : 'quests'
+  const base = `/api/${seg}/${ownerId}/attachments`
+  return attachmentId == null ? base : `${base}/${attachmentId}`
+}
+
+export function listAttachments(ownerType, ownerId) {
+  return request(ownerAttachmentsPath(ownerType, ownerId))
+}
+
+export function attachmentDownloadUrl(ownerType, ownerId, attachmentId) {
+  return ownerAttachmentsPath(ownerType, ownerId, attachmentId)
+}
+
+export async function uploadAttachment(ownerType, ownerId, file, comment = '') {
+  const body = new FormData()
+  body.append('file', file)
+  if (comment) body.append('comment', comment)
+  const res = await fetch(`${BASE}${ownerAttachmentsPath(ownerType, ownerId)}`, {
+    method: 'POST',
+    credentials: 'same-origin',
+    body,
+  })
+  if (res.status === 401) {
+    if (onUnauthorized) onUnauthorized()
+    throw new UnauthorizedError()
+  }
+  const text = await res.text()
+  let data = null
+  if (text) {
+    try {
+      data = JSON.parse(text)
+    } catch {
+      throw new Error(res.ok ? 'Ответ не JSON' : `HTTP ${res.status}`)
+    }
+  }
+  if (!res.ok) {
+    const detail = data?.detail ?? res.statusText
+    throw new Error(typeof detail === 'string' ? detail : JSON.stringify(detail))
+  }
+  return data
+}
+
+export function updateAttachmentComment(ownerType, ownerId, attachmentId, comment) {
+  return request(ownerAttachmentsPath(ownerType, ownerId, attachmentId), {
+    method: 'PATCH',
+    body: JSON.stringify({ comment }),
+  })
+}
+
+export function deleteAttachment(ownerType, ownerId, attachmentId) {
+  return request(ownerAttachmentsPath(ownerType, ownerId, attachmentId), {
+    method: 'DELETE',
+  })
+}

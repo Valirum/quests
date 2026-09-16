@@ -43,6 +43,12 @@ services:
       # bridge network can't reach 127.0.0.1:12334 on the host directly —
       # host.docker.internal (via extra_hosts) is the bridge-safe way in.
       QUESTS_LLM_PROXY: ${QUESTS_LLM_PROXY:-http://host.docker.internal:12334}
+      # Attachments: bytes live on the already-running WebDAV, not in this
+      # compose. clamd is the sidecar below; uploads 503 until it is ready.
+      QUESTS_WEBDAV_URL: ${QUESTS_WEBDAV_URL:-}
+      QUESTS_WEBDAV_USER: ${QUESTS_WEBDAV_USER:-}
+      QUESTS_WEBDAV_PASS: ${QUESTS_WEBDAV_PASS:-}
+      QUESTS_CLAMAV_ADDR: ${QUESTS_CLAMAV_ADDR:-clamav:3310}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
@@ -57,6 +63,19 @@ services:
       timeout: 3s
       retries: 5
       start_period: 20s
+    depends_on:
+      - clamav
+
+  # clamd INSTREAM sidecar. Signatures live in a volume so freshclam does not
+  # re-download the full database on every restart. First boot takes a while;
+  # uploads 503 until clamd answers, which is the designed "unknown ≠ clean".
+  clamav:
+    image: clamav/clamav-debian:1.4
+    container_name: quests-clamav
+    restart: unless-stopped
+    volumes:
+      - clamav-sigs:/var/lib/clamav
+    # No published port: api talks to it on the compose network as clamav:3310.
 
   # host network: proxy on 127.0.0.1:12334 is reachable (bridge → host.docker.internal is not)
   bot:
@@ -100,3 +119,4 @@ services:
 
 volumes:
   quests-data:
+  clamav-sigs:
