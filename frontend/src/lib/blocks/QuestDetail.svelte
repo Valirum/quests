@@ -1,5 +1,4 @@
 <script>
-  import { tick } from 'svelte'
   import Icon from '../ui/Icon.svelte'
   import QuestlineIcon from '../ui/QuestlineIcon.svelte'
   import MarkdownBody from '../ui/MarkdownBody.svelte'
@@ -9,6 +8,7 @@
     OPEN_STATUSES,
     periodBadge,
     questTimer,
+    quantifiedProgress,
     significanceLabel,
     statusColor,
   } from '../js/questFormat.js'
@@ -34,6 +34,7 @@
    *   onQuestTitleContextMenu?: (event: MouseEvent, quest: any) => void,
    *   onLineHeadContextMenu?: (event: MouseEvent) => void,
    *   onStepContextMenu?: (event: MouseEvent, step: any) => void,
+   *   onSelectQuest?: (id: number) => void,
    * }} */
   let {
     selected,
@@ -56,6 +57,7 @@
     onQuestTitleContextMenu,
     onLineHeadContextMenu,
     onStepContextMenu,
+    onSelectQuest,
   } = $props()
 
   const tzLabel = localTimeZone()
@@ -86,33 +88,22 @@
     iconUrl: selected?.questline_icon_url || null,
   })
 
-  /** Only scroll on selected-id change — not on step/progress refreshes of the same quest. */
-  let scrolledToId = $state(/** @type {number | null} */ (null))
-  /** Open only when explicitly true; collapsed by default. */
-  let lineQuestOpen = $state(/** @type {Record<number, boolean>} */ ({}))
+  let lineIndex = $derived(lineQuests.findIndex((q) => q.id === selected?.id))
+  let linePrev = $derived(lineIndex > 0 ? lineQuests[lineIndex - 1] : null)
+  let lineNext = $derived(
+    lineIndex >= 0 && lineIndex < lineQuests.length - 1 ? lineQuests[lineIndex + 1] : null,
+  )
 
-  function isLineQuestOpen(id) {
-    return lineQuestOpen[id] === true
-  }
-
-  function toggleLineQuest(id) {
-    lineQuestOpen = { ...lineQuestOpen, [id]: !isLineQuestOpen(id) }
+  function selectLineQuest(id) {
+    if (id == null || id === selected?.id) return
+    onSelectQuest?.(id)
   }
 
   $effect(() => {
     const id = selected?.id ?? null
-    const inLine = Boolean(selected?.questline_id)
-    if (!id || !inLine) {
-      scrolledToId = null
-      return
-    }
-    if (scrolledToId === id) return
-    scrolledToId = id
-    // Selecting a quest: expand only it, collapse the rest.
-    lineQuestOpen = { [id]: true }
-    tick().then(() => {
-      const el = document.getElementById(`quest-${id}`)
-      el?.scrollIntoView({ block: 'start', behavior: 'smooth' })
+    if (id == null) return
+    queueMicrotask(() => {
+      document.querySelector('.detail')?.scrollTo({ top: 0 })
     })
   })
 </script>
@@ -160,24 +151,24 @@
 {/snippet}
 
 {#snippet questEyebrow(q)}
-  <p class="detail__eyebrow">
+  {@const frac = quantifiedProgress(q)}
+  <p class="detail__colophon">
     <span class="status" style:color={statusColor(q.status)}>{q.status}</span>
-    {#if q.pinned}
-      <span class="pinned-label">PINNED</span>
-    {/if}
     {#if q.automated}
-      <span class="auto-label" title="Автоквест: создание и старт без полноэкранного тоста">AUTO</span>
+      <span title="Автоквест: создание и старт без полноэкранного тоста">авто</span>
     {/if}
-    {#if q.significance}
-      <span class="sig-badge" data-sig={q.significance}>{significanceLabel(q)}</span>
+    {#if q.significance && q.significance !== 'common'}
+      <span class="detail__sig" data-sig={q.significance}>{significanceLabel(q)}</span>
     {/if}
     {#if q.category_label}
-      <span class="period-badge" title="Раздел">{q.category_label}</span>
+      <span title="Раздел">{q.category_label}</span>
     {/if}
     {#if periodBadge(q)}
-      <span class="period-badge" title="Период">{periodBadge(q)}</span>
+      <span title="Период">{periodBadge(q)}</span>
     {/if}
-    <span class="progress">{q.progress_label}</span>
+    {#if frac}
+      <span class="progress">{frac}</span>
+    {/if}
   </p>
 {/snippet}
 
@@ -290,8 +281,7 @@
 {#snippet questBody(q)}
   {@const timer = questTimer(q, nowMs)}
   {#if q.description}
-    <div class="block">
-      <h3 class="block__label">Описание</h3>
+    <div class="block block--prose">
       <MarkdownBody class="block__body" source={q.description} />
     </div>
   {/if}
@@ -362,67 +352,92 @@
         <span class="detail__line-count">{lineQuests.length}</span>
       </header>
 
-      <div class="block detail__line-attach">
+      <div class="detail__line-attach">
         <h3 class="block__label">Вложения квестлайна</h3>
         <AttachmentsBlock ownerType="questline" ownerId={selected.questline_id} />
       </div>
 
-      <div class="detail__line-quests">
-        {#each lineQuests as q (q.id)}
-          {@const open = isLineQuestOpen(q.id)}
-          <article
-            id="quest-{q.id}"
-            class="detail__quest"
-            class:detail__quest--collapsed={!open}
-          >
-            <header
-              class="detail__head detail__head--nested"
-              data-sig={q.significance || 'common'}
-            >
-              <div class="detail__head-row">
-                {@render questEyebrow(q)}
-                {@render questActions(q)}
-              </div>
+      {#if lineQuests.length > 1}
+        <nav class="detail__toc" aria-label="Оглавление квестлайна">
+          <ol class="detail__toc-list">
+            {#each lineQuests as q, i (q.id)}
+              <li>
+                <button
+                  type="button"
+                  class="detail__toc-item"
+                  class:detail__toc-item--on={q.id === selected.id}
+                  class:detail__toc-item--inactive={!OPEN_STATUSES.has(q.status)}
+                  aria-current={q.id === selected.id ? 'page' : undefined}
+                  onclick={() => selectLineQuest(q.id)}
+                  oncontextmenu={(e) => onQuestTitleContextMenu?.(e, q)}
+                >
+                  <span class="detail__toc-num">{i + 1}</span>
+                  <span class="detail__toc-title">{q.title}</span>
+                  {#if q.status !== 'active'}
+                    <span class="status" style:color={statusColor(q.status)}>{q.status}</span>
+                  {/if}
+                </button>
+              </li>
+            {/each}
+          </ol>
+        </nav>
+      {/if}
+
+      <article id="quest-{selected.id}" class="detail__quest">
+        <header class="detail__head" data-sig={selected.significance || 'common'}>
+          <div class="detail__head-row">
+            <h2
+              class="detail__title"
+              oncontextmenu={(e) => onQuestTitleContextMenu?.(e, selected)}
+            >{selected.title}</h2>
+            {@render questActions(selected)}
+          </div>
+          {@render questEyebrow(selected)}
+        </header>
+        {@render questBody(selected)}
+      </article>
+
+      {#if lineQuests.length > 1}
+        <footer class="detail__line-foot">
+          <nav class="detail__pager" aria-label="Соседние квесты">
+            {#if linePrev}
               <button
                 type="button"
-                class="detail__quest-toggle"
-                aria-expanded={open}
-                aria-label={open ? 'Свернуть квест' : 'Развернуть квест'}
-                onclick={() => toggleLineQuest(q.id)}
+                class="detail__pager-link"
+                onclick={() => selectLineQuest(linePrev.id)}
               >
-                <h3
-                  class="detail__subtitle"
-                  oncontextmenu={(e) => onQuestTitleContextMenu?.(e, q)}
-                >{q.title}</h3>
-                <span
-                  class="detail__quest-chevron"
-                  class:detail__quest-chevron--open={open}
-                  aria-hidden="true"
-                >
-                  <Icon name="chevron-right" size={16} />
-                </span>
+                ← {linePrev.title}
               </button>
-            </header>
-            <div class="detail__quest-body" class:detail__quest-body--open={open}>
-              <div class="detail__quest-body-inner">
-                {@render questBody(q)}
-              </div>
-            </div>
-          </article>
-        {/each}
-      </div>
+            {:else}
+              <span class="detail__pager-link detail__pager-link--empty"></span>
+            {/if}
+            <span class="detail__pager-pos">{lineIndex + 1} / {lineQuests.length}</span>
+            {#if lineNext}
+              <button
+                type="button"
+                class="detail__pager-link detail__pager-link--next"
+                onclick={() => selectLineQuest(lineNext.id)}
+              >
+                {lineNext.title} →
+              </button>
+            {:else}
+              <span class="detail__pager-link detail__pager-link--empty"></span>
+            {/if}
+          </nav>
+        </footer>
+      {/if}
     </div>
   {:else}
     <article id="quest-{selected.id}" class="detail__quest">
       <header class="detail__head" data-sig={selected.significance || 'common'}>
         <div class="detail__head-row">
-          {@render questEyebrow(selected)}
+          <h2
+            class="detail__title"
+            oncontextmenu={(e) => onQuestTitleContextMenu?.(e, selected)}
+          >{selected.title}</h2>
           {@render questActions(selected)}
         </div>
-        <h2
-          class="detail__title"
-          oncontextmenu={(e) => onQuestTitleContextMenu?.(e, selected)}
-        >{selected.title}</h2>
+        {@render questEyebrow(selected)}
       </header>
       {@render questBody(selected)}
     </article>

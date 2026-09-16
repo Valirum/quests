@@ -5,6 +5,7 @@
     isQuestInactive,
     periodBadge,
     questTimer,
+    quantifiedProgress,
     significanceLabel,
     statusColor,
   } from '../js/questFormat.js'
@@ -83,6 +84,7 @@
     {:else}
       {#snippet questRow(q)}
         {@const rowTimer = questTimer(q, nowMs)}
+        {@const frac = quantifiedProgress(q)}
         <button
           type="button"
           class="quest-row"
@@ -110,22 +112,26 @@
             </span>
           </span>
           {#if q.significance && q.significance !== 'common'}
-            <span class="quest-row__sig">
-              <span class="sig-badge" data-sig={q.significance}>{significanceLabel(q)}</span>
+            <span class="quest-row__sig" data-sig={q.significance}>{significanceLabel(q)}</span>
+          {/if}
+          {#if q.status !== 'active' || periodBadge(q) || rowTimer || frac}
+            <span class="quest-row__meta">
+              <span class="quest-row__meta-left">
+                {#if q.status !== 'active'}
+                  <span class="status" style:color={statusColor(q.status)}>{q.status}</span>
+                {/if}
+                {#if periodBadge(q)}
+                  <span class="period-badge" title="Периодический инстанс">{periodBadge(q)}</span>
+                {/if}
+                {#if rowTimer}
+                  <span class="row-timer" data-tone={rowTimer.tone}>{rowTimer.label}</span>
+                {/if}
+              </span>
+              {#if frac}
+                <span class="progress">{frac}</span>
+              {/if}
             </span>
           {/if}
-          <span class="quest-row__meta">
-            <span class="quest-row__meta-left">
-              <span class="status" style:color={statusColor(q.status)}>{q.status}</span>
-              {#if periodBadge(q)}
-                <span class="period-badge" title="Периодический инстанс">{periodBadge(q)}</span>
-              {/if}
-              {#if rowTimer}
-                <span class="row-timer" data-tone={rowTimer.tone}>{rowTimer.label}</span>
-              {/if}
-            </span>
-            <span class="progress">{q.progress_label}</span>
-          </span>
         </button>
       {/snippet}
 

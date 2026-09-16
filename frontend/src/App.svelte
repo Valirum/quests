@@ -843,6 +843,7 @@
           if (line) openLineContextMenu(e, line)
         }}
         onStepContextMenu={openStepContextMenu}
+        onSelectQuest={(id) => selectQuestFromUi(id)}
       />
     </div>
   {/if}
