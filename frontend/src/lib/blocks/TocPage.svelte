@@ -96,13 +96,6 @@
 
 <div class="toc">
   <div class="toc__tools">
-    <input
-      class="toc__search"
-      type="search"
-      placeholder="Поиск…"
-      bind:value={searchQuery}
-      aria-label="Поиск по названию, разделу, квестлайну, описанию, шагам"
-    />
     <div class="toc__filters">
       <FilterSlider
         label="Раздел"
@@ -131,6 +124,13 @@
         }}
       />
     </div>
+    <input
+      class="toc__search"
+      type="search"
+      placeholder="Поиск…"
+      bind:value={searchQuery}
+      aria-label="Поиск по названию, разделу, квестлайну, описанию, шагам"
+    />
   </div>
 
   <div class="toc__scroll">
@@ -218,15 +218,13 @@
     min-height: 0;
   }
 
-  /* Search gets its own row above the filter axes: it is one field against
-     three multi-option groups, so sharing a line left it lost at one end. */
   .toc__tools {
     flex-shrink: 0;
     display: flex;
     flex-direction: column;
     align-items: stretch;
-    gap: var(--space-3, 0.75rem);
-    padding: var(--space-3, 0.75rem) var(--space-6, 2rem);
+    gap: var(--space-2, 0.5rem);
+    padding: var(--space-2, 0.5rem) var(--space-6, 2rem);
     border-bottom: 1px solid var(--color-border);
   }
 
@@ -249,10 +247,9 @@
   }
 
   .toc__filters {
-    flex: 1 1 28rem;
     display: flex;
     flex-wrap: wrap;
-    align-items: center;
+    align-items: flex-end;
     gap: var(--space-2, 0.5rem);
     min-width: 0;
   }

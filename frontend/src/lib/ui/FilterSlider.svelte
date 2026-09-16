@@ -15,12 +15,6 @@
    * }}
    */
   let { label, options, selected, wrap = false, onToggle } = $props()
-
-  // "Everything selected" is this control's resting state — it filters nothing.
-  // Painting each selected option in its own colour then makes the do-nothing
-  // default the loudest thing on the page. While the axis is untouched the row
-  // stays neutral; colour appears once it actually narrows something.
-  let filtering = $derived(!options.every((o) => selected.has(o.id)))
 </script>
 
 <div class="opt-group">
@@ -28,7 +22,6 @@
   <div
     class="opt-slider"
     class:opt-slider--wrap={wrap}
-    class:opt-slider--idle={!filtering}
     role="group"
     aria-label={label}
   >

@@ -100,18 +100,3 @@
   background: color-mix(in srgb, var(--color-fg, #e8e8e8) 14%, var(--color-bg, #121212));
   box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--color-fg, #e8e8e8) 55%, transparent);
 }
-
-/* Axis at rest — every option on, so nothing is being filtered. Keep the row
-   quiet; the pickers in the modals never carry this class, so a single-choice
-   control still shows its pick in colour. */
-.opt-slider.opt-slider--idle .opt-slider__opt.opt-slider__opt--on {
-  color: var(--color-fg-muted, #9a9a9a);
-  background: transparent;
-  box-shadow: none;
-  font-weight: inherit;
-}
-
-.opt-slider.opt-slider--idle .opt-slider__opt.opt-slider__opt--on:hover {
-  color: var(--color-fg, #e8e8e8);
-  background: color-mix(in srgb, var(--color-bg-hover, #2a2a2a) 80%, transparent);
-}
