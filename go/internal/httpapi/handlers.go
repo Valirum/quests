@@ -263,6 +263,7 @@ func (s *Server) createQuest(w http.ResponseWriter, r *http.Request) {
 		QuestlineID:     lineID,
 		CreatedAt:       now,
 		UpdatedAt:       now,
+		Automated:       body.Automated,
 	}
 	if len(body.Steps) == 0 {
 		q.Steps = []domain.Step{{Title: body.Title, ProgressTotal: 1, SortOrder: 0}}
@@ -278,6 +279,13 @@ func (s *Server) createQuest(w http.ResponseWriter, r *http.Request) {
 				ProgressCurrent: sc.ProgressCurrent, ProgressTotal: sc.ProgressTotal,
 				SortOrder: ord, CheckCommand: cmd, CheckIntervalSeconds: iv,
 			}
+			if sc.WaitPrevious != nil {
+				st.WaitPrevious = *sc.WaitPrevious
+			}
+			if sc.RunMode != nil {
+				st.RunMode = store.NormalizeRunMode(*sc.RunMode)
+			}
+			store.NormalizeStepCheck(&st)
 			if st.ProgressTotal < 1 {
 				st.ProgressTotal = 1
 			}
@@ -295,6 +303,7 @@ func (s *Server) createQuest(w http.ResponseWriter, r *http.Request) {
 		QuestID: &qid, Title: created.Title, Description: created.Description,
 		Detail: "создано задание", Toast: !quiet, Source: source,
 		Significance: string(created.Significance),
+		Automated:    created.Automated,
 	})
 	writeJSON(w, http.StatusCreated, domain.ToQuestRead(created, timeutil.NowUTC()))
 }
@@ -373,6 +382,9 @@ func (s *Server) patchQuest(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+	if v, ok := raw["automated"]; ok {
+		_ = json.Unmarshal(v, &q.Automated)
+	}
 	if v, ok := raw["deadline_at"]; ok {
 		deadlineTouched = true
 		if string(v) == "null" {
@@ -441,6 +453,7 @@ func (s *Server) patchQuest(w http.ResponseWriter, r *http.Request) {
 		QuestID: &qid, Title: updated.Title, Description: updated.Description,
 		Detail: detail, Toast: !quiet && toast, Source: source,
 		Significance: string(updated.Significance),
+		Automated:    updated.Automated,
 	})
 	writeJSON(w, http.StatusOK, domain.ToQuestRead(updated, timeutil.NowUTC()))
 }
@@ -469,6 +482,7 @@ func (s *Server) deleteQuest(w http.ResponseWriter, r *http.Request) {
 	s.Hub.Publish("quest_deleted", events.PublishOpts{
 		QuestID: &id, Title: q.Title, Description: q.Description,
 		Detail: "удалено", Toast: !quiet, Source: source,
+		Automated: q.Automated,
 	})
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -509,6 +523,13 @@ func (s *Server) addStep(w http.ResponseWriter, r *http.Request) {
 		ProgressCurrent: body.ProgressCurrent, ProgressTotal: body.ProgressTotal,
 		SortOrder: ord, CheckCommand: cmd, CheckIntervalSeconds: iv,
 	}
+	if body.WaitPrevious != nil {
+		st.WaitPrevious = *body.WaitPrevious
+	}
+	if body.RunMode != nil {
+		st.RunMode = store.NormalizeRunMode(*body.RunMode)
+	}
+	store.NormalizeStepCheck(&st)
 	if st.Title == "" {
 		writeErr(w, http.StatusUnprocessableEntity, "title required")
 		return
@@ -531,6 +552,7 @@ func (s *Server) addStep(w http.ResponseWriter, r *http.Request) {
 	s.Hub.Publish("quest_updated", events.PublishOpts{
 		QuestID: &id, Title: updated.Title, Detail: "+шаги: 1",
 		Toast: false, Source: source, Significance: string(updated.Significance),
+		Automated: updated.Automated,
 	})
 	writeJSON(w, http.StatusCreated, domain.ToQuestRead(updated, timeutil.NowUTC()))
 }
@@ -589,6 +611,13 @@ func (s *Server) patchStep(w http.ResponseWriter, r *http.Request) {
 		}
 		st.CheckCommand, st.CheckIntervalSeconds = store.NormalizeCheck(cmd, iv)
 	}
+	if body.WaitPrevious != nil {
+		st.WaitPrevious = *body.WaitPrevious
+	}
+	if body.RunMode != nil {
+		st.RunMode = store.NormalizeRunMode(*body.RunMode)
+	}
+	store.NormalizeStepCheck(st)
 	domain.ClampStep(st)
 	now := timeutil.NowUTC()
 	domain.SyncStatusFromSteps(&q, now)
@@ -610,7 +639,7 @@ func (s *Server) patchStep(w http.ResponseWriter, r *http.Request) {
 	s.Hub.Publish(kind, events.PublishOpts{
 		QuestID: &id, Title: updated.Title, Detail: detail,
 		Toast: !quiet && toast, Source: source, Significance: string(updated.Significance),
-		StepTitle: st.Title,
+		StepTitle: st.Title, Automated: updated.Automated,
 	})
 	writeJSON(w, http.StatusOK, domain.ToQuestRead(updated, timeutil.NowUTC()))
 }
@@ -663,6 +692,7 @@ func (s *Server) deleteStep(w http.ResponseWriter, r *http.Request) {
 	s.Hub.Publish("quest_updated", events.PublishOpts{
 		QuestID: &id, Title: updated.Title, Detail: "−шаги: 1",
 		Toast: false, Source: source, Significance: string(updated.Significance),
+		Automated: updated.Automated,
 	})
 	writeJSON(w, http.StatusOK, domain.ToQuestRead(updated, timeutil.NowUTC()))
 }

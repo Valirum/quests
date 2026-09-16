@@ -25,16 +25,19 @@ func MaintenanceEnabled() bool {
 }
 
 // RunMaintenanceLoop mirrors Python main.maintenance_loop.
-func RunMaintenanceLoop(ctx context.Context, st *store.Store, hub *events.Hub, windows *WindowNotifier) {
+func RunMaintenanceLoop(ctx context.Context, st *store.Store, hub *events.Hub, windows *WindowNotifier, checks *CheckRunner) {
 	if !MaintenanceEnabled() {
 		log.Printf("maintenance disabled (QUESTS_MAINTENANCE=0)")
 		return
+	}
+	if checks != nil {
+		checks.FailStaleRunning(ctx)
 	}
 	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
 	ticker := time.NewTicker(PollInterval)
 	defer ticker.Stop()
 	for {
-		runOnce(ctx, st, hub, windows, rng)
+		runOnce(ctx, st, hub, windows, rng, checks)
 		select {
 		case <-ctx.Done():
 			return
@@ -43,7 +46,7 @@ func RunMaintenanceLoop(ctx context.Context, st *store.Store, hub *events.Hub, w
 	}
 }
 
-func runOnce(ctx context.Context, st *store.Store, hub *events.Hub, windows *WindowNotifier, rng *rand.Rand) {
+func runOnce(ctx context.Context, st *store.Store, hub *events.Hub, windows *WindowNotifier, rng *rand.Rand, checks *CheckRunner) {
 	if _, err := ExpireOverdue(ctx, st, hub); err != nil {
 		log.Printf("expire: %v", err)
 	}
@@ -54,5 +57,8 @@ func runOnce(ctx context.Context, st *store.Store, hub *events.Hub, windows *Win
 	}
 	if _, err := MaterializeDue(ctx, st, hub, time.Time{}, rng); err != nil {
 		log.Printf("materialize: %v", err)
+	}
+	if checks != nil {
+		checks.Tick(ctx)
 	}
 }

@@ -31,6 +31,7 @@ type QuestRead struct {
 	CompletedAt      *string      `json:"completed_at"`
 	TemplateID       *int64       `json:"template_id"`
 	PeriodKey        *string      `json:"period_key"`
+	Automated        bool         `json:"automated"`
 	Steps            []StepRead   `json:"steps"`
 	StepsDone        int          `json:"steps_done"`
 	StepsTotal       int          `json:"steps_total"`
@@ -51,6 +52,9 @@ type StepRead struct {
 	CheckCommand         *string `json:"check_command"`
 	CheckIntervalSeconds *int    `json:"check_interval_seconds"`
 	CheckLastRunAt       *string `json:"check_last_run_at"`
+	WaitPrevious         bool    `json:"wait_previous"`
+	RunMode              string  `json:"run_mode"`
+	RunStatus            *string `json:"run_status"`
 	Done                 bool    `json:"done"`
 }
 
@@ -106,6 +110,7 @@ func ToQuestRead(q Quest, now time.Time) QuestRead {
 		CompletedAt:      toISO(q.CompletedAt),
 		TemplateID:       q.TemplateID,
 		PeriodKey:        q.PeriodKey,
+		Automated:        q.Automated,
 		StepsDone:        done,
 		StepsTotal:       total,
 		ProgressLabel:    label,
@@ -115,6 +120,10 @@ func ToQuestRead(q Quest, now time.Time) QuestRead {
 	}
 	out.Steps = make([]StepRead, 0, len(q.Steps))
 	for _, s := range q.Steps {
+		mode := s.RunMode
+		if mode == "" {
+			mode = RunModePoll
+		}
 		out.Steps = append(out.Steps, StepRead{
 			ID:                   s.ID,
 			QuestID:              s.QuestID,
@@ -126,6 +135,9 @@ func ToQuestRead(q Quest, now time.Time) QuestRead {
 			CheckCommand:         s.CheckCommand,
 			CheckIntervalSeconds: s.CheckIntervalSeconds,
 			CheckLastRunAt:       toISO(s.CheckLastRunAt),
+			WaitPrevious:         s.WaitPrevious,
+			RunMode:              mode,
+			RunStatus:            s.RunStatus,
 			Done:                 s.Done,
 		})
 	}

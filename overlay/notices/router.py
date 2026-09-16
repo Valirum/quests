@@ -115,11 +115,18 @@ class NoticeRouter:
             return
 
         if kind in MAJOR_KINDS:
-            if self.major_enabled:
-                self.major.enqueue(event)
-            if self.minor_mode == "log":
-                self.schedule_refresh_log()
-            return
+            automated = bool(event.get("automated"))
+            demote = automated and kind in {
+                "quest_created",
+                "quest_appeared",
+                "quest_started",
+            }
+            if not demote:
+                if self.major_enabled:
+                    self.major.enqueue(event)
+                if self.minor_mode == "log":
+                    self.schedule_refresh_log()
+                return
         if self.minor_mode == "toast":
             self.minor.enqueue(event)
         elif self.minor_mode == "log":

@@ -38,6 +38,7 @@
   let status = $state('active')
   let significance = $state('common')
   let pinned = $state(false)
+  let automated = $state(false)
   let sortOrder = $state(0)
   /** Empty string = no category. */
   let categoryId = $state('')
@@ -106,6 +107,8 @@
       progress_total: 1,
       check_command: '',
       check_interval_seconds: '',
+      wait_previous: false,
+      run_mode: 'poll',
       check_open: false,
     }
   }
@@ -141,6 +144,7 @@
       status = 'active'
       significance = 'common'
       pinned = false
+      automated = false
       sortOrder = 0
       categoryId =
         defaults?.category_id != null ? String(defaults.category_id) : ''
@@ -156,6 +160,7 @@
     status = q.status ?? 'active'
     significance = q.significance ?? 'common'
     pinned = Boolean(q.pinned)
+    automated = Boolean(q.automated)
     sortOrder = q.sort_order ?? 0
     categoryId = q.category_id != null ? String(q.category_id) : ''
     questlineId = q.questline_id != null ? String(q.questline_id) : ''
@@ -199,6 +204,8 @@
             check_command: s.check_command ?? '',
             check_interval_seconds:
               s.check_interval_seconds != null ? String(s.check_interval_seconds) : '',
+            wait_previous: Boolean(s.wait_previous),
+            run_mode: s.run_mode === 'once' ? 'once' : 'poll',
             check_open: Boolean(String(s.check_command || '').trim()),
           }))
         : [blankStep()]
@@ -268,6 +275,8 @@
           sort_order: i,
           check_command: cmd || null,
           check_interval_seconds: cmd ? interval : null,
+          wait_previous: cmd ? Boolean(s.wait_previous) : false,
+          run_mode: cmd && s.run_mode === 'once' ? 'once' : 'poll',
         }
       })
       .filter((s) => s.title)
@@ -327,6 +336,7 @@
         status,
         significance,
         pinned,
+        automated,
         sort_order: Number(sortOrder) || 0,
         category_id: categoryId === '' ? null : Number(categoryId),
         questline_id: questlineId === '' ? null : Number(questlineId),
@@ -523,6 +533,10 @@
           <input type="checkbox" bind:checked={pinned} />
           Закрепить (показывать в оверлее)
         </label>
+        <label class="check">
+          <input type="checkbox" bind:checked={automated} />
+          Автоквест (создание/старт — тихий тост, не на весь экран)
+        </label>
 
         <div class="deadline-block">
           <label class="check">
@@ -643,7 +657,7 @@
                   <input
                     type="text"
                     class="step-edit__cmd"
-                    placeholder="команда проверки (stdout → число), напр. find ~/docs -type f | wc -l"
+                    placeholder="команда: опрос (stdout → число) или разовый запуск"
                     bind:value={step.check_command}
                     spellcheck="false"
                   />
@@ -653,17 +667,47 @@
                     min="15"
                     step="15"
                     placeholder="сек"
-                    title="Интервал проверки (сек, мин. 15)"
+                    title="Интервал опроса (сек, мин. 15)"
                     bind:value={step.check_interval_seconds}
-                    disabled={!String(step.check_command || '').trim()}
+                    disabled={!String(step.check_command || '').trim() || step.run_mode === 'once'}
                   />
+                </div>
+                <div class="step-edit__auto-opts">
+                  <label class="check check--inline">
+                    <input type="checkbox" bind:checked={step.wait_previous} disabled={!String(step.check_command || '').trim()} />
+                    ждать предыдущий
+                  </label>
+                  <div class="opt-slider opt-slider--compact" role="radiogroup" aria-label="Режим автошага">
+                    <button
+                      type="button"
+                      class="opt-slider__opt"
+                      class:opt-slider__opt--on={step.run_mode !== 'once'}
+                      role="radio"
+                      aria-checked={step.run_mode !== 'once'}
+                      disabled={!String(step.check_command || '').trim()}
+                      onclick={() => (step.run_mode = 'poll')}
+                    >
+                      опрос
+                    </button>
+                    <button
+                      type="button"
+                      class="opt-slider__opt"
+                      class:opt-slider__opt--on={step.run_mode === 'once'}
+                      role="radio"
+                      aria-checked={step.run_mode === 'once'}
+                      disabled={!String(step.check_command || '').trim()}
+                      onclick={() => (step.run_mode = 'once')}
+                    >
+                      разово
+                    </button>
+                  </div>
                 </div>
               {/if}
             </div>
           {/each}
           <p class="hint">
-            Пустые шаги отбрасываются. Команда проверки — по кнопке терминала у шага: сервер раз в N сек
-            читает число из stdout и пишет в текущее значение.
+            Пустые шаги отбрасываются. Команда — по кнопке терминала: опрос читает число из stdout
+            каждые N сек; разово ждёт код 0 (сбой проваливает квест). «Ждать предыдущий» — линейный пайплайн.
           </p>
         </div>
 
@@ -996,6 +1040,21 @@
 
   .step-edit__interval {
     width: 100%;
+  }
+
+  .step-edit__auto-opts {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-3, 0.75rem);
+  }
+
+  .check--inline {
+    margin: 0;
+  }
+
+  .opt-slider--compact {
+    width: auto;
   }
 
   .step-edit__slash {

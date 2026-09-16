@@ -29,18 +29,31 @@ type Category struct {
 	Color     string `json:"color"`
 }
 
+const (
+	RunModePoll = "poll"
+	RunModeOnce = "once"
+
+	RunIdle    = "idle"
+	RunRunning = "running"
+	RunSuccess = "success"
+	RunFail    = "fail"
+)
+
 type Step struct {
-	ID                    int64      `json:"id"`
-	QuestID               int64      `json:"quest_id"`
-	Title                 string     `json:"title"`
-	Description           string     `json:"description"`
-	ProgressCurrent       int        `json:"progress_current"`
-	ProgressTotal         int        `json:"progress_total"`
-	SortOrder             int        `json:"sort_order"`
-	CheckCommand          *string    `json:"check_command"`
-	CheckIntervalSeconds  *int       `json:"check_interval_seconds"`
-	CheckLastRunAt        *time.Time `json:"-"`
-	Done                  bool       `json:"done"`
+	ID                   int64      `json:"id"`
+	QuestID              int64      `json:"quest_id"`
+	Title                string     `json:"title"`
+	Description          string     `json:"description"`
+	ProgressCurrent      int        `json:"progress_current"`
+	ProgressTotal        int        `json:"progress_total"`
+	SortOrder            int        `json:"sort_order"`
+	CheckCommand         *string    `json:"check_command"`
+	CheckIntervalSeconds *int       `json:"check_interval_seconds"`
+	CheckLastRunAt       *time.Time `json:"-"`
+	WaitPrevious         bool       `json:"wait_previous"`
+	RunMode              string     `json:"run_mode"`
+	RunStatus            *string    `json:"run_status"`
+	Done                 bool       `json:"done"`
 }
 
 type Quest struct {
@@ -61,14 +74,15 @@ type Quest struct {
 	CompletedAt     *time.Time
 	TemplateID      *int64
 	PeriodKey       *string
+	Automated       bool
 
-	CategorySlug   *string
-	CategoryLabel  *string
-	CategoryColor  *string
-	QuestlineTitle *string
-	QuestlineColor *string
-	QuestlineIcon  *string
-	CustomIcon     *string
+	CategorySlug       *string
+	CategoryLabel      *string
+	CategoryColor      *string
+	QuestlineTitle     *string
+	QuestlineColor     *string
+	QuestlineIcon      *string
+	CustomIcon         *string
 	QuestlineUpdatedAt *time.Time
 
 	Steps []Step
@@ -82,6 +96,8 @@ type StepCreate struct {
 	SortOrder            *int    `json:"sort_order"`
 	CheckCommand         *string `json:"check_command"`
 	CheckIntervalSeconds *int    `json:"check_interval_seconds"`
+	WaitPrevious         *bool   `json:"wait_previous"`
+	RunMode              *string `json:"run_mode"`
 }
 
 type StepUpdate struct {
@@ -92,6 +108,8 @@ type StepUpdate struct {
 	SortOrder            *int    `json:"sort_order"`
 	CheckCommand         *string `json:"check_command"`
 	CheckIntervalSeconds *int    `json:"check_interval_seconds"`
+	WaitPrevious         *bool   `json:"wait_previous"`
+	RunMode              *string `json:"run_mode"`
 }
 
 type QuestCreate struct {
@@ -106,6 +124,7 @@ type QuestCreate struct {
 	RewardAttrs     *string      `json:"reward_attrs"`
 	CategoryID      *int64       `json:"category_id"`
 	QuestlineID     *int64       `json:"questline_id"`
+	Automated       bool         `json:"automated"`
 	Steps           []StepCreate `json:"steps"`
 }
 

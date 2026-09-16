@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/valirum/quests/go/internal/domain"
 	"github.com/valirum/quests/go/internal/timeutil"
 )
 
@@ -17,7 +18,7 @@ func (s *Store) ListTemplates(ctx context.Context, enabled *bool) ([]TemplateRea
 		SELECT t.id, t.title, t.description, t.pinned, t.sort_order, t.duration_seconds, t.freq, t.weekdays,
 			t.enabled, t.timezone, t.deadline_time, t.significance, t.emit_mode, t.emit_chance,
 			t.emit_window_start, t.emit_window_end, t.reward_attrs, t.category_id, t.questline_id,
-			t.created_at, t.updated_at,
+			t.created_at, t.updated_at, t.automated,
 			c.slug, c.label, c.color, l.title, l.color, l.icon, l.custom_icon, l.updated_at, l.id
 		FROM questtemplate t
 		LEFT JOIN questcategory c ON c.id = t.category_id
@@ -67,7 +68,7 @@ func (s *Store) GetTemplate(ctx context.Context, id int64) (TemplateRead, error)
 		SELECT t.id, t.title, t.description, t.pinned, t.sort_order, t.duration_seconds, t.freq, t.weekdays,
 			t.enabled, t.timezone, t.deadline_time, t.significance, t.emit_mode, t.emit_chance,
 			t.emit_window_start, t.emit_window_end, t.reward_attrs, t.category_id, t.questline_id,
-			t.created_at, t.updated_at,
+			t.created_at, t.updated_at, t.automated,
 			c.slug, c.label, c.color, l.title, l.color, l.icon, l.custom_icon, l.updated_at, l.id
 		FROM questtemplate t
 		LEFT JOIN questcategory c ON c.id = t.category_id
@@ -112,13 +113,13 @@ func (s *Store) CreateTemplate(ctx context.Context, body map[string]any) (Templa
 		INSERT INTO questtemplate (
 			title, description, pinned, sort_order, duration_seconds, freq, weekdays, enabled, timezone,
 			deadline_time, significance, emit_mode, emit_chance, emit_window_start, emit_window_end,
-			reward_attrs, category_id, questline_id, created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			reward_attrs, category_id, questline_id, created_at, updated_at, automated
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		title, desc, boolInt(pinned), sortOrder, nullInt(asIntPtr(body["duration_seconds"])), freq, weekdays, boolInt(enabled), tz,
 		nullStr(asStringPtr(body["deadline_time"])), sig, emitMode, emitChance,
 		nullStr(asStringPtr(body["emit_window_start"])), nullStr(asStringPtr(body["emit_window_end"])),
 		nullStr(asStringPtr(body["reward_attrs"])), colorCat, lineID,
-		timeutil.ToDBUTC(now), timeutil.ToDBUTC(now),
+		timeutil.ToDBUTC(now), timeutil.ToDBUTC(now), boolInt(asBool(body["automated"], false)),
 	)
 	if err != nil {
 		return nil, err
@@ -147,7 +148,8 @@ func (s *Store) UpdateTemplate(ctx context.Context, id int64, body map[string]an
 		UPDATE questtemplate SET
 			title=?, description=?, pinned=?, sort_order=?, duration_seconds=?, freq=?, weekdays=?,
 			enabled=?, timezone=?, deadline_time=?, significance=?, emit_mode=?, emit_chance=?,
-			emit_window_start=?, emit_window_end=?, reward_attrs=?, category_id=?, questline_id=?, updated_at=?
+			emit_window_start=?, emit_window_end=?, reward_attrs=?, category_id=?, questline_id=?,
+			updated_at=?, automated=?
 		WHERE id=?`,
 		asStringDef(merged["title"], ""), asStringDef(merged["description"], ""),
 		boolInt(asBool(merged["pinned"], false)), asInt(merged["sort_order"], 0),
@@ -158,7 +160,7 @@ func (s *Store) UpdateTemplate(ctx context.Context, id int64, body map[string]an
 		asFloat(merged["emit_chance"], 1.0), nullStr(asStringPtr(merged["emit_window_start"])),
 		nullStr(asStringPtr(merged["emit_window_end"])), nullStr(asStringPtr(merged["reward_attrs"])),
 		nullI64(asI64Ptr(merged["category_id"])), nullI64(asI64Ptr(merged["questline_id"])),
-		timeutil.ToDBUTC(now), id,
+		timeutil.ToDBUTC(now), boolInt(asBool(merged["automated"], false)), id,
 	)
 	if err != nil {
 		return nil, err
@@ -247,10 +249,11 @@ func (s *Store) replaceTemplateSteps(ctx context.Context, tid int64, raw any) er
 		_, err := s.DB.ExecContext(ctx, `
 			INSERT INTO questtemplatestep (
 				template_id, title, description, sort_order, progress_min, progress_max,
-				check_command, check_interval_seconds
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+				check_command, check_interval_seconds, wait_previous, run_mode
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			tid, title, asStringDef(m["description"], ""), ord, pmin, pmax,
 			nullStr(asStringPtr(m["check_command"])), nullInt(asIntPtr(m["check_interval_seconds"])),
+			boolInt(asBool(m["wait_previous"], false)), nullRunMode(asStringDef(m["run_mode"], domain.RunModePoll)),
 		)
 		if err != nil {
 			return err
@@ -262,7 +265,7 @@ func (s *Store) replaceTemplateSteps(ctx context.Context, tid int64, raw any) er
 func (s *Store) loadTemplateStepsRead(ctx context.Context, tid int64) ([]map[string]any, error) {
 	rows, err := s.DB.QueryContext(ctx, `
 		SELECT id, template_id, title, description, sort_order, progress_min, progress_max,
-			check_command, check_interval_seconds
+			check_command, check_interval_seconds, wait_previous, run_mode
 		FROM questtemplatestep WHERE template_id=? ORDER BY sort_order, id`, tid)
 	if err != nil {
 		return nil, err
@@ -275,19 +278,25 @@ func (s *Store) loadTemplateStepsRead(ctx context.Context, tid int64) ([]map[str
 		var sortOrder, pmin, pmax int
 		var cmd sql.NullString
 		var iv sql.NullInt64
-		if err := rows.Scan(&id, &tmplID, &title, &desc, &sortOrder, &pmin, &pmax, &cmd, &iv); err != nil {
+		var waitPrev int
+		var runMode sql.NullString
+		if err := rows.Scan(&id, &tmplID, &title, &desc, &sortOrder, &pmin, &pmax, &cmd, &iv, &waitPrev, &runMode); err != nil {
 			return nil, err
 		}
 		m := map[string]any{
 			"id": id, "template_id": tmplID, "title": title, "description": desc,
 			"sort_order": sortOrder, "progress_min": pmin, "progress_max": pmax,
 			"check_command": nil, "check_interval_seconds": nil,
+			"wait_previous": waitPrev != 0, "run_mode": domain.RunModePoll,
 		}
 		if cmd.Valid {
 			m["check_command"] = cmd.String
 		}
 		if iv.Valid {
 			m["check_interval_seconds"] = int(iv.Int64)
+		}
+		if runMode.Valid && strings.TrimSpace(runMode.String) != "" {
+			m["run_mode"] = NormalizeRunMode(runMode.String)
 		}
 		out = append(out, m)
 	}
@@ -297,7 +306,7 @@ func (s *Store) loadTemplateStepsRead(ctx context.Context, tid int64) ([]map[str
 func scanTemplate(row rowScanner) (TemplateRead, error) {
 	var id int64
 	var title, desc, freq, weekdays, tz, sig, emitMode string
-	var pinned, enabled, sortOrder int
+	var pinned, enabled, sortOrder, automated int
 	var dur sql.NullInt64
 	var deadline, ewStart, ewEnd, reward sql.NullString
 	var emitChance float64
@@ -310,7 +319,7 @@ func scanTemplate(row rowScanner) (TemplateRead, error) {
 		&id, &title, &desc, &pinned, &sortOrder, &dur, &freq, &weekdays,
 		&enabled, &tz, &deadline, &sig, &emitMode, &emitChance,
 		&ewStart, &ewEnd, &reward, &catID, &lineID,
-		&created, &updated,
+		&created, &updated, &automated,
 		&cSlug, &cLabel, &cColor, &lTitle, &lColor, &lIcon, &lCustom, &lUpdated, &lID,
 	)
 	if err != nil {
@@ -324,6 +333,7 @@ func scanTemplate(row rowScanner) (TemplateRead, error) {
 		"reward_attrs": nil, "category_id": nil, "questline_id": nil,
 		"category_slug": nil, "category_label": nil, "category_color": nil,
 		"questline_title": nil, "questline_color": nil, "questline_icon": nil, "questline_icon_url": nil,
+		"automated": automated != 0,
 	}
 	if dur.Valid {
 		tr["duration_seconds"] = int(dur.Int64)

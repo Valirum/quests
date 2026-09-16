@@ -208,6 +208,9 @@ func (h *Hub) Publish(kind string, opts PublishOpts) Payload {
 	if opts.StepTitle != "" {
 		payload["step_title"] = opts.StepTitle
 	}
+	if opts.Automated {
+		payload["automated"] = true
+	}
 	for k, v := range opts.Extra {
 		payload[k] = v
 	}
@@ -239,6 +242,7 @@ type PublishOpts struct {
 	Source       string
 	Significance string
 	StepTitle    string
+	Automated    bool
 	Extra        map[string]any
 }
 

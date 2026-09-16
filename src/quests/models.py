@@ -109,6 +109,8 @@ class QuestBase(SQLModel):
     questline_id: Optional[int] = Field(
         default=None, foreign_key="questline.id", index=True
     )
+    # Soften created/appeared/started overlay toasts for background pipelines.
+    automated: bool = False
 
 
 class QuestLineBase(SQLModel):
@@ -192,6 +194,8 @@ class QuestStepBase(SQLModel):
     # Optional shell check: stdout → progress_current, polled every N seconds.
     check_command: Optional[str] = Field(default=None, max_length=2000)
     check_interval_seconds: Optional[int] = Field(default=None, ge=15)
+    wait_previous: bool = False
+    run_mode: str = Field(default="poll", max_length=16)
 
 
 class QuestStep(QuestStepBase, table=True):
@@ -200,6 +204,7 @@ class QuestStep(QuestStepBase, table=True):
     quest: Optional[Quest] = Relationship(back_populates="steps")
     # Last successful/attempted auto-check (UTC naive).
     check_last_run_at: Optional[datetime] = None
+    run_status: Optional[str] = Field(default=None, max_length=16)
 
     @property
     def done(self) -> bool:
@@ -218,6 +223,8 @@ class QuestStepUpdate(SQLModel):
     sort_order: Optional[int] = None
     check_command: Optional[str] = Field(default=None, max_length=2000)
     check_interval_seconds: Optional[int] = Field(default=None, ge=15)
+    wait_previous: Optional[bool] = None
+    run_mode: Optional[str] = Field(default=None, max_length=16)
 
 
 class QuestStepRead(QuestStepBase):
@@ -225,6 +232,7 @@ class QuestStepRead(QuestStepBase):
     quest_id: int
     done: bool = False
     check_last_run_at: Optional[datetime] = None
+    run_status: Optional[str] = None
 
     @field_serializer("check_last_run_at", when_used="json")
     def _ser_check_last(self, value: Optional[datetime]) -> Optional[str]:
@@ -249,6 +257,7 @@ class QuestUpdate(SQLModel):
     reward_attrs: Optional[str] = Field(default=None, max_length=500)
     category_id: Optional[int] = None
     questline_id: Optional[int] = None
+    automated: Optional[bool] = None
 
 
 class QuestRead(QuestBase):
@@ -317,6 +326,7 @@ class QuestTemplateBase(SQLModel):
     questline_id: Optional[int] = Field(
         default=None, foreign_key="questline.id", index=True
     )
+    automated: bool = False
 
 
 class QuestTemplate(QuestTemplateBase, table=True):
@@ -343,6 +353,8 @@ class QuestTemplateStepBase(SQLModel):
     sort_order: int = 0
     check_command: Optional[str] = Field(default=None, max_length=2000)
     check_interval_seconds: Optional[int] = Field(default=None, ge=15)
+    wait_previous: bool = False
+    run_mode: str = Field(default="poll", max_length=16)
 
 
 class QuestTemplateStep(QuestTemplateStepBase, table=True):
@@ -363,6 +375,8 @@ class QuestTemplateStepCreate(SQLModel):
     sort_order: int = 0
     check_command: Optional[str] = Field(default=None, max_length=2000)
     check_interval_seconds: Optional[int] = Field(default=None, ge=15)
+    wait_previous: bool = False
+    run_mode: str = Field(default="poll", max_length=16)
 
 
 class QuestTemplateStepRead(QuestTemplateStepBase):

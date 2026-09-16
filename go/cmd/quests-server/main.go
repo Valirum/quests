@@ -17,8 +17,8 @@ import (
 	"github.com/valirum/quests/go/internal/health"
 	"github.com/valirum/quests/go/internal/httpapi"
 	"github.com/valirum/quests/go/internal/schedule"
-	"github.com/valirum/quests/go/internal/webdav"
 	"github.com/valirum/quests/go/internal/store"
+	"github.com/valirum/quests/go/internal/webdav"
 )
 
 func main() {
@@ -88,7 +88,8 @@ func main() {
 	defer cancel()
 
 	windows := schedule.NewWindowNotifier()
-	go schedule.RunMaintenanceLoop(ctx, st, hub, windows)
+	checks := schedule.NewCheckRunner(st, hub)
+	go schedule.RunMaintenanceLoop(ctx, st, hub, windows, checks)
 
 	hub.Publish("startup", events.PublishOpts{
 		Title:  "Quests",

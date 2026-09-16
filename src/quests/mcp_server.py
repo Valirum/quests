@@ -51,8 +51,10 @@ server = MCPServer(
         "to browse; get_context for full related detail. "
         "To create a new quest use create_quest (title, optional steps inline, "
         "deadline_at + duration_seconds for a reminder window that opens "
-        "duration_seconds before deadline_at, category/questline by id or by "
-        "name — e.g. category='health', questline='Сайт Рефкул'). "
+        "duration_seconds before deadline_at, automated=true to demote create/start "
+        "overlay toasts, category/questline by id or by name — e.g. "
+        "category='health', questline='Сайт Рефкул'). "
+        "Steps may include check_command, run_mode=poll|once, wait_previous. "
         "To create a new questline (project/theme container) use create_questline. "
         "To change steps on an existing quest use add_step / update_step / "
         "delete_step (do not replace the whole steps array). "
@@ -253,6 +255,26 @@ def _quest_mutation_result(q: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _step_body(s: dict[str, Any]) -> dict[str, Any]:
+    body: dict[str, Any] = {
+        "title": s["title"],
+        "description": s.get("description", ""),
+        "progress_total": max(1, int(s.get("progress_total", 1))),
+        "progress_current": max(0, int(s.get("progress_current", 0))),
+    }
+    if s.get("sort_order") is not None:
+        body["sort_order"] = int(s["sort_order"])
+    if s.get("check_command") is not None:
+        body["check_command"] = s["check_command"]
+    if s.get("check_interval_seconds") is not None:
+        body["check_interval_seconds"] = int(s["check_interval_seconds"])
+    if s.get("wait_previous") is not None:
+        body["wait_previous"] = bool(s["wait_previous"])
+    if s.get("run_mode") is not None:
+        body["run_mode"] = str(s["run_mode"])
+    return body
+
+
 @server.tool(
     description=(
         "Full related context for a quest, step, or questline: questline (if any), "
@@ -326,8 +348,11 @@ def list_questlines() -> list[dict[str, Any]]:
     description=(
         "Create a new quest (POST /api/quests). Steps can be passed inline via "
         "`steps`: a list of {title, description?, progress_total?, progress_current?, "
-        "sort_order?} — if omitted, a single default step named after the quest is "
-        "created. deadline_at is the moment the quest is due (ISO datetime, UTC — "
+        "sort_order?, check_command?, check_interval_seconds?, wait_previous?, "
+        "run_mode?} — if omitted, a single default step named after the quest is "
+        "created. run_mode is poll (stdout number) or once (exit 0). wait_previous "
+        "gates the auto-step on the previous step. automated=true demotes "
+        "created/appeared/started overlay toasts. deadline_at is the moment the quest is due (ISO datetime, UTC — "
         "e.g. '2026-08-20T10:20:00Z'); duration_seconds sizes the urgent/reminder "
         "window that opens that many seconds before deadline_at and triggers the "
         "Telegram/HUD notification (e.g. 7200 for a 2-hour-before reminder). "
@@ -349,6 +374,7 @@ def create_quest(
     category: str | None = None,
     questline: str | None = None,
     steps: list[dict[str, Any]] | None = None,
+    automated: bool | None = None,
     quiet: bool = True,
 ) -> dict[str, Any]:
     body: dict[str, Any] = {"title": title}
@@ -363,6 +389,8 @@ def create_quest(
         body["significance"] = significance
     if pinned is not None:
         body["pinned"] = bool(pinned)
+    if automated is not None:
+        body["automated"] = bool(automated)
     if sort_order is not None:
         body["sort_order"] = int(sort_order)
     if deadline_at is not None:
@@ -377,16 +405,7 @@ def create_quest(
         if cat_id is not None:
             body["category_id"] = cat_id
     if steps:
-        body["steps"] = [
-            {
-                "title": s["title"],
-                "description": s.get("description", ""),
-                "progress_total": max(1, int(s.get("progress_total", 1))),
-                "progress_current": max(0, int(s.get("progress_current", 0))),
-                **({"sort_order": int(s["sort_order"])} if s.get("sort_order") is not None else {}),
-            }
-            for s in steps
-        ]
+        body["steps"] = [_step_body(s) for s in steps]
     q = _api("POST", "/api/quests", query=_tool_query(quiet=quiet), body=body)
     return _quest_mutation_result(q)
 
@@ -452,6 +471,10 @@ def add_step(
     progress_total: int = 1,
     progress_current: int = 0,
     sort_order: int | None = None,
+    check_command: str | None = None,
+    check_interval_seconds: int | None = None,
+    wait_previous: bool | None = None,
+    run_mode: str | None = None,
     quiet: bool = True,
 ) -> dict[str, Any]:
     body: dict[str, Any] = {
@@ -463,6 +486,14 @@ def add_step(
         body["description"] = description
     if sort_order is not None:
         body["sort_order"] = int(sort_order)
+    if check_command is not None:
+        body["check_command"] = check_command
+    if check_interval_seconds is not None:
+        body["check_interval_seconds"] = int(check_interval_seconds)
+    if wait_previous is not None:
+        body["wait_previous"] = bool(wait_previous)
+    if run_mode is not None:
+        body["run_mode"] = str(run_mode)
     q = _api(
         "POST",
         f"/api/quests/{quest_id}/steps",
@@ -478,7 +509,7 @@ def add_step(
         "Use for lifecycle: status=active|delayed|completed|failed|archived "
         "(e.g. archive when blocked / needs clarification). Also title, description, "
         "pinned, significance, sort_order, deadline_at, duration_seconds, "
-        "category_id, questline_id (null to detach). quiet=true skips overlay toasts."
+        "category_id, questline_id (null to detach), automated. quiet=true skips overlay toasts."
     )
 )
 def update_quest(
@@ -494,6 +525,7 @@ def update_quest(
     category_id: int | None = None,
     questline_id: int | None = None,
     clear_questline: bool = False,
+    automated: bool | None = None,
     quiet: bool = True,
 ) -> dict[str, Any]:
     body: dict[str, Any] = {}
@@ -524,6 +556,8 @@ def update_quest(
         body["questline_id"] = None
     elif questline_id is not None:
         body["questline_id"] = int(questline_id)
+    if automated is not None:
+        body["automated"] = bool(automated)
     if not body:
         raise ValueError("provide at least one field to update")
     q = _api(
@@ -550,6 +584,10 @@ def update_step(
     progress_current: int | None = None,
     progress_total: int | None = None,
     sort_order: int | None = None,
+    check_command: str | None = None,
+    check_interval_seconds: int | None = None,
+    wait_previous: bool | None = None,
+    run_mode: str | None = None,
     quiet: bool = True,
 ) -> dict[str, Any]:
     body: dict[str, Any] = {}
@@ -563,6 +601,14 @@ def update_step(
         body["progress_total"] = max(1, int(progress_total))
     if sort_order is not None:
         body["sort_order"] = int(sort_order)
+    if check_command is not None:
+        body["check_command"] = check_command
+    if check_interval_seconds is not None:
+        body["check_interval_seconds"] = int(check_interval_seconds)
+    if wait_previous is not None:
+        body["wait_previous"] = bool(wait_previous)
+    if run_mode is not None:
+        body["run_mode"] = str(run_mode)
     if not body:
         raise ValueError("provide at least one field to update")
     q = _api(
