@@ -22,6 +22,13 @@ export function significanceLabel(q) {
   return QUEST_SIGNIFICANCES.find((s) => s.id === id)?.label || 'обычное'
 }
 
+/** Fraction only when the quest is quantified (more than one step-unit). */
+export function quantifiedProgress(q) {
+  const total = Number(q?.steps_total)
+  if (!Number.isFinite(total) || total <= 1) return null
+  return q.progress_label || null
+}
+
 /** @param {any} q @param {number} nowMs */
 export function questTimer(q, nowMs) {
   if (!q?.deadline_at) return null
