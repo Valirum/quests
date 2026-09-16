@@ -9,6 +9,7 @@
     OPEN_STATUSES,
     periodBadge,
     questTimer,
+    quantifiedProgress,
     significanceLabel,
     statusColor,
   } from '../js/questFormat.js'
@@ -160,24 +161,24 @@
 {/snippet}
 
 {#snippet questEyebrow(q)}
-  <p class="detail__eyebrow">
+  {@const frac = quantifiedProgress(q)}
+  <p class="detail__colophon">
     <span class="status" style:color={statusColor(q.status)}>{q.status}</span>
-    {#if q.pinned}
-      <span class="pinned-label">PINNED</span>
-    {/if}
     {#if q.automated}
-      <span class="auto-label" title="Автоквест: создание и старт без полноэкранного тоста">AUTO</span>
+      <span title="Автоквест: создание и старт без полноэкранного тоста">авто</span>
     {/if}
-    {#if q.significance}
-      <span class="sig-badge" data-sig={q.significance}>{significanceLabel(q)}</span>
+    {#if q.significance && q.significance !== 'common'}
+      <span class="detail__sig" data-sig={q.significance}>{significanceLabel(q)}</span>
     {/if}
     {#if q.category_label}
-      <span class="period-badge" title="Раздел">{q.category_label}</span>
+      <span title="Раздел">{q.category_label}</span>
     {/if}
     {#if periodBadge(q)}
-      <span class="period-badge" title="Период">{periodBadge(q)}</span>
+      <span title="Период">{periodBadge(q)}</span>
     {/if}
-    <span class="progress">{q.progress_label}</span>
+    {#if frac}
+      <span class="progress">{frac}</span>
+    {/if}
   </p>
 {/snippet}
 
@@ -290,8 +291,7 @@
 {#snippet questBody(q)}
   {@const timer = questTimer(q, nowMs)}
   {#if q.description}
-    <div class="block">
-      <h3 class="block__label">Описание</h3>
+    <div class="block block--prose">
       <MarkdownBody class="block__body" source={q.description} />
     </div>
   {/if}
@@ -380,28 +380,28 @@
               data-sig={q.significance || 'common'}
             >
               <div class="detail__head-row">
-                {@render questEyebrow(q)}
+                <button
+                  type="button"
+                  class="detail__quest-toggle"
+                  aria-expanded={open}
+                  aria-label={open ? 'Свернуть квест' : 'Развернуть квест'}
+                  onclick={() => toggleLineQuest(q.id)}
+                >
+                  <h3
+                    class="detail__subtitle"
+                    oncontextmenu={(e) => onQuestTitleContextMenu?.(e, q)}
+                  >{q.title}</h3>
+                  <span
+                    class="detail__quest-chevron"
+                    class:detail__quest-chevron--open={open}
+                    aria-hidden="true"
+                  >
+                    <Icon name="chevron-right" size={16} />
+                  </span>
+                </button>
                 {@render questActions(q)}
               </div>
-              <button
-                type="button"
-                class="detail__quest-toggle"
-                aria-expanded={open}
-                aria-label={open ? 'Свернуть квест' : 'Развернуть квест'}
-                onclick={() => toggleLineQuest(q.id)}
-              >
-                <h3
-                  class="detail__subtitle"
-                  oncontextmenu={(e) => onQuestTitleContextMenu?.(e, q)}
-                >{q.title}</h3>
-                <span
-                  class="detail__quest-chevron"
-                  class:detail__quest-chevron--open={open}
-                  aria-hidden="true"
-                >
-                  <Icon name="chevron-right" size={16} />
-                </span>
-              </button>
+              {@render questEyebrow(q)}
             </header>
             <div class="detail__quest-body" class:detail__quest-body--open={open}>
               <div class="detail__quest-body-inner">
@@ -416,13 +416,13 @@
     <article id="quest-{selected.id}" class="detail__quest">
       <header class="detail__head" data-sig={selected.significance || 'common'}>
         <div class="detail__head-row">
-          {@render questEyebrow(selected)}
+          <h2
+            class="detail__title"
+            oncontextmenu={(e) => onQuestTitleContextMenu?.(e, selected)}
+          >{selected.title}</h2>
           {@render questActions(selected)}
         </div>
-        <h2
-          class="detail__title"
-          oncontextmenu={(e) => onQuestTitleContextMenu?.(e, selected)}
-        >{selected.title}</h2>
+        {@render questEyebrow(selected)}
       </header>
       {@render questBody(selected)}
     </article>
