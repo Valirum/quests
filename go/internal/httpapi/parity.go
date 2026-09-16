@@ -107,6 +107,7 @@ func (s *Server) patchQuestline(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) deleteQuestline(w http.ResponseWriter, r *http.Request) {
 	id, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	s.purgeOwnerAttachments(r.Context(), ownerQuestline, id)
 	if err := s.Store.DeleteQuestline(r.Context(), id, s.DataDir); err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			writeErr(w, 404, "Questline not found")
@@ -450,10 +451,23 @@ func (s *Server) getContext(w http.ResponseWriter, r *http.Request) {
 	for _, qq := range quests {
 		reads = append(reads, domain.ToQuestRead(qq, timeutil.NowUTC()))
 	}
+	attachments := map[string]any{
+		"questline": []store.AttachmentRead{},
+		"by_quest":  map[string][]store.AttachmentRead{},
+	}
+	if lineID != nil {
+		attachments["questline"] = s.attachmentsForOwner(r.Context(), ownerQuestline, *lineID, true)
+	}
+	byQuest := map[string][]store.AttachmentRead{}
+	for _, qq := range quests {
+		byQuest[strconv.FormatInt(qq.ID, 10)] = s.attachmentsForOwner(r.Context(), ownerQuest, qq.ID, true)
+	}
+	attachments["by_quest"] = byQuest
 	writeJSON(w, 200, map[string]any{
-		"focus":     map[string]any{"type": focusType, "id": focusID},
-		"questline": line,
-		"quests":    reads,
+		"focus":       map[string]any{"type": focusType, "id": focusID},
+		"questline":   line,
+		"quests":      reads,
+		"attachments": attachments,
 	})
 }
 
