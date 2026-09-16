@@ -56,6 +56,8 @@ server = MCPServer(
         "category='health', questline='Сайт Рефкул'). "
         "Steps may include check_command, run_mode=poll|once, wait_previous. "
         "To create a new questline (project/theme container) use create_questline. "
+        "Quest/step `description` is markdown in the journal (lists, links, code, "
+        "emphasis) — use it; title stays plain. HUD/Telegram show the same text raw. "
         "To change steps on an existing quest use add_step / update_step / "
         "delete_step (do not replace the whole steps array). "
         "To change quest lifecycle or metadata use update_quest "
@@ -358,7 +360,10 @@ def list_questlines() -> list[dict[str, Any]]:
         "Telegram/HUD notification (e.g. 7200 for a 2-hour-before reminder). "
         "category and questline accept either a numeric id or a name/substring "
         "(e.g. category='health', questline='Сайт Рефкул') — resolved via "
-        "/api/categories and /api/questlines; error if ambiguous. Passing questline "
+        "/api/categories and /api/questlines; error if ambiguous. "
+        "`description` (and each step's description) is markdown rendered in the "
+        "journal — lists, links, inline `code`, emphasis. Title is plain text. "
+        "Passing questline "
         "makes the quest inherit that questline's category. quiet=true skips overlay toasts."
     )
 )
@@ -461,6 +466,7 @@ def create_questline(
 @server.tool(
     description=(
         "Add one step to an existing quest (POST /api/quests/{id}/steps). "
+        "`description` is markdown in the journal (lists, links, code, emphasis). "
         "Returns quest id, progress_label, and steps brief. quiet=true skips overlay toasts."
     )
 )
@@ -507,7 +513,8 @@ def add_step(
     description=(
         "Update quest fields (PATCH /api/quests/{id}). Only pass fields to change. "
         "Use for lifecycle: status=active|delayed|completed|failed|archived "
-        "(e.g. archive when blocked / needs clarification). Also title, description, "
+        "(e.g. archive when blocked / needs clarification). Also title, description "
+        "(markdown in the journal), "
         "pinned, significance, sort_order, deadline_at, duration_seconds, "
         "category_id, questline_id (null to detach), automated. quiet=true skips overlay toasts."
     )
@@ -572,7 +579,8 @@ def update_quest(
 @server.tool(
     description=(
         "Update fields on one step (PATCH /api/quests/{id}/steps/{step_id}). "
-        "Only pass fields to change. Mark done with progress_current=progress_total "
+        "Only pass fields to change. `description` is markdown in the journal. "
+        "Mark done with progress_current=progress_total "
         "(or progress_current equal to existing total). quiet=true skips overlay toasts."
     )
 )
