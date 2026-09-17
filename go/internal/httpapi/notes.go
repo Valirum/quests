@@ -3,7 +3,10 @@ package httpapi
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -19,6 +22,9 @@ func (s *Server) registerNotes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/notes/{id}", s.getNote)
 	mux.HandleFunc("PATCH /api/notes/{id}", s.patchNote)
 	mux.HandleFunc("DELETE /api/notes/{id}", s.deleteNote)
+	mux.HandleFunc("GET /api/notes/{id}/icon", s.getNoteIcon)
+	mux.HandleFunc("POST /api/notes/{id}/icon", s.postNoteIcon)
+	mux.HandleFunc("DELETE /api/notes/{id}/icon", s.deleteNoteIcon)
 }
 
 func (s *Server) listNotes(w http.ResponseWriter, r *http.Request) {
@@ -86,6 +92,12 @@ func (s *Server) createNote(w http.ResponseWriter, r *http.Request) {
 		CreatedAt:   timeutil.NowUTC(),
 		UpdatedAt:   timeutil.NowUTC(),
 	}
+	if v, ok := body["color"].(string); ok && strings.TrimSpace(v) != "" {
+		n.Color = strings.TrimSpace(v)
+	}
+	if v, ok := body["icon"].(string); ok && strings.TrimSpace(v) != "" {
+		n.Icon = strings.TrimSpace(v)
+	}
 	if _, ok := body["parent_id"]; ok {
 		n.ParentID = noteJSONInt64(body["parent_id"])
 	}
@@ -93,10 +105,25 @@ func (s *Server) createNote(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 422, err.Error())
 		return
 	}
+	var parent store.Note
+	var hasParent bool
+	if n.ParentID != nil {
+		p, err := s.Store.GetNote(r.Context(), *n.ParentID)
+		if err != nil {
+			writeErr(w, 500, err.Error())
+			return
+		}
+		parent, hasParent = p, true
+	}
 	created, err := s.Store.CreateNote(r.Context(), n)
 	if err != nil {
 		writeErr(w, 500, err.Error())
 		return
+	}
+	if hasParent && parent.CustomIcon != nil && *parent.CustomIcon != "" {
+		if copied, err := s.Store.CopyNoteCustomIcon(r.Context(), parent.ID, created.ID, s.DataDir); err == nil {
+			created = copied
+		}
 	}
 	s.publishNote("note_created", created)
 	writeJSON(w, 201, s.notePayload(r, created))
@@ -165,6 +192,9 @@ func (s *Server) deleteNote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.purgeOwnerAttachments(r.Context(), ownerNote, id)
+	if cur.CustomIcon != nil && *cur.CustomIcon != "" {
+		_ = os.Remove(filepath.Join(s.DataDir, "note-icons", *cur.CustomIcon))
+	}
 	if err := s.Store.DeleteNote(r.Context(), id); err != nil {
 		writeErr(w, 500, err.Error())
 		return
@@ -188,6 +218,93 @@ func (s *Server) validateNoteParent(r *http.Request, noteID int64, parentID *int
 		return errors.New("parent note not found")
 	}
 	return nil
+}
+
+func noteCustomIcon(n store.Note) string {
+	if n.CustomIcon != nil {
+		return *n.CustomIcon
+	}
+	return ""
+}
+
+func (s *Server) getNoteIcon(w http.ResponseWriter, r *http.Request) {
+	id, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	n, err := s.Store.GetNote(r.Context(), id)
+	if errors.Is(err, store.ErrNotFound) {
+		writeErr(w, 404, "Note not found")
+		return
+	}
+	custom := noteCustomIcon(n)
+	if custom == "" || !store.SafeIconName(custom) {
+		writeErr(w, 404, "Icon not found")
+		return
+	}
+	path := filepath.Join(s.DataDir, "note-icons", custom)
+	http.ServeFile(w, r, path)
+}
+
+func (s *Server) postNoteIcon(w http.ResponseWriter, r *http.Request) {
+	id, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if _, err := s.Store.GetNote(r.Context(), id); errors.Is(err, store.ErrNotFound) {
+		writeErr(w, 404, "Note not found")
+		return
+	}
+	if err := r.ParseMultipartForm(600 << 10); err != nil {
+		writeErr(w, 400, "invalid multipart")
+		return
+	}
+	file, hdr, err := r.FormFile("file")
+	if err != nil {
+		writeErr(w, 400, "file required")
+		return
+	}
+	defer file.Close()
+	raw, err := io.ReadAll(io.LimitReader(file, 512*1024+1))
+	if err != nil || len(raw) == 0 || len(raw) > 512*1024 {
+		writeErr(w, 400, "icon too large or empty")
+		return
+	}
+	ct := hdr.Header.Get("Content-Type")
+	ext := ".png"
+	switch {
+	case strings.Contains(ct, "jpeg"), strings.HasSuffix(strings.ToLower(hdr.Filename), ".jpg"), strings.HasSuffix(strings.ToLower(hdr.Filename), ".jpeg"):
+		ext = ".jpg"
+	case strings.Contains(ct, "webp"), strings.HasSuffix(strings.ToLower(hdr.Filename), ".webp"):
+		ext = ".webp"
+	case strings.Contains(ct, "gif"), strings.HasSuffix(strings.ToLower(hdr.Filename), ".gif"):
+		ext = ".gif"
+	case strings.Contains(ct, "svg"), strings.HasSuffix(strings.ToLower(hdr.Filename), ".svg"):
+		ext = ".svg"
+	}
+	dir := filepath.Join(s.DataDir, "note-icons")
+	_ = os.MkdirAll(dir, 0o755)
+	name := strconv.FormatInt(id, 10) + ext
+	if err := os.WriteFile(filepath.Join(dir, name), raw, 0o644); err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	updated, err := s.Store.SetNoteIcon(r.Context(), id, name)
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	s.publishNote("note_updated", updated)
+	writeJSON(w, 200, s.notePayload(r, updated))
+}
+
+func (s *Server) deleteNoteIcon(w http.ResponseWriter, r *http.Request) {
+	id, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	updated, err := s.Store.ClearNoteIcon(r.Context(), id, s.DataDir)
+	if errors.Is(err, store.ErrNotFound) {
+		writeErr(w, 404, "Note not found")
+		return
+	}
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	s.publishNote("note_updated", updated)
+	writeJSON(w, 200, s.notePayload(r, updated))
 }
 
 func (s *Server) notePayload(r *http.Request, n store.Note) map[string]any {

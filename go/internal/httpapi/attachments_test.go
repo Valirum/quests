@@ -121,6 +121,9 @@ CREATE TABLE note (
 	pinned INTEGER NOT NULL DEFAULT 0,
 	sort_order INTEGER NOT NULL DEFAULT 0,
 	parent_id INTEGER,
+	color TEXT NOT NULL DEFAULT '#9a9a9a',
+	icon TEXT NOT NULL DEFAULT 'document',
+	custom_icon TEXT,
 	created_at DATETIME NOT NULL,
 	updated_at DATETIME NOT NULL
 );
