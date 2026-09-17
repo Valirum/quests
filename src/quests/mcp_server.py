@@ -47,8 +47,16 @@ server = MCPServer(
     "quests",
     instructions=(
         "Quests journal tools. Prefer get_context with a pasted ref like "
-        "quest=23 / step=252 / questline=3. Use list_questlines then list_quests "
-        "to browse; get_context for full related detail. "
+        "quest=23 / step=252 / questline=3 / note=12. Use list_questlines then "
+        "list_quests to browse missions; list_notes for the knowledge vault. "
+        "get_context for full related detail (a quest includes linked_notes "
+        "parsed from note= tokens; a note includes refs and backlinks). "
+        "Notes are markdown knowledge pages (toolkits, facts) — not quests. "
+        "They are not owned by a questline. Link them from a quest/step/"
+        "questline description with note=N; notes link back with quest=N / "
+        "note=N. Put scripts/config in the note body (fenced code), do not "
+        "attach the same zip to every mission. Attachments are binary "
+        "artifacts (PDF, images), not toolkits. "
         "To create a new quest use create_quest (title, optional steps inline, "
         "deadline_at + duration_seconds for a reminder window that opens "
         "duration_seconds before deadline_at, automated=true to demote create/start "
@@ -56,8 +64,11 @@ server = MCPServer(
         "category='health', questline='Сайт Рефкул'). "
         "Steps may include check_command, run_mode=poll|once, wait_previous. "
         "To create a new questline (project/theme container) use create_questline. "
-        "Quest/step `description` is markdown in the journal (lists, links, code, "
-        "emphasis) — use it; title stays plain. HUD/Telegram show the same text raw. "
+        "To create a knowledge page use create_note (title, markdown "
+        "description, optional parent_id for the notes tree). "
+        "Quest/step/note `description` is markdown in the journal (lists, links, "
+        "code, emphasis) — use it; title stays plain. HUD/Telegram show quest "
+        "text raw and ignore notes. "
         "To change steps on an existing quest use add_step / update_step / "
         "delete_step (do not replace the whole steps array). "
         "To change quest lifecycle or metadata use update_quest "
@@ -154,7 +165,7 @@ def _api_get(path: str, query: dict[str, Any] | None = None) -> Any:
 
 
 def _attachments_brief(owner_type: str, owner_id: int) -> list[dict[str, Any]]:
-    seg = "questlines" if owner_type == "questline" else "quests"
+    seg = {"questline": "questlines", "note": "notes"}.get(owner_type, "quests")
     try:
         rows = _api_get(f"/api/{seg}/{owner_id}/attachments", {"stat": "0"}) or []
     except RuntimeError:
@@ -188,12 +199,12 @@ def _tool_query(*, quiet: bool) -> dict[str, str]:
 
 def _parse_ref(ref: str) -> tuple[str, int]:
     text = (ref or "").strip()
-    for kind in ("questline", "quest", "step"):
+    for kind in ("questline", "quest", "step", "note"):
         prefix = f"{kind}="
         if text.startswith(prefix):
             return kind, int(text[len(prefix) :].strip())
     raise ValueError(
-        f"bad ref {ref!r}; expected quest=N, step=N, or questline=N"
+        f"bad ref {ref!r}; expected quest=N, step=N, questline=N, or note=N"
     )
 
 
@@ -279,11 +290,11 @@ def _step_body(s: dict[str, Any]) -> dict[str, Any]:
 
 @server.tool(
     description=(
-        "Full related context for a quest, step, or questline: questline (if any), "
-        "sibling quests on that line, all steps/progress, and attachment metadata "
-        "(filename, size, type, scan_status, comment, available, source_updated) "
-        "without file bytes. Pass exactly one of ref / quest / step / questline. "
-        "ref accepts clipboard form: quest=23. Use get_attachment to read a file."
+        "Full related context for a quest, step, questline, or note: "
+        "questline (if any), sibling quests, linked_notes (note= tokens), "
+        "or the note itself with refs/backlinks/children. Attachment metadata "
+        "without file bytes. Pass exactly one of ref / quest / step / questline / note. "
+        "ref accepts clipboard form: quest=23 or note=12. Use get_attachment to read a file."
     )
 )
 def get_context(
@@ -291,6 +302,7 @@ def get_context(
     quest: int | None = None,
     step: int | None = None,
     questline: int | None = None,
+    note: int | None = None,
 ) -> dict[str, Any]:
     if ref:
         kind, eid = _parse_ref(ref)
@@ -298,12 +310,17 @@ def get_context(
     else:
         chosen = [
             (k, v)
-            for k, v in (("quest", quest), ("step", step), ("questline", questline))
+            for k, v in (
+                ("quest", quest),
+                ("step", step),
+                ("questline", questline),
+                ("note", note),
+            )
             if v is not None
         ]
         if len(chosen) != 1:
             raise ValueError(
-                "provide exactly one of: ref, quest, step, questline"
+                "provide exactly one of: ref, quest, step, questline, note"
             )
         kind, eid = chosen[0]
         query = {kind: eid}
@@ -344,6 +361,80 @@ def list_quests(
 @server.tool(description="List all questlines (id, title, category, color, …).")
 def list_questlines() -> list[dict[str, Any]]:
     return _api_get("/api/questlines") or []
+
+
+@server.tool(
+    description=(
+        "List knowledge notes (markdown pages, not quests). Optional parent_id "
+        "filters children of one note; omit for the whole vault. "
+        "Link from quests with note=N in the description."
+    )
+)
+def list_notes(parent_id: int | None = None) -> list[dict[str, Any]]:
+    query: dict[str, Any] = {}
+    if parent_id is not None:
+        query["parent_id"] = parent_id
+    return _api_get("/api/notes", query or None) or []
+
+
+@server.tool(
+    description=(
+        "Create a markdown knowledge page (POST /api/notes). Not a quest — no "
+        "status, steps, deadline, HUD. parent_id nests it under another note "
+        "(vault tree only). Put toolkits (readme/script/config) in description "
+        "as markdown/code fences. Cite from quests with note=N."
+    )
+)
+def create_note(
+    title: str,
+    description: str | None = None,
+    parent_id: int | None = None,
+    pinned: bool | None = None,
+    sort_order: int | None = None,
+) -> dict[str, Any]:
+    body: dict[str, Any] = {"title": title}
+    if description is not None:
+        body["description"] = description
+    if parent_id is not None:
+        body["parent_id"] = int(parent_id)
+    if pinned is not None:
+        body["pinned"] = bool(pinned)
+    if sort_order is not None:
+        body["sort_order"] = int(sort_order)
+    return _api("POST", "/api/notes", body=body)
+
+
+@server.tool(
+    description=(
+        "Update a note (PATCH /api/notes/{id}). Only pass fields to change. "
+        "description is markdown. parent_id=null detaches to the vault root."
+    )
+)
+def update_note(
+    note_id: int,
+    title: str | None = None,
+    description: str | None = None,
+    parent_id: int | None = None,
+    clear_parent: bool = False,
+    pinned: bool | None = None,
+    sort_order: int | None = None,
+) -> dict[str, Any]:
+    body: dict[str, Any] = {}
+    if title is not None:
+        body["title"] = title
+    if description is not None:
+        body["description"] = description
+    if clear_parent:
+        body["parent_id"] = None
+    elif parent_id is not None:
+        body["parent_id"] = int(parent_id)
+    if pinned is not None:
+        body["pinned"] = bool(pinned)
+    if sort_order is not None:
+        body["sort_order"] = int(sort_order)
+    if not body:
+        raise ValueError("provide at least one field to update")
+    return _api("PATCH", f"/api/notes/{note_id}", body=body)
 
 
 @server.tool(
@@ -680,7 +771,7 @@ def _looks_text(content_type: str, raw: bytes) -> bool:
     description=(
         "Fetch the contents of one attachment. Metadata is already on "
         "list_quests / get_context — only call this when you decided the file "
-        "is relevant. Pass attachment_id plus exactly one of quest / questline. "
+        "is relevant. Pass attachment_id plus exactly one of quest / questline / note. "
         "Text is returned as utf-8; anything else as base64. Files over 512 KiB "
         "come back truncated (metadata only plus a note)."
     )
@@ -689,14 +780,17 @@ def get_attachment(
     attachment_id: int,
     quest: int | None = None,
     questline: int | None = None,
+    note: int | None = None,
 ) -> dict[str, Any]:
     chosen = [
-        (k, v) for k, v in (("quest", quest), ("questline", questline)) if v is not None
+        (k, v)
+        for k, v in (("quest", quest), ("questline", questline), ("note", note))
+        if v is not None
     ]
     if len(chosen) != 1:
-        raise ValueError("provide exactly one of: quest, questline")
+        raise ValueError("provide exactly one of: quest, questline, note")
     kind, owner_id = chosen[0]
-    seg = "quests" if kind == "quest" else "questlines"
+    seg = {"quest": "quests", "questline": "questlines", "note": "notes"}[kind]
     meta_rows = _api_get(f"/api/{seg}/{owner_id}/attachments", {"stat": "0"}) or []
     meta = next((a for a in meta_rows if a.get("id") == attachment_id), None)
     raw, _hdrs = _api_raw(

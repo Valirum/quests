@@ -386,8 +386,18 @@ func (s *Server) getContext(w http.ResponseWriter, r *http.Request) {
 			focusType, focusID, n = "questline", id, n+1
 		}
 	}
+	if v := q.Get("note"); v != "" {
+		id, err := strconv.ParseInt(v, 10, 64)
+		if err == nil {
+			focusType, focusID, n = "note", id, n+1
+		}
+	}
 	if n != 1 {
-		writeErr(w, 400, "pass exactly one of quest, step, questline")
+		writeErr(w, 400, "pass exactly one of quest, step, questline, note")
+		return
+	}
+	if focusType == "note" {
+		s.getNoteContext(w, r, focusID)
 		return
 	}
 	var lineID *int64
@@ -454,6 +464,7 @@ func (s *Server) getContext(w http.ResponseWriter, r *http.Request) {
 	attachments := map[string]any{
 		"questline": []store.AttachmentRead{},
 		"by_quest":  map[string][]store.AttachmentRead{},
+		"note":      []store.AttachmentRead{},
 	}
 	if lineID != nil {
 		attachments["questline"] = s.attachmentsForOwner(r.Context(), ownerQuestline, *lineID, true)
@@ -463,11 +474,50 @@ func (s *Server) getContext(w http.ResponseWriter, r *http.Request) {
 		byQuest[strconv.FormatInt(qq.ID, 10)] = s.attachmentsForOwner(r.Context(), ownerQuest, qq.ID, true)
 	}
 	attachments["by_quest"] = byQuest
+	var texts []string
+	if line != nil {
+		if m, ok := line.(map[string]any); ok {
+			if d, ok := m["description"].(string); ok {
+				texts = append(texts, d)
+			}
+			if t, ok := m["title"].(string); ok {
+				texts = append(texts, t)
+			}
+		}
+	}
+	for _, qq := range quests {
+		texts = append(texts, qq.Title, qq.Description)
+		for _, st := range qq.Steps {
+			texts = append(texts, st.Title, st.Description)
+		}
+	}
 	writeJSON(w, 200, map[string]any{
-		"focus":       map[string]any{"type": focusType, "id": focusID},
-		"questline":   line,
-		"quests":      reads,
-		"attachments": attachments,
+		"focus":        map[string]any{"type": focusType, "id": focusID},
+		"questline":    line,
+		"quests":       reads,
+		"linked_notes": s.linkedNotesFromText(r, texts...),
+		"attachments":  attachments,
+	})
+}
+
+func (s *Server) getNoteContext(w http.ResponseWriter, r *http.Request, id int64) {
+	n, err := s.Store.GetNote(r.Context(), id)
+	if errors.Is(err, store.ErrNotFound) {
+		writeErr(w, 404, "Note not found")
+		return
+	}
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	payload := s.notePayload(r, n)
+	payload["attachments"] = s.attachmentsForOwner(r.Context(), ownerNote, n.ID, true)
+	writeJSON(w, 200, map[string]any{
+		"focus":       map[string]any{"type": "note", "id": n.ID},
+		"note":        payload,
+		"questline":   nil,
+		"quests":      []any{},
+		"attachments": map[string]any{"note": payload["attachments"]},
 	})
 }
 

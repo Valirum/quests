@@ -13,7 +13,7 @@
     onAttachmentLiveInvalidate,
   } from '../js/attachmentCache.js'
 
-  /** @type {{ ownerType: 'quest' | 'questline', ownerId: number }} */
+  /** @type {{ ownerType: 'quest' | 'questline' | 'note', ownerId: number }} */
   let { ownerType, ownerId } = $props()
 
   /** @type {any[]} */

@@ -4,6 +4,7 @@
   import MarkdownBody from '../ui/MarkdownBody.svelte'
   import AttachmentsBlock from './AttachmentsBlock.svelte'
   import { formatLocal, localTimeZone } from '../js/time.js'
+  import { parseRefs } from '../js/refs.js'
   import {
     OPEN_STATUSES,
     periodBadge,
@@ -35,6 +36,9 @@
    *   onLineHeadContextMenu?: (event: MouseEvent) => void,
    *   onStepContextMenu?: (event: MouseEvent, step: any) => void,
    *   onSelectQuest?: (id: number) => void,
+   *   notes?: any[],
+   *   labels?: Record<string, string>,
+   *   onRef?: (kind: string, id: number) => void,
    * }} */
   let {
     selected,
@@ -58,6 +62,9 @@
     onLineHeadContextMenu,
     onStepContextMenu,
     onSelectQuest,
+    notes = [],
+    labels = {},
+    onRef,
   } = $props()
 
   const tzLabel = localTimeZone()
@@ -93,6 +100,27 @@
   let lineNext = $derived(
     lineIndex >= 0 && lineIndex < lineQuests.length - 1 ? lineQuests[lineIndex + 1] : null,
   )
+
+  let linkedNotes = $derived.by(() => {
+    if (!selected) return []
+    const blob = [
+      selected.title,
+      selected.description,
+      ...(selected.steps || []).flatMap((s) => [s.title, s.description]),
+    ].join('\n')
+    const ids = parseRefs(blob)
+      .filter((r) => r.kind === 'note')
+      .map((r) => r.id)
+    const seen = new Set()
+    const out = []
+    for (const id of ids) {
+      if (seen.has(id)) continue
+      seen.add(id)
+      const row = notes.find((n) => n.id === id)
+      out.push({ id, title: row?.title || `note=${id}` })
+    }
+    return out
+  })
 
   function selectLineQuest(id) {
     if (id == null || id === selected?.id) return
@@ -268,7 +296,7 @@
             {/if}
           </div>
           {#if step.description}
-            <MarkdownBody class="step__desc" source={step.description} />
+            <MarkdownBody class="step__desc" source={step.description} {labels} {onRef} />
           {/if}
         </li>
       {/each}
@@ -282,7 +310,7 @@
   {@const timer = questTimer(q, nowMs)}
   {#if q.description}
     <div class="block block--prose">
-      <MarkdownBody class="block__body" source={q.description} />
+      <MarkdownBody class="block__body" source={q.description} {labels} {onRef} />
     </div>
   {/if}
 
@@ -295,6 +323,22 @@
     <h3 class="block__label">Вложения</h3>
     <AttachmentsBlock ownerType="quest" ownerId={q.id} />
   </div>
+
+  {#if linkedNotes.length}
+    <div class="block">
+      <h3 class="block__label">Заметки</h3>
+      <ul class="detail__notes">
+        {#each linkedNotes as n (n.id)}
+          <li>
+            <button type="button" class="detail__note-link" onclick={() => onRef?.('note', n.id)}>
+              {n.title}
+              <span>note={n.id}</span>
+            </button>
+          </li>
+        {/each}
+      </ul>
+    </div>
+  {/if}
 
   <dl class="dates">
     <div>

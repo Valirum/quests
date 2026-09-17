@@ -19,15 +19,18 @@
     toLocalInputValue,
   } from '../js/time.js'
   import Icon from '../ui/Icon.svelte'
+  import MentionTextarea from '../ui/MentionTextarea.svelte'
   import ConfirmModal from './ConfirmModal.svelte'
   import { untrack } from 'svelte'
 
-  /** @type {{ open: boolean, mode: 'create' | 'edit', quest?: any, defaults?: { questline_id?: number | null, category_id?: number | null }, onClose: () => void, onSaved: (q: any) => void, onDeleted?: (id: number) => void }} */
+  /** @type {{ open: boolean, mode: 'create' | 'edit', quest?: any, defaults?: { questline_id?: number | null, category_id?: number | null }, quests?: any[], notes?: any[], onClose: () => void, onSaved: (q: any) => void, onDeleted?: (id: number) => void }} */
   let {
     open = false,
     mode = 'create',
     quest = null,
     defaults = null,
+    quests = [],
+    notes = [],
     onClose,
     onSaved,
     onDeleted,
@@ -420,10 +423,17 @@
           <input type="text" bind:value={title} required />
         </label>
 
-        <label class="field">
+        <div class="field">
           <span class="label">Описание</span>
-          <textarea rows="3" bind:value={description}></textarea>
-        </label>
+          <MentionTextarea
+            bind:value={description}
+            {quests}
+            {questlines}
+            {notes}
+            rows={3}
+            placeholder="@название — квест, заметка, шаг, квестлайн"
+          />
+        </div>
 
         <div class="field">
           <span class="label">Статус</span>

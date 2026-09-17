@@ -199,6 +199,14 @@
     flex-direction: column;
   }
 
+  .journal__notes {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+
   /* One row of status chips, labeled by default — a 2-column grid needs
      upkeep as items come and go, a line doesn't. Collapses to dot-only
      (label dropped, title tooltip carries the detail) only once it no
@@ -1576,6 +1584,33 @@
     font-size: 0.68rem;
   }
 
+  .detail__notes {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+
+  .detail__note-link {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 0.5rem;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    padding: 0.15rem 0;
+    cursor: pointer;
+    font-family: var(--font-body, Georgia, serif);
+  }
+
+  .detail__note-link span {
+    color: var(--color-fg-subtle, #6e6e6e);
+    font-family: var(--font-mono, monospace);
+    font-size: 0.7rem;
+  }
+
   .detail__pager {
     display: grid;
     grid-template-columns: 1fr auto 1fr;
@@ -1733,6 +1768,39 @@
 
   .md a:hover {
     text-decoration: underline;
+  }
+
+  .md table {
+    display: block;
+    width: max-content;
+    max-width: 100%;
+    margin: 0 0 0.75em;
+    overflow-x: auto;
+    border-collapse: collapse;
+    font-size: 0.92em;
+  }
+
+  .md th,
+  .md td {
+    padding: 0.35em 0.6em;
+    border: 1px solid var(--color-border, #333);
+    text-align: left;
+    vertical-align: top;
+  }
+
+  .md th {
+    font-weight: 600;
+    background: color-mix(in srgb, var(--color-fg, #e8e8e8) 8%, transparent);
+  }
+
+  .md th[align='center'],
+  .md td[align='center'] {
+    text-align: center;
+  }
+
+  .md th[align='right'],
+  .md td[align='right'] {
+    text-align: right;
   }
 
   .block__body--muted {

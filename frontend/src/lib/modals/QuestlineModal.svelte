@@ -11,15 +11,19 @@
   } from '../js/api.js'
   import Icon from '../ui/Icon.svelte'
   import QuestlineIcon from '../ui/QuestlineIcon.svelte'
+  import MentionTextarea from '../ui/MentionTextarea.svelte'
   import ConfirmModal from './ConfirmModal.svelte'
   import AttachmentsBlock from '../blocks/AttachmentsBlock.svelte'
   import { untrack } from 'svelte'
 
-  /** @type {{ open: boolean, mode: 'create' | 'edit', line?: any, onClose: () => void, onSaved: (line: any) => void, onDeleted?: (id: number) => void }} */
+  /** @type {{ open: boolean, mode: 'create' | 'edit', line?: any, quests?: any[], questlines?: any[], notes?: any[], onClose: () => void, onSaved: (line: any) => void, onDeleted?: (id: number) => void }} */
   let {
     open = false,
     mode = 'create',
     line = null,
+    quests = [],
+    questlines = [],
+    notes = [],
     onClose,
     onSaved,
     onDeleted,
@@ -227,10 +231,17 @@
           <input type="text" bind:value={title} required />
         </label>
 
-        <label class="field">
+        <div class="field">
           <span class="label">Описание</span>
-          <textarea rows="2" bind:value={description}></textarea>
-        </label>
+          <MentionTextarea
+            bind:value={description}
+            {quests}
+            {questlines}
+            {notes}
+            rows={2}
+            placeholder="@название — квест, заметка, шаг, квестлайн"
+          />
+        </div>
 
         <div class="field">
           <span class="label">Раздел</span>

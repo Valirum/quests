@@ -2,15 +2,16 @@ const KIND_LABEL = {
   questline: 'квестлайн',
   quest: 'квест',
   step: 'шаг',
+  note: 'заметка',
 }
 
 /**
- * Candidates for `@query` autocomplete in the assistant prompt — matches
- * against already-loaded quests/questlines (and their nested steps) by
- * title substring. Ranked: title starts with query > title contains query,
+ * Candidates for `@query` autocomplete — matches already-loaded
+ * quests/questlines/notes (and nested steps) by title substring.
+ * Ranked: title starts with query > title contains query,
  * questlines/quests before their nested steps within each tier.
  */
-export function matchMentions(query, { quests = [], questlines = [] } = {}, limit = 8) {
+export function matchMentions(query, { quests = [], questlines = [], notes = [] } = {}, limit = 8) {
   const q = query.trim().toLowerCase()
   if (!q) return []
 
@@ -25,6 +26,7 @@ export function matchMentions(query, { quests = [], questlines = [] } = {}, limi
     ;(idx === 0 ? starts : contains).push(item)
   }
 
+  for (const note of notes) push('note', note.id, note.title || '')
   for (const line of questlines) push('questline', line.id, line.title || '')
   for (const quest of quests) {
     push('quest', quest.id, quest.title || '')

@@ -13,18 +13,18 @@ import (
 )
 
 type Questline struct {
-	ID             int64
-	Title          string
-	Description    string
-	CategoryID     *int64
-	Color          string
-	Icon           string
-	CustomIcon     *string
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
-	CategorySlug   *string
-	CategoryLabel  *string
-	CategoryColor  *string
+	ID            int64
+	Title         string
+	Description   string
+	CategoryID    *int64
+	Color         string
+	Icon          string
+	CustomIcon    *string
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+	CategorySlug  *string
+	CategoryLabel *string
+	CategoryColor *string
 }
 
 type QuestlineRead map[string]any
@@ -245,9 +245,9 @@ func questlineToRead(q Questline) QuestlineRead {
 	out := QuestlineRead{
 		"id": q.ID, "title": q.Title, "description": q.Description,
 		"category_id": q.CategoryID, "color": q.Color, "icon": q.Icon,
-		"custom_icon": nil,
-		"created_at":  derefISO(&q.CreatedAt),
-		"updated_at":  derefISO(&q.UpdatedAt),
+		"custom_icon":   nil,
+		"created_at":    derefISO(&q.CreatedAt),
+		"updated_at":    derefISO(&q.UpdatedAt),
 		"category_slug": q.CategorySlug, "category_label": q.CategoryLabel, "category_color": q.CategoryColor,
 		"icon_url": nil,
 	}

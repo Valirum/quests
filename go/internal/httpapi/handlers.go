@@ -67,6 +67,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("DELETE /api/quests/{id}/steps/{step_id}", s.deleteStep)
 	s.registerAuth(mux)
 	s.registerAttachments(mux)
+	s.registerNotes(mux)
 	s.registerParity(mux)
 	s.registerLLMActions(mux)
 	s.mountSPA(mux)

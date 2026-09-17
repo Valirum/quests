@@ -3,10 +3,10 @@
   import ContextMenu from '../ui/ContextMenu.svelte'
 
   /** @type {{
-   *   view: 'journal' | 'toc' | 'calendar' | 'hero' | 'stats',
+   *   view: 'journal' | 'toc' | 'notes' | 'calendar' | 'hero' | 'stats',
    *   liveStatus: string,
    *   health: { api: string, overlay: string, telegram: string, webdav?: string },
-   *   onViewChange: (v: 'journal' | 'toc' | 'calendar' | 'hero' | 'stats') => void,
+   *   onViewChange: (v: 'journal' | 'toc' | 'notes' | 'calendar' | 'hero' | 'stats') => void,
    *   onOpenSettings: () => void,
    *   onOpenTemplates: () => void,
    *   onOpenCreateQuestline: () => void,
@@ -50,7 +50,7 @@
       { id: 'assistant', label: 'Команда' },
       { id: 'settings', label: 'Настройки' },
     ]
-    if (view === 'journal' || view === 'toc') {
+    if (view === 'journal' || view === 'toc' || view === 'notes') {
       items.push(
         { id: 'templates', label: 'Шаблоны' },
         { id: 'questline', label: 'Новый квестлайн' },
@@ -180,6 +180,8 @@
           Статистика
         {:else if view === 'toc'}
           Оглавление
+        {:else if view === 'notes'}
+          Заметки
         {:else}
           Задачи
         {/if}
@@ -272,6 +274,16 @@
     <button
       type="button"
       class="view-tab"
+      class:view-tab--on={view === 'notes'}
+      role="tab"
+      aria-selected={view === 'notes'}
+      onclick={() => onViewChange('notes')}
+    >
+      Заметки
+    </button>
+    <button
+      type="button"
+      class="view-tab"
       class:view-tab--on={view === 'calendar'}
       role="tab"
       aria-selected={view === 'calendar'}
@@ -289,7 +301,7 @@
       <Icon name="settings" />
       <span class="btn__text">Настройки</span>
     </button>
-    {#if view === 'journal' || view === 'toc'}
+    {#if view === 'journal' || view === 'toc' || view === 'notes'}
       <button type="button" class="btn" onclick={onOpenTemplates} aria-label="Шаблоны периодики">
         <Icon name="renew" />
         <span class="btn__text">Шаблоны</span>
