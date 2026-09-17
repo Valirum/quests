@@ -7,6 +7,7 @@
     listCategories,
     listQuestlines,
     listQuests,
+    listAllAttachments,
     updateQuest,
     updateQuestStep,
     fetchHealth,
@@ -15,6 +16,7 @@
     setUnauthorizedHandler,
   } from './lib/js/api.js'
   import { subscribeQuestEvents } from './lib/js/live.js'
+  import { seedAttachmentIndex, invalidateAttachmentLiveFlags } from './lib/js/attachmentCache.js'
   import { applyTheme, loadSavedTheme } from './lib/js/theme.js'
   import { questMatchesQuery } from './lib/js/search.js'
   import { OPEN_STATUSES } from './lib/js/questFormat.js'
@@ -49,8 +51,13 @@
   let loading = $state(true)
   let error = $state('')
   let liveStatus = $state('off')
-  /** @type {{ api: string, overlay: string, telegram: string, detail?: Record<string, any> }} */
-  let health = $state({ api: 'unknown', overlay: 'unknown', telegram: 'unknown' })
+  /** @type {{ api: string, overlay: string, telegram: string, webdav: string, detail?: Record<string, any> }} */
+  let health = $state({
+    api: 'unknown',
+    overlay: 'unknown',
+    telegram: 'unknown',
+    webdav: 'unknown',
+  })
   let searchQuery = $state('')
   /** @type {'journal' | 'toc' | 'calendar' | 'hero' | 'stats'} */
   let view = $state('journal')
@@ -170,14 +177,21 @@
     if (!silent) loading = true
     if (!silent) error = ''
     try {
-      const [next, cats, lines] = await Promise.all([
+      const [next, cats, lines, attIndex] = await Promise.all([
         listQuests({}),
         listCategories(),
         listQuestlines(),
+        listAllAttachments().catch(() => null),
       ])
       quests = next
       categories = Array.isArray(cats) ? cats : []
       questlines = Array.isArray(lines) ? lines : []
+      if (attIndex) {
+        seedAttachmentIndex(attIndex, {
+          questIds: next.map((q) => q.id),
+          questlineIds: questlines.map((l) => l.id),
+        })
+      }
       const prefer = pendingSelectId ?? selectedId ?? questIdFromUrl()
       if (prefer != null && next.some((q) => q.id === prefer)) {
         selectedId = prefer
@@ -611,15 +625,31 @@
     try {
       const data = await fetchHealth()
       const comps = data?.components || {}
+      const webdav = probeStatus(comps.webdav?.status)
+      if (health.webdav !== 'unknown' && health.webdav !== webdav) {
+        invalidateAttachmentLiveFlags()
+      }
       health = {
         api: data?.api?.status === 'ok' ? 'ok' : 'offline',
         overlay: comps.overlay?.status === 'ok' ? 'ok' : 'offline',
         telegram: comps.telegram?.status === 'ok' ? 'ok' : 'offline',
+        webdav,
         detail: data,
       }
     } catch {
-      health = { api: 'offline', overlay: 'unknown', telegram: 'unknown' }
+      health = {
+        api: 'offline',
+        overlay: 'unknown',
+        telegram: 'unknown',
+        webdav: 'unknown',
+      }
     }
+  }
+
+  function probeStatus(status) {
+    if (status === 'ok') return 'ok'
+    if (status === 'offline') return 'offline'
+    return 'unknown'
   }
 
   /** Boots data loading and live updates. Only runs once authenticated. */

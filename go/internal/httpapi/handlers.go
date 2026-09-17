@@ -113,7 +113,8 @@ func (s *Server) getHealth(w http.ResponseWriter, r *http.Request) {
 	overall := "ok"
 	for _, c := range comps {
 		m, _ := c.(map[string]any)
-		if m["status"] != "ok" {
+		st, _ := m["status"].(string)
+		if st != "ok" && st != "disabled" {
 			overall = "degraded"
 			break
 		}

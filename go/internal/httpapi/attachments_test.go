@@ -498,3 +498,66 @@ func TestAttachmentSourceUpdatedMarker(t *testing.T) {
 		t.Fatalf("source_updated = %v rows=%v", rows, rows)
 	}
 }
+
+func TestAttachmentIndexIsMetadataOnly(t *testing.T) {
+	dav := newFakeDAV()
+	t.Cleanup(dav.Close)
+	clam := fakeClamd(t, "stream: OK")
+	s := newAttachmentServer(t, dav.URL, clam, 0)
+	a := seedQuest(t, s)
+	b := seedQuest(t, s)
+	h := s.Handler()
+
+	if w := postFile(t, h, fmt.Sprintf("/api/quests/%d/attachments", a), "a.txt", "", []byte("aaa")); w.Code != 201 {
+		t.Fatalf("upload a = %d %s", w.Code, w.Body.String())
+	}
+	if w := postFile(t, h, fmt.Sprintf("/api/quests/%d/attachments", b), "b.txt", "note", []byte("bbb")); w.Code != 201 {
+		t.Fatalf("upload b = %d %s", w.Code, w.Body.String())
+	}
+
+	idx := httptest.NewRecorder()
+	h.ServeHTTP(idx, httptest.NewRequest(http.MethodGet, "/api/attachments", nil))
+	if idx.Code != 200 {
+		t.Fatalf("index = %d %s", idx.Code, idx.Body.String())
+	}
+	var grouped map[string]map[string][]map[string]any
+	if err := json.Unmarshal(idx.Body.Bytes(), &grouped); err != nil {
+		t.Fatal(err)
+	}
+	if grouped["questline"] == nil || grouped["quest"] == nil {
+		t.Fatalf("missing buckets: %v", grouped)
+	}
+	akey := fmt.Sprintf("%d", a)
+	bkey := fmt.Sprintf("%d", b)
+	if len(grouped["quest"][akey]) != 1 || grouped["quest"][akey][0]["filename"] != "a.txt" {
+		t.Fatalf("quest a = %v", grouped["quest"][akey])
+	}
+	if grouped["quest"][bkey][0]["comment"] != "note" {
+		t.Fatalf("quest b = %v", grouped["quest"][bkey])
+	}
+	if _, ok := grouped["quest"][akey][0]["available"]; ok {
+		t.Fatalf("index must not Stat: available=%v", grouped["quest"][akey][0]["available"])
+	}
+
+	quiet := httptest.NewRecorder()
+	h.ServeHTTP(quiet, httptest.NewRequest(http.MethodGet, fmt.Sprintf("/api/quests/%d/attachments?stat=0", a), nil))
+	var quietRows []map[string]any
+	if err := json.Unmarshal(quiet.Body.Bytes(), &quietRows); err != nil {
+		t.Fatal(err)
+	}
+	if len(quietRows) != 1 {
+		t.Fatalf("stat=0 len = %d", len(quietRows))
+	}
+	if _, ok := quietRows[0]["available"]; ok {
+		t.Fatalf("stat=0 must omit available: %v", quietRows[0])
+	}
+
+	live := httptest.NewRecorder()
+	h.ServeHTTP(live, httptest.NewRequest(http.MethodGet, "/api/attachments?stat=1", nil))
+	if err := json.Unmarshal(live.Body.Bytes(), &grouped); err != nil {
+		t.Fatal(err)
+	}
+	if grouped["quest"][akey][0]["available"] != true {
+		t.Fatalf("stat=1 available = %v", grouped["quest"][akey][0]["available"])
+	}
+}

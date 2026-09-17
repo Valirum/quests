@@ -48,6 +48,9 @@ func (s *Server) registerAttachments(mux *http.ServeMux) {
 			s.deleteAttachment(w, r, typ)
 		})
 	}
+	// Index of every attachment, grouped by owner. Default is metadata only
+	// (no WebDAV Stat) so the journal can seed its cache in one cheap query.
+	mux.HandleFunc("GET /api/attachments", s.listAllAttachments)
 }
 
 func (s *Server) ownerExists(ctx context.Context, ownerType string, id int64) (bool, error) {
@@ -95,6 +98,41 @@ func (s *Server) listAttachments(w http.ResponseWriter, r *http.Request, ownerTy
 	writeJSON(w, 200, out)
 }
 
+// listAllAttachments is the journal cache seed: one SQLite round-trip, grouped
+// by owner. ?stat=1 opts into WebDAV probes (expensive with many files).
+func (s *Server) listAllAttachments(w http.ResponseWriter, r *http.Request) {
+	rows, err := s.Store.ListAllAttachments(r.Context())
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	probe := r.URL.Query().Get("stat") == "1"
+	out := map[string]map[string][]store.AttachmentRead{
+		"quest":     {},
+		"questline": {},
+	}
+	updated := map[string]*time.Time{}
+	for _, a := range rows {
+		bucket, ok := out[a.OwnerType]
+		if !ok {
+			continue
+		}
+		var ownerUpdated *time.Time
+		if probe {
+			ukey := a.OwnerType + ":" + strconv.FormatInt(a.OwnerID, 10)
+			if t, hit := updated[ukey]; hit {
+				ownerUpdated = t
+			} else {
+				ownerUpdated = s.ownerUpdatedAt(r.Context(), a.OwnerType, a.OwnerID)
+				updated[ukey] = ownerUpdated
+			}
+		}
+		oid := strconv.FormatInt(a.OwnerID, 10)
+		bucket[oid] = append(bucket[oid], s.decorateAttachment(r.Context(), a, ownerUpdated, probe))
+	}
+	writeJSON(w, 200, out)
+}
+
 func (s *Server) ownerUpdatedAt(ctx context.Context, ownerType string, id int64) *time.Time {
 	if ownerType == ownerQuestline {
 		row, err := s.Store.GetQuestline(ctx, id)
@@ -125,10 +163,15 @@ func (s *Server) ownerUpdatedAt(ctx context.Context, ownerType string, id int64)
 // newer than the quest/questline it is attached to.
 func (s *Server) decorateAttachment(ctx context.Context, a store.Attachment, ownerUpdated *time.Time, probe bool) store.AttachmentRead {
 	out := store.AttachmentToRead(a)
+	if !probe {
+		// Leave available/source_updated off: unknown is not "missing", and a
+		// bulk index must not paint every file as unavailable before Stat.
+		return out
+	}
 	out["available"] = false
 	out["source_updated"] = false
 	out["last_modified"] = nil
-	if !probe || !s.webdavOK() {
+	if !s.webdavOK() {
 		return out
 	}
 	info, err := s.WebDAV.Stat(ctx, a.WebDAVPath)

@@ -90,6 +90,7 @@ func main() {
 	windows := schedule.NewWindowNotifier()
 	checks := schedule.NewCheckRunner(st, hub)
 	go schedule.RunMaintenanceLoop(ctx, st, hub, windows, checks)
+	go srv.RunProbes(ctx)
 
 	hub.Publish("startup", events.PublishOpts{
 		Title:  "Quests",
