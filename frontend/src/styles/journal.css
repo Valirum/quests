@@ -1515,6 +1515,10 @@
     flex-shrink: 0;
   }
 
+  .detail__line-desc {
+    margin: 0 0 var(--space-5, 1.5rem);
+  }
+
   .detail__toc {
     margin: 0 0 var(--space-5, 1.5rem);
     padding: 0 0 var(--space-4, 1rem);
