@@ -3,15 +3,20 @@ const KIND_LABEL = {
   quest: 'квест',
   step: 'шаг',
   note: 'заметка',
+  attachment: 'файл',
 }
 
 /**
  * Candidates for `@query` autocomplete — matches already-loaded
- * quests/questlines/notes (and nested steps) by title substring.
+ * quests/questlines/notes/attachments (and nested steps) by title substring.
  * Ranked: title starts with query > title contains query,
  * questlines/quests before their nested steps within each tier.
  */
-export function matchMentions(query, { quests = [], questlines = [], notes = [] } = {}, limit = 8) {
+export function matchMentions(
+  query,
+  { quests = [], questlines = [], notes = [], attachments = [] } = {},
+  limit = 8,
+) {
   const q = query.trim().toLowerCase()
   if (!q) return []
 
@@ -28,6 +33,12 @@ export function matchMentions(query, { quests = [], questlines = [], notes = [] 
 
   for (const note of notes) push('note', note.id, note.title || '')
   for (const line of questlines) push('questline', line.id, line.title || '')
+  for (const att of attachments) {
+    const name = att.filename || `attachment=${att.id}`
+    const hint = att.comment || undefined
+    push('attachment', att.id, name, hint)
+    if (att.comment) push('attachment', att.id, att.comment, name)
+  }
   for (const quest of quests) {
     push('quest', quest.id, quest.title || '')
     for (const step of quest.steps || []) {
@@ -35,7 +46,15 @@ export function matchMentions(query, { quests = [], questlines = [], notes = [] 
     }
   }
 
-  return [...starts, ...contains].slice(0, limit)
+  // Dedupe attachment hits (filename + comment) keeping first/best rank.
+  const seen = new Set()
+  const ranked = [...starts, ...contains].filter((item) => {
+    const key = `${item.kind}:${item.id}`
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+  return ranked.slice(0, limit)
 }
 
 /** `@partial` token ending at `caret` in `text`, or null if caret isn't inside one. */

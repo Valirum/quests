@@ -23,6 +23,7 @@
    *   labels?: Record<string, string>,
    *   quests?: any[],
    *   questlines?: any[],
+   *   attachments?: any[],
    *   onSelect: (id: number | null) => void,
    *   onChanged: () => void,
    *   onRef?: (kind: string, id: number) => void,
@@ -33,6 +34,7 @@
     labels = {},
     quests = [],
     questlines = [],
+    attachments = [],
     onSelect,
     onChanged,
     onRef,
@@ -554,6 +556,7 @@
           {quests}
           {questlines}
           {notes}
+          {attachments}
           rows={16}
           placeholder="Markdown. @название — ссылка. Код и конфиг — в блоках ``` … ```"
         />

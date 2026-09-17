@@ -83,3 +83,24 @@ export function onAttachmentLiveInvalidate(fn) {
   liveListeners.add(fn)
   return () => liveListeners.delete(fn)
 }
+
+/** Flat list from GET /api/attachments grouped payload. */
+export function flattenAttachmentIndex(index) {
+  if (!index || typeof index !== 'object') return []
+  /** @type {any[]} */
+  const out = []
+  for (const type of ['quest', 'questline', 'note']) {
+    const bucket = index[type]
+    if (!bucket || typeof bucket !== 'object') continue
+    for (const rows of Object.values(bucket)) {
+      for (const a of rows || []) {
+        out.push({
+          ...a,
+          owner_type: a.owner_type || type,
+          owner_id: a.owner_id ?? Number(a.owner_id),
+        })
+      }
+    }
+  }
+  return out
+}

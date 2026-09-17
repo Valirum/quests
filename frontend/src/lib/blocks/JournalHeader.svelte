@@ -3,10 +3,10 @@
   import ContextMenu from '../ui/ContextMenu.svelte'
 
   /** @type {{
-   *   view: 'journal' | 'toc' | 'notes' | 'calendar' | 'hero' | 'stats',
+   *   view: 'journal' | 'toc' | 'notes' | 'attachments' | 'calendar' | 'hero' | 'stats',
    *   liveStatus: string,
    *   health: { api: string, overlay: string, telegram: string, webdav?: string },
-   *   onViewChange: (v: 'journal' | 'toc' | 'notes' | 'calendar' | 'hero' | 'stats') => void,
+   *   onViewChange: (v: 'journal' | 'toc' | 'notes' | 'attachments' | 'calendar' | 'hero' | 'stats') => void,
    *   onOpenSettings: () => void,
    *   onOpenTemplates: () => void,
    *   onOpenCreateQuestline: () => void,
@@ -182,6 +182,8 @@
           Оглавление
         {:else if view === 'notes'}
           Заметки
+        {:else if view === 'attachments'}
+          Вложения
         {:else}
           Задачи
         {/if}
@@ -280,6 +282,16 @@
       onclick={() => onViewChange('notes')}
     >
       Заметки
+    </button>
+    <button
+      type="button"
+      class="view-tab"
+      class:view-tab--on={view === 'attachments'}
+      role="tab"
+      aria-selected={view === 'attachments'}
+      onclick={() => onViewChange('attachments')}
+    >
+      Вложения
     </button>
     <button
       type="button"

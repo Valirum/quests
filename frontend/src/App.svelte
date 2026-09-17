@@ -17,7 +17,7 @@
     setUnauthorizedHandler,
   } from './lib/js/api.js'
   import { subscribeQuestEvents } from './lib/js/live.js'
-  import { seedAttachmentIndex, invalidateAttachmentLiveFlags } from './lib/js/attachmentCache.js'
+  import { seedAttachmentIndex, invalidateAttachmentLiveFlags, flattenAttachmentIndex } from './lib/js/attachmentCache.js'
   import { applyTheme, loadSavedTheme } from './lib/js/theme.js'
   import { questMatchesQuery } from './lib/js/search.js'
   import { OPEN_STATUSES } from './lib/js/questFormat.js'
@@ -38,6 +38,7 @@
   import ActivityCalendar from './lib/blocks/ActivityCalendar.svelte'
   import TocPage from './lib/blocks/TocPage.svelte'
   import NotesPage from './lib/blocks/NotesPage.svelte'
+  import AttachmentsPage from './lib/blocks/AttachmentsPage.svelte'
   import LoginScreen from './lib/blocks/LoginScreen.svelte'
 
   /** Auth gate: null = still checking, true/false = decided. */
@@ -50,8 +51,11 @@
 
   let quests = $state([])
   let notes = $state([])
+  /** @type {Record<string, any> | null} */
+  let attachmentIndex = $state(null)
   let selectedId = $state(null)
   let selectedNoteId = $state(/** @type {number | null} */ (null))
+  let selectedAttachmentId = $state(/** @type {number | null} */ (null))
   let loading = $state(true)
   let error = $state('')
   let liveStatus = $state('off')
@@ -63,7 +67,7 @@
     webdav: 'unknown',
   })
   let searchQuery = $state('')
-  /** @type {'journal' | 'toc' | 'notes' | 'calendar' | 'hero' | 'stats'} */
+  /** @type {'journal' | 'toc' | 'notes' | 'attachments' | 'calendar' | 'hero' | 'stats'} */
   let view = $state('journal')
   /** Bump to refresh hero silently after quest events. */
   let heroNonce = $state(0)
@@ -158,12 +162,16 @@
     groupQuestsByCategory(listedQuests, categories, questlines),
   )
   let selected = $derived(quests.find((q) => q.id === selectedId) ?? null)
+  let attachments = $derived(flattenAttachmentIndex(attachmentIndex))
   let refLabels = $derived.by(() => {
     /** @type {Record<string, string>} */
     const m = {}
     for (const n of notes) m[`note:${n.id}`] = n.title || `note=${n.id}`
     for (const q of quests) m[`quest:${q.id}`] = q.title || `quest=${q.id}`
     for (const l of questlines) m[`questline:${l.id}`] = l.title || `questline=${l.id}`
+    for (const a of attachments) {
+      m[`attachment:${a.id}`] = a.filename || `attachment=${a.id}`
+    }
     return m
   })
 
@@ -198,6 +206,7 @@
       ])
       quests = next
       notes = Array.isArray(nextNotes) ? nextNotes : []
+      attachmentIndex = attIndex && typeof attIndex === 'object' ? attIndex : null
       categories = Array.isArray(cats) ? cats : []
       questlines = Array.isArray(lines) ? lines : []
       if (attIndex) {
@@ -220,11 +229,19 @@
       } else if (selectedNoteId != null && !notes.some((n) => n.id === selectedNoteId)) {
         selectedNoteId = null
       }
+      const flatAtt = flattenAttachmentIndex(attachmentIndex)
+      const preferAtt = selectedAttachmentId ?? attachmentIdFromUrl()
+      if (preferAtt != null && flatAtt.some((a) => a.id === preferAtt)) {
+        selectedAttachmentId = preferAtt
+      } else if (selectedAttachmentId != null && !flatAtt.some((a) => a.id === selectedAttachmentId)) {
+        selectedAttachmentId = null
+      }
     } catch (e) {
       if (!silent) {
         error = e.message || String(e)
         quests = []
         notes = []
+        attachmentIndex = null
         selectedId = null
       }
     } finally {
@@ -621,10 +638,28 @@
     }
   }
 
+  function attachmentIdFromUrl() {
+    try {
+      const raw = new URL(location.href).searchParams.get('attachment')
+      if (!raw) return null
+      const id = Number(raw)
+      return Number.isFinite(id) && id > 0 ? id : null
+    } catch {
+      return null
+    }
+  }
+
   function tabFromUrl() {
     try {
       const raw = new URL(location.href).searchParams.get('tab')
-      if (raw === 'toc' || raw === 'notes' || raw === 'calendar' || raw === 'hero' || raw === 'stats') {
+      if (
+        raw === 'toc' ||
+        raw === 'notes' ||
+        raw === 'attachments' ||
+        raw === 'calendar' ||
+        raw === 'hero' ||
+        raw === 'stats'
+      ) {
         return raw
       }
     } catch {
@@ -633,7 +668,7 @@
     return null
   }
 
-  /** Rewrite the query from scratch — tab / quest= / note= never share the bar. */
+  /** Rewrite the query from scratch — tab / quest= / note= / attachment= never share the bar. */
   function replaceSearch(params) {
     try {
       const qs = new URLSearchParams()
@@ -655,6 +690,11 @@
     }
     if (nextView === 'notes') {
       return selectedNoteId != null ? { note: selectedNoteId } : { tab: 'notes' }
+    }
+    if (nextView === 'attachments') {
+      return selectedAttachmentId != null
+        ? { attachment: selectedAttachmentId }
+        : { tab: 'attachments' }
     }
     return { tab: nextView }
   }
@@ -690,9 +730,25 @@
     if (pushUrl) replaceSearch({ note: n })
   }
 
+  function selectAttachmentFromUi(id, { pushUrl = true } = {}) {
+    const n = Number(id)
+    if (!Number.isFinite(n) || n <= 0) {
+      selectedAttachmentId = null
+      if (pushUrl) replaceSearch(searchForView('attachments'))
+      return
+    }
+    selectedAttachmentId = n
+    if (view !== 'attachments') view = 'attachments'
+    if (pushUrl) replaceSearch({ attachment: n })
+  }
+
   function onJournalRef(kind, id) {
     if (kind === 'note') {
       selectNoteFromUi(id)
+      return
+    }
+    if (kind === 'attachment') {
+      selectAttachmentFromUi(id)
       return
     }
     if (kind === 'quest') {
@@ -755,15 +811,19 @@
   /** Boots data loading and live updates. Only runs once authenticated. */
   function startApp() {
     const fromNote = noteIdFromUrl()
+    const fromAtt = attachmentIdFromUrl()
     const fromTab = tabFromUrl()
-    if (fromNote != null) {
+    if (fromAtt != null) {
+      selectedAttachmentId = fromAtt
+      view = 'attachments'
+    } else if (fromNote != null) {
       selectedNoteId = fromNote
       view = 'notes'
     } else if (fromTab) {
       view = fromTab
     }
     const fromUrl = questIdFromUrl()
-    if (fromUrl != null && fromNote == null && fromTab == null) {
+    if (fromUrl != null && fromNote == null && fromAtt == null && fromTab == null) {
       pendingSelectId = fromUrl
       selectedId = fromUrl
     }
@@ -814,8 +874,10 @@
     stopApp = null
     quests = []
     notes = []
+    attachmentIndex = null
     selectedId = null
     selectedNoteId = null
+    selectedAttachmentId = null
     authed = false
   }
 
@@ -941,11 +1003,24 @@
         {notes}
         {quests}
         {questlines}
+        {attachments}
         selectedId={selectedNoteId}
         labels={refLabels}
         onSelect={(id) => selectNoteFromUi(id)}
         onChanged={() => load({ silent: true })}
         onRef={onJournalRef}
+      />
+    </div>
+  {:else if view === 'attachments'}
+    <div class="journal__attachments">
+      <AttachmentsPage
+        {attachments}
+        {quests}
+        {questlines}
+        {notes}
+        selectedId={selectedAttachmentId}
+        onSelect={(id) => selectAttachmentFromUi(id)}
+        onOpenOwner={onJournalRef}
       />
     </div>
   {:else}
@@ -1010,6 +1085,7 @@
   defaults={modalMode === 'create' ? modalDefaults : null}
   {quests}
   {notes}
+  {attachments}
   onClose={() => {
     modalOpen = false
     modalDefaults = null
@@ -1025,6 +1101,7 @@
   {quests}
   {questlines}
   {notes}
+  {attachments}
   onClose={() => {
     lineModalOpen = false
     lineModalTarget = null
@@ -1037,6 +1114,7 @@
   open={templatesOpen}
   {quests}
   {notes}
+  {attachments}
   onClose={() => (templatesOpen = false)}
   onChanged={() => load({ silent: true })}
 />
@@ -1055,6 +1133,7 @@
   {quests}
   {questlines}
   notes={notes}
+  {attachments}
   onClose={() => (assistantOpen = false)}
   onApplied={() => load({ silent: true })}
 />

@@ -16,7 +16,7 @@
   import AttachmentsBlock from '../blocks/AttachmentsBlock.svelte'
   import { untrack } from 'svelte'
 
-  /** @type {{ open: boolean, mode: 'create' | 'edit', line?: any, quests?: any[], questlines?: any[], notes?: any[], onClose: () => void, onSaved: (line: any) => void, onDeleted?: (id: number) => void }} */
+  /** @type {{ open: boolean, mode: 'create' | 'edit', line?: any, quests?: any[], questlines?: any[], notes?: any[], attachments?: any[], onClose: () => void, onSaved: (line: any) => void, onDeleted?: (id: number) => void }} */
   let {
     open = false,
     mode = 'create',
@@ -24,6 +24,7 @@
     quests = [],
     questlines = [],
     notes = [],
+    attachments = [],
     onClose,
     onSaved,
     onDeleted,
@@ -238,8 +239,9 @@
             {quests}
             {questlines}
             {notes}
+            {attachments}
             rows={2}
-            placeholder="@название — квест, заметка, шаг, квестлайн"
+            placeholder="@название — квест, заметка, файл, шаг, квестлайн"
           />
         </div>
 
