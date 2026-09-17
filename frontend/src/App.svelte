@@ -621,17 +621,56 @@
     }
   }
 
+  function tabFromUrl() {
+    try {
+      const raw = new URL(location.href).searchParams.get('tab')
+      if (raw === 'toc' || raw === 'notes' || raw === 'calendar' || raw === 'hero' || raw === 'stats') {
+        return raw
+      }
+    } catch {
+      /* ignore */
+    }
+    return null
+  }
+
+  /** Rewrite the query from scratch — tab / quest= / note= never share the bar. */
+  function replaceSearch(params) {
+    try {
+      const qs = new URLSearchParams()
+      for (const [key, value] of Object.entries(params)) {
+        if (value != null && value !== '') qs.set(key, String(value))
+      }
+      const next = `${location.pathname}${qs.toString() ? `?${qs}` : ''}`
+      if (next !== `${location.pathname}${location.search}`) {
+        history.replaceState(null, '', next)
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
+  function searchForView(nextView) {
+    if (nextView === 'journal') {
+      return selectedId != null ? { quest: selectedId } : {}
+    }
+    if (nextView === 'notes') {
+      return selectedNoteId != null ? { note: selectedNoteId } : { tab: 'notes' }
+    }
+    return { tab: nextView }
+  }
+
+  function setView(next) {
+    view = next
+    replaceSearch(searchForView(next))
+  }
+
   function selectQuestFromUi(id, { pushUrl = true } = {}) {
     const n = Number(id)
     if (!Number.isFinite(n) || n <= 0) return
     pendingSelectId = n
     selectedId = n
-    if (pushUrl) {
-      const url = new URL(location.href)
-      url.searchParams.set('quest', String(n))
-      url.searchParams.delete('note')
-      history.replaceState(null, '', url)
-    }
+    if (view !== 'journal') view = 'journal'
+    if (pushUrl) replaceSearch({ quest: n })
     try {
       window.focus()
     } catch {
@@ -643,21 +682,12 @@
     const n = Number(id)
     if (!Number.isFinite(n) || n <= 0) {
       selectedNoteId = null
-      if (pushUrl) {
-        const url = new URL(location.href)
-        url.searchParams.delete('note')
-        history.replaceState(null, '', url)
-      }
+      if (pushUrl) replaceSearch(searchForView(view))
       return
     }
     selectedNoteId = n
-    view = 'notes'
-    if (pushUrl) {
-      const url = new URL(location.href)
-      url.searchParams.set('note', String(n))
-      url.searchParams.delete('quest')
-      history.replaceState(null, '', url)
-    }
+    if (view !== 'notes') view = 'notes'
+    if (pushUrl) replaceSearch({ note: n })
   }
 
   function onJournalRef(kind, id) {
@@ -666,20 +696,18 @@
       return
     }
     if (kind === 'quest') {
-      view = 'journal'
       selectQuestFromUi(id)
       return
     }
     if (kind === 'questline') {
       const first = quests.find((q) => q.questline_id === id)
-      view = 'journal'
       if (first) selectQuestFromUi(first.id)
+      else setView('journal')
       return
     }
     if (kind === 'step') {
       for (const q of quests) {
         if (q.steps?.some((s) => s.id === id)) {
-          view = 'journal'
           selectQuestFromUi(q.id)
           return
         }
@@ -690,15 +718,7 @@
   function clearSelectedQuest({ pushUrl = true } = {}) {
     selectedId = null
     pendingSelectId = null
-    if (pushUrl) {
-      try {
-        const url = new URL(location.href)
-        url.searchParams.delete('quest')
-        history.replaceState(null, '', url)
-      } catch {
-        /* ignore */
-      }
-    }
+    if (pushUrl) replaceSearch(searchForView(view))
   }
 
   async function refreshHealth() {
@@ -735,12 +755,15 @@
   /** Boots data loading and live updates. Only runs once authenticated. */
   function startApp() {
     const fromNote = noteIdFromUrl()
+    const fromTab = tabFromUrl()
     if (fromNote != null) {
       selectedNoteId = fromNote
       view = 'notes'
+    } else if (fromTab) {
+      view = fromTab
     }
     const fromUrl = questIdFromUrl()
-    if (fromUrl != null && fromNote == null) {
+    if (fromUrl != null && fromNote == null && fromTab == null) {
       pendingSelectId = fromUrl
       selectedId = fromUrl
     }
@@ -875,7 +898,7 @@
     {view}
     {liveStatus}
     {health}
-    onViewChange={(v) => (view = v)}
+    onViewChange={(v) => setView(v)}
     onOpenSettings={openSettings}
     onOpenTemplates={openTemplates}
     onOpenCreateQuestline={openCreateQuestline}
@@ -897,13 +920,7 @@
     </div>
   {:else if view === 'calendar'}
     <div class="journal__calendar">
-      <ActivityCalendar
-        {quests}
-        onSelectQuest={(id) => {
-          selectQuestFromUi(id)
-          view = 'journal'
-        }}
-      />
+      <ActivityCalendar {quests} onSelectQuest={selectQuestFromUi} />
     </div>
   {:else if view === 'toc'}
     <div class="journal__toc">
@@ -913,10 +930,7 @@
         {questlines}
         bind:searchQuery
         {nowMs}
-        onSelectQuest={(id) => {
-          selectQuestFromUi(id)
-          view = 'journal'
-        }}
+        onSelectQuest={selectQuestFromUi}
         onLineContextMenu={openLineContextMenu}
         onQuestContextMenu={openQuestContextMenu}
       />
