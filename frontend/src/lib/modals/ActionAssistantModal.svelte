@@ -1,17 +1,18 @@
 <script>
   import { previewActionBatch, applyActionBatch } from '../js/api.js'
   import { buildPreviewTree } from '../js/actionsPreview.js'
-  import { activeMentionToken, applyMention, matchMentions } from '../js/mentionSuggest.js'
   import Icon from '../ui/Icon.svelte'
+  import MentionTextarea from '../ui/MentionTextarea.svelte'
 
   /** @type {{
    *   open: boolean,
    *   quests: any[],
    *   questlines: any[],
+   *   notes?: any[],
    *   onClose: () => void,
    *   onApplied: () => void,
    * }} */
-  let { open = false, quests = [], questlines = [], onClose, onApplied } = $props()
+  let { open = false, quests = [], questlines = [], notes = [], onClose, onApplied } = $props()
 
   let text = $state('')
   /** @type {'input' | 'loading' | 'preview' | 'applying'} */
@@ -21,11 +22,6 @@
   let preview = $state(/** @type {any[]} */ ([]))
   let errorMsg = $state('')
   let textareaEl = $state(/** @type {HTMLTextAreaElement | null} */ (null))
-
-  let mentionOpen = $state(false)
-  let mentionItems = $state(/** @type {any[]} */ ([]))
-  let mentionIndex = $state(0)
-  let mentionToken = $state(/** @type {{ query: string, start: number } | null} */ (null))
 
   let tree = $derived(
     phase === 'preview'
@@ -41,7 +37,6 @@
     batch = null
     preview = []
     errorMsg = ''
-    mentionOpen = false
     queueMicrotask(() => textareaEl?.focus())
   })
 
@@ -49,7 +44,6 @@
     if (!open) return
     const onKey = (event) => {
       if (event.key === 'Escape') {
-        if (mentionOpen) return
         event.preventDefault()
         onClose()
       }
@@ -100,58 +94,7 @@
     preview = []
   }
 
-  function onPromptInput(event) {
-    const el = /** @type {HTMLTextAreaElement} */ (event.currentTarget)
-    text = el.value
-    const caret = el.selectionStart ?? text.length
-    const token = activeMentionToken(text, caret)
-    if (!token) {
-      mentionOpen = false
-      mentionToken = null
-      return
-    }
-    mentionToken = token
-    mentionItems = matchMentions(token.query, { quests, questlines })
-    mentionIndex = 0
-    mentionOpen = mentionItems.length > 0
-  }
-
-  function pickMention(item) {
-    if (!item || !mentionToken) return
-    const { text: nextText, caret } = applyMention(text, mentionToken, item)
-    text = nextText
-    mentionOpen = false
-    mentionToken = null
-    queueMicrotask(() => {
-      textareaEl?.focus()
-      textareaEl?.setSelectionRange(caret, caret)
-    })
-  }
-
   function onPromptKeydown(event) {
-    if (mentionOpen) {
-      if (event.key === 'ArrowDown') {
-        event.preventDefault()
-        mentionIndex = (mentionIndex + 1) % mentionItems.length
-        return
-      }
-      if (event.key === 'ArrowUp') {
-        event.preventDefault()
-        mentionIndex = (mentionIndex - 1 + mentionItems.length) % mentionItems.length
-        return
-      }
-      if (event.key === 'Enter' || event.key === 'Tab') {
-        event.preventDefault()
-        pickMention(mentionItems[mentionIndex])
-        return
-      }
-      if (event.key === 'Escape') {
-        event.preventDefault()
-        event.stopPropagation()
-        mentionOpen = false
-        return
-      }
-    }
     if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
       event.preventDefault()
       generate()
@@ -198,38 +141,17 @@
           {#if clarifyQuestion}
             <p class="clarify">{clarifyQuestion}</p>
           {/if}
-          <div class="prompt-input">
-            <textarea
-              bind:this={textareaEl}
-              bind:value={text}
-              rows="3"
-              placeholder="Например: создай квестлайн Бэкапы и закинь туда @Про…"
-              oninput={onPromptInput}
-              onkeydown={onPromptKeydown}
-              disabled={phase === 'loading'}
-            ></textarea>
-            {#if mentionOpen}
-              <ul class="mentions" role="listbox">
-                {#each mentionItems as item, i (item.kind + ':' + item.id)}
-                  <li>
-                    <button
-                      type="button"
-                      class="mentions__opt"
-                      class:mentions__opt--on={i === mentionIndex}
-                      role="option"
-                      aria-selected={i === mentionIndex}
-                      onmousedown={(e) => e.preventDefault()}
-                      onclick={() => pickMention(item)}
-                    >
-                      <span class="mentions__kind">{item.label}</span>
-                      <span class="mentions__title">{item.title}</span>
-                      {#if item.hint}<span class="mentions__hint">{item.hint}</span>{/if}
-                    </button>
-                  </li>
-                {/each}
-              </ul>
-            {/if}
-          </div>
+          <MentionTextarea
+            bind:value={text}
+            bind:el={textareaEl}
+            {quests}
+            {questlines}
+            {notes}
+            rows={3}
+            placeholder="Например: создай квестлайн Бэкапы и закинь туда @Про…"
+            disabled={phase === 'loading'}
+            onkeydown={onPromptKeydown}
+          />
           <p class="hint">
             @ + название — подставить существующий квест/квестлайн/шаг. Ctrl/Cmd+Enter — сгенерировать план.
             Ничего не запишется без подтверждения.
@@ -420,79 +342,6 @@
     background: color-mix(in srgb, var(--color-accent, #c9a227) 10%, transparent);
     color: var(--color-fg, #e8e8e8);
     font-size: var(--text-sm, 0.875rem);
-  }
-
-  .prompt-input {
-    position: relative;
-  }
-
-  textarea {
-    width: 100%;
-    resize: vertical;
-    border: 1px solid var(--color-border, #333);
-    border-radius: var(--radius-sm, 2px);
-    background: var(--color-bg, #121212);
-    color: var(--color-fg, #e8e8e8);
-    padding: 0.55rem 0.65rem;
-    font: inherit;
-  }
-
-  .mentions {
-    position: absolute;
-    z-index: 5;
-    top: 100%;
-    left: 0;
-    right: 0;
-    margin-top: 0.25rem;
-    max-height: 12rem;
-    overflow-y: auto;
-    list-style: none;
-    padding: 0.25rem;
-    border: 1px solid var(--color-border-strong, #4a4a4a);
-    border-radius: var(--radius-sm, 2px);
-    background: var(--color-bg-raised, #1a1a1a);
-    box-shadow: 0 8px 24px color-mix(in srgb, #000 45%, transparent);
-  }
-
-  .mentions__opt {
-    display: flex;
-    align-items: baseline;
-    gap: 0.4rem;
-    width: 100%;
-    border: 0;
-    border-radius: var(--radius-sm, 2px);
-    background: transparent;
-    color: var(--color-fg, #e8e8e8);
-    padding: 0.3rem 0.4rem;
-    font: inherit;
-    text-align: left;
-    cursor: pointer;
-  }
-
-  .mentions__opt--on {
-    background: color-mix(in srgb, var(--color-accent, #c9a227) 18%, transparent);
-  }
-
-  .mentions__kind {
-    flex-shrink: 0;
-    font-size: 0.65rem;
-    text-transform: uppercase;
-    letter-spacing: 0.03em;
-    color: var(--color-fg-muted, #9a9a9a);
-  }
-
-  .mentions__title {
-    flex: 1 1 auto;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    font-size: var(--text-sm, 0.875rem);
-  }
-
-  .mentions__hint {
-    flex-shrink: 0;
-    font-size: var(--text-xs, 0.75rem);
-    color: var(--color-fg-muted, #9a9a9a);
   }
 
   .hint {

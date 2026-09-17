@@ -114,6 +114,16 @@ CREATE TABLE attachment (
 	scan_status TEXT NOT NULL DEFAULT 'pending',
 	scanned_at DATETIME
 );
+CREATE TABLE note (
+	id INTEGER PRIMARY KEY,
+	title TEXT NOT NULL,
+	description TEXT NOT NULL DEFAULT '',
+	pinned INTEGER NOT NULL DEFAULT 0,
+	sort_order INTEGER NOT NULL DEFAULT 0,
+	parent_id INTEGER,
+	created_at DATETIME NOT NULL,
+	updated_at DATETIME NOT NULL
+);
 `
 
 type davFile struct {

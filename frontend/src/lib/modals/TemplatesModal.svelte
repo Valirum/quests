@@ -15,11 +15,12 @@
   } from '../js/api.js'
   import { defaultLocalDeadlineParts, localTimeZone } from '../js/time.js'
   import Icon from '../ui/Icon.svelte'
+  import MentionTextarea from '../ui/MentionTextarea.svelte'
   import ConfirmModal from './ConfirmModal.svelte'
   import { untrack } from 'svelte'
 
-  /** @type {{ open: boolean, onClose: () => void, onChanged: () => void }} */
-  let { open = false, onClose, onChanged } = $props()
+  /** @type {{ open: boolean, quests?: any[], notes?: any[], onClose: () => void, onChanged: () => void }} */
+  let { open = false, quests = [], notes = [], onClose, onChanged } = $props()
 
   let templates = $state(/** @type {any[]} */ ([]))
   let loading = $state(false)
@@ -588,10 +589,17 @@
             <span class="label">Заголовок</span>
             <input type="text" bind:value={title} required />
           </label>
-          <label class="field">
+          <div class="field">
             <span class="label">Описание</span>
-            <textarea rows="2" bind:value={description}></textarea>
-          </label>
+            <MentionTextarea
+              bind:value={description}
+              {quests}
+              {questlines}
+              {notes}
+              rows={2}
+              placeholder="@название — квест, заметка, шаг, квестлайн"
+            />
+          </div>
 
           <div class="field">
             <span class="label">Частота</span>

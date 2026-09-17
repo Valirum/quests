@@ -51,9 +51,10 @@ function keepLiveFlags(prevItems, incoming) {
 
 /** Seed (or refresh) every listed owner. Empty owners get `[]` so a click
  * does not look like a cache miss and refetch. */
-export function seedAttachmentIndex(index, { questIds = [], questlineIds = [] } = {}) {
+export function seedAttachmentIndex(index, { questIds = [], questlineIds = [], noteIds = [] } = {}) {
   const byQuest = index?.quest ?? {}
   const byLine = index?.questline ?? {}
+  const byNote = index?.note ?? {}
   const apply = (type, id, incoming) => {
     const k = key(type, id)
     const cur = cache.get(k)
@@ -65,6 +66,7 @@ export function seedAttachmentIndex(index, { questIds = [], questlineIds = [] } 
   }
   for (const id of questIds) apply('quest', id, rowsFor(byQuest, id))
   for (const id of questlineIds) apply('questline', id, rowsFor(byLine, id))
+  for (const id of noteIds) apply('note', id, rowsFor(byNote, id))
 }
 
 /** Drop live WebDAV flags so the open quest re-STATs after DAV flips. */

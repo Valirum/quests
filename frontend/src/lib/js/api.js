@@ -190,6 +190,32 @@ export function deleteQuestline(id) {
   return request(`/api/questlines/${id}`, { method: 'DELETE' })
 }
 
+export function listNotes() {
+  return request('/api/notes')
+}
+
+export function getNote(id) {
+  return request(`/api/notes/${id}`)
+}
+
+export function createNote(payload) {
+  return request('/api/notes', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
+export function updateNote(id, payload) {
+  return request(`/api/notes/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
+  })
+}
+
+export function deleteNote(id) {
+  return request(`/api/notes/${id}`, { method: 'DELETE' })
+}
+
 /** Upload custom questline image (not added to built-in SVG pool). */
 export async function uploadQuestlineIcon(id, file) {
   const body = new FormData()
@@ -318,7 +344,8 @@ export function logout() {
 // --- attachments (bytes live on WebDAV; we only ever talk to the API proxy) ---
 
 function ownerAttachmentsPath(ownerType, ownerId, attachmentId) {
-  const seg = ownerType === 'questline' ? 'questlines' : 'quests'
+  const seg =
+    ownerType === 'questline' ? 'questlines' : ownerType === 'note' ? 'notes' : 'quests'
   const base = `/api/${seg}/${ownerId}/attachments`
   return attachmentId == null ? base : `${base}/${attachmentId}`
 }
@@ -328,7 +355,7 @@ export function listAttachments(ownerType, ownerId, { stat = true } = {}) {
   return request(stat ? path : `${path}?stat=0`)
 }
 
-/** All attachment metadata, grouped `{ quest: { [id]: [] }, questline: { … } }`.
+/** All attachment metadata, grouped `{ quest: { [id]: [] }, questline: { … }, note: { … } }`.
  * Default skips WebDAV Stat — cheap enough to run on every journal load. */
 export function listAllAttachments({ stat = false } = {}) {
   return request(stat ? '/api/attachments?stat=1' : '/api/attachments')

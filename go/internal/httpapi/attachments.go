@@ -24,12 +24,14 @@ import (
 const (
 	ownerQuest     = "quest"
 	ownerQuestline = "questline"
+	ownerNote      = "note"
 )
 
 func (s *Server) registerAttachments(mux *http.ServeMux) {
 	for _, owner := range []struct{ seg, typ string }{
 		{"quests", ownerQuest},
 		{"questlines", ownerQuestline},
+		{"notes", ownerNote},
 	} {
 		seg, typ := owner.seg, owner.typ
 		mux.HandleFunc("GET /api/"+seg+"/{id}/attachments", func(w http.ResponseWriter, r *http.Request) {
@@ -56,6 +58,9 @@ func (s *Server) registerAttachments(mux *http.ServeMux) {
 func (s *Server) ownerExists(ctx context.Context, ownerType string, id int64) (bool, error) {
 	if ownerType == ownerQuestline {
 		return s.Store.QuestlineExists(ctx, id)
+	}
+	if ownerType == ownerNote {
+		return s.Store.NoteExists(ctx, id)
 	}
 	_, err := s.Store.GetQuest(ctx, id)
 	if errors.Is(err, store.ErrNotFound) {
@@ -110,6 +115,7 @@ func (s *Server) listAllAttachments(w http.ResponseWriter, r *http.Request) {
 	out := map[string]map[string][]store.AttachmentRead{
 		"quest":     {},
 		"questline": {},
+		"note":      {},
 	}
 	updated := map[string]*time.Time{}
 	for _, a := range rows {
@@ -147,6 +153,14 @@ func (s *Server) ownerUpdatedAt(ctx context.Context, ownerType string, id int64)
 		if err != nil {
 			return nil
 		}
+		return &t
+	}
+	if ownerType == ownerNote {
+		n, err := s.Store.GetNote(ctx, id)
+		if err != nil {
+			return nil
+		}
+		t := n.UpdatedAt
 		return &t
 	}
 	q, err := s.Store.GetQuest(ctx, id)

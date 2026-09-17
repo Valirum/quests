@@ -120,6 +120,36 @@ func FmtQuestlineDetail(l map[string]any) string {
 	return strings.Join(lines, "\n")
 }
 
+func FmtNoteLine(n map[string]any) string {
+	pin := " "
+	if AsBool(n["pinned"]) {
+		pin = "★"
+	}
+	id, _ := AsInt64(n["id"])
+	parent := "—"
+	if pid, ok := AsInt64(n["parent_id"]); ok && n["parent_id"] != nil {
+		parent = fmt.Sprintf("#%d", pid)
+	}
+	return fmt.Sprintf("%s %4d  parent=%-6s  %s", pin, id, parent, AsString(n["title"]))
+}
+
+func FmtNoteDetail(n map[string]any) string {
+	id, _ := AsInt64(n["id"])
+	lines := []string{
+		fmt.Sprintf("#%d  %s", id, AsString(n["title"])),
+		fmt.Sprintf("  pinned:  %v", AsBool(n["pinned"])),
+	}
+	if pid, ok := AsInt64(n["parent_id"]); ok && n["parent_id"] != nil {
+		lines = append(lines, fmt.Sprintf("  parent:  #%d", pid))
+	} else {
+		lines = append(lines, "  parent:  —")
+	}
+	if d := AsString(n["description"]); d != "" {
+		lines = append(lines, "  body:\n"+d)
+	}
+	return strings.Join(lines, "\n")
+}
+
 func FmtHookLine(h Hook) string {
 	en := "on "
 	if !h.Enabled {

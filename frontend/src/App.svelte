@@ -7,6 +7,7 @@
     listCategories,
     listQuestlines,
     listQuests,
+    listNotes,
     listAllAttachments,
     updateQuest,
     updateQuestStep,
@@ -36,6 +37,7 @@
   import QuestDetail from './lib/blocks/QuestDetail.svelte'
   import ActivityCalendar from './lib/blocks/ActivityCalendar.svelte'
   import TocPage from './lib/blocks/TocPage.svelte'
+  import NotesPage from './lib/blocks/NotesPage.svelte'
   import LoginScreen from './lib/blocks/LoginScreen.svelte'
 
   /** Auth gate: null = still checking, true/false = decided. */
@@ -47,7 +49,9 @@
   let stopApp = null
 
   let quests = $state([])
+  let notes = $state([])
   let selectedId = $state(null)
+  let selectedNoteId = $state(/** @type {number | null} */ (null))
   let loading = $state(true)
   let error = $state('')
   let liveStatus = $state('off')
@@ -59,7 +63,7 @@
     webdav: 'unknown',
   })
   let searchQuery = $state('')
-  /** @type {'journal' | 'toc' | 'calendar' | 'hero' | 'stats'} */
+  /** @type {'journal' | 'toc' | 'notes' | 'calendar' | 'hero' | 'stats'} */
   let view = $state('journal')
   /** Bump to refresh hero silently after quest events. */
   let heroNonce = $state(0)
@@ -154,6 +158,14 @@
     groupQuestsByCategory(listedQuests, categories, questlines),
   )
   let selected = $derived(quests.find((q) => q.id === selectedId) ?? null)
+  let refLabels = $derived.by(() => {
+    /** @type {Record<string, string>} */
+    const m = {}
+    for (const n of notes) m[`note:${n.id}`] = n.title || `note=${n.id}`
+    for (const q of quests) m[`quest:${q.id}`] = q.title || `quest=${q.id}`
+    for (const l of questlines) m[`questline:${l.id}`] = l.title || `questline=${l.id}`
+    return m
+  })
 
   function isCategoryOpen(key) {
     return categoryOpen[key] !== false
@@ -177,19 +189,22 @@
     if (!silent) loading = true
     if (!silent) error = ''
     try {
-      const [next, cats, lines, attIndex] = await Promise.all([
+      const [next, cats, lines, nextNotes, attIndex] = await Promise.all([
         listQuests({}),
         listCategories(),
         listQuestlines(),
+        listNotes().catch(() => []),
         listAllAttachments().catch(() => null),
       ])
       quests = next
+      notes = Array.isArray(nextNotes) ? nextNotes : []
       categories = Array.isArray(cats) ? cats : []
       questlines = Array.isArray(lines) ? lines : []
       if (attIndex) {
         seedAttachmentIndex(attIndex, {
           questIds: next.map((q) => q.id),
           questlineIds: questlines.map((l) => l.id),
+          noteIds: notes.map((n) => n.id),
         })
       }
       const prefer = pendingSelectId ?? selectedId ?? questIdFromUrl()
@@ -197,14 +212,19 @@
         selectedId = prefer
         pendingSelectId = null
       } else if (selectedId != null && !next.some((q) => q.id === selectedId)) {
-        // Selected quest gone — show calendar, don't force another pick.
         selectedId = null
       }
-      // selectedId === null: keep empty detail (activity calendar)
+      const preferNote = selectedNoteId ?? noteIdFromUrl()
+      if (preferNote != null && notes.some((n) => n.id === preferNote)) {
+        selectedNoteId = preferNote
+      } else if (selectedNoteId != null && !notes.some((n) => n.id === selectedNoteId)) {
+        selectedNoteId = null
+      }
     } catch (e) {
       if (!silent) {
         error = e.message || String(e)
         quests = []
+        notes = []
         selectedId = null
       }
     } finally {
@@ -590,6 +610,17 @@
     }
   }
 
+  function noteIdFromUrl() {
+    try {
+      const raw = new URL(location.href).searchParams.get('note')
+      if (!raw) return null
+      const id = Number(raw)
+      return Number.isFinite(id) && id > 0 ? id : null
+    } catch {
+      return null
+    }
+  }
+
   function selectQuestFromUi(id, { pushUrl = true } = {}) {
     const n = Number(id)
     if (!Number.isFinite(n) || n <= 0) return
@@ -598,12 +629,61 @@
     if (pushUrl) {
       const url = new URL(location.href)
       url.searchParams.set('quest', String(n))
+      url.searchParams.delete('note')
       history.replaceState(null, '', url)
     }
     try {
       window.focus()
     } catch {
       /* browsers often block focus from background */
+    }
+  }
+
+  function selectNoteFromUi(id, { pushUrl = true } = {}) {
+    const n = Number(id)
+    if (!Number.isFinite(n) || n <= 0) {
+      selectedNoteId = null
+      if (pushUrl) {
+        const url = new URL(location.href)
+        url.searchParams.delete('note')
+        history.replaceState(null, '', url)
+      }
+      return
+    }
+    selectedNoteId = n
+    view = 'notes'
+    if (pushUrl) {
+      const url = new URL(location.href)
+      url.searchParams.set('note', String(n))
+      url.searchParams.delete('quest')
+      history.replaceState(null, '', url)
+    }
+  }
+
+  function onJournalRef(kind, id) {
+    if (kind === 'note') {
+      selectNoteFromUi(id)
+      return
+    }
+    if (kind === 'quest') {
+      view = 'journal'
+      selectQuestFromUi(id)
+      return
+    }
+    if (kind === 'questline') {
+      const first = quests.find((q) => q.questline_id === id)
+      view = 'journal'
+      if (first) selectQuestFromUi(first.id)
+      return
+    }
+    if (kind === 'step') {
+      for (const q of quests) {
+        if (q.steps?.some((s) => s.id === id)) {
+          view = 'journal'
+          selectQuestFromUi(q.id)
+          return
+        }
+      }
     }
   }
 
@@ -654,8 +734,13 @@
 
   /** Boots data loading and live updates. Only runs once authenticated. */
   function startApp() {
+    const fromNote = noteIdFromUrl()
+    if (fromNote != null) {
+      selectedNoteId = fromNote
+      view = 'notes'
+    }
     const fromUrl = questIdFromUrl()
-    if (fromUrl != null) {
+    if (fromUrl != null && fromNote == null) {
       pendingSelectId = fromUrl
       selectedId = fromUrl
     }
@@ -705,7 +790,9 @@
     if (stopApp) stopApp()
     stopApp = null
     quests = []
+    notes = []
     selectedId = null
+    selectedNoteId = null
     authed = false
   }
 
@@ -755,6 +842,12 @@
       if (view !== 'journal') return
       if (modalOpen || lineModalOpen || templatesOpen || settingsOpen) return
       if (deleteConfirmOpen || lineDeleteConfirmOpen || ctxOpen) return
+      if (view === 'notes') {
+        if (selectedNoteId == null) return
+        event.preventDefault()
+        selectNoteFromUi(null)
+        return
+      }
       if (selectedId == null) return
       const t = event.target
       if (
@@ -828,6 +921,19 @@
         onQuestContextMenu={openQuestContextMenu}
       />
     </div>
+  {:else if view === 'notes'}
+    <div class="journal__notes">
+      <NotesPage
+        {notes}
+        {quests}
+        {questlines}
+        selectedId={selectedNoteId}
+        labels={refLabels}
+        onSelect={(id) => selectNoteFromUi(id)}
+        onChanged={() => load({ silent: true })}
+        onRef={onJournalRef}
+      />
+    </div>
   {:else}
     <div class="journal__body">
       <QuestSidebar
@@ -874,6 +980,9 @@
         }}
         onStepContextMenu={openStepContextMenu}
         onSelectQuest={(id) => selectQuestFromUi(id)}
+        labels={refLabels}
+        onRef={onJournalRef}
+        notes={notes}
       />
     </div>
   {/if}
@@ -884,6 +993,8 @@
   mode={modalMode}
   quest={modalMode === 'edit' ? selected : null}
   defaults={modalMode === 'create' ? modalDefaults : null}
+  {quests}
+  {notes}
   onClose={() => {
     modalOpen = false
     modalDefaults = null
@@ -896,6 +1007,9 @@
   open={lineModalOpen}
   mode={lineModalMode}
   line={lineModalMode === 'edit' ? lineModalTarget : null}
+  {quests}
+  {questlines}
+  {notes}
   onClose={() => {
     lineModalOpen = false
     lineModalTarget = null
@@ -906,6 +1020,8 @@
 
 <TemplatesModal
   open={templatesOpen}
+  {quests}
+  {notes}
   onClose={() => (templatesOpen = false)}
   onChanged={() => load({ silent: true })}
 />
@@ -923,6 +1039,7 @@
   open={assistantOpen}
   {quests}
   {questlines}
+  notes={notes}
   onClose={() => (assistantOpen = false)}
   onApplied={() => load({ silent: true })}
 />

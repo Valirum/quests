@@ -96,6 +96,23 @@ quests ql list --category work
 quests ql set 1 --category health   # sync category у участников
 ```
 
+## Заметки
+
+Markdown-страницы базы знаний (не квесты). С квестами связываются через `note=N` в тексте.
+
+| Команда | Что делает |
+|---------|------------|
+| `note list` / `notes ls` | список (`--parent ID` или `--parent none`) |
+| `note show ID` | тело, parent, pin |
+| `note add TITLE` | создать (`-d`, `--parent`, `--pin`) |
+| `note set ID` | `--title` / `-d` / `--parent` (`none` в корень) |
+| `note delete ID` | удалить (дети поднимаются в корень) |
+
+```bash
+quests note add "ГОСТ" -d "Инструкция. Данные: note=2"
+quests notes ls --json
+```
+
 ## Хуки: и global, и на квест
 
 **Оба варианта.**
