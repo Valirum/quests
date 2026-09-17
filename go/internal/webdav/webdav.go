@@ -35,6 +35,38 @@ func New(baseURL, user, pass string) *Client {
 // Configured reports whether attachments can be stored at all.
 func (c *Client) Configured() bool { return c != nil && c.BaseURL != "" }
 
+// Ping is a cheap liveness check (HEAD, then OPTIONS if the host rejects HEAD).
+// 404/405 still count as up — the server spoke. 401/403/5xx and network
+// errors do not: attachments would fail the same way.
+func (c *Client) Ping(ctx context.Context) error {
+	if !c.Configured() {
+		return fmt.Errorf("webdav: not configured")
+	}
+	for _, method := range []string{http.MethodHead, http.MethodOptions} {
+		req, err := http.NewRequestWithContext(ctx, method, c.BaseURL+"/", nil)
+		if err != nil {
+			return err
+		}
+		resp, err := c.do(req)
+		if err != nil {
+			return err
+		}
+		_, _ = io.Copy(io.Discard, resp.Body)
+		resp.Body.Close()
+		switch {
+		case resp.StatusCode == http.StatusMethodNotAllowed:
+			continue
+		case resp.StatusCode == http.StatusUnauthorized, resp.StatusCode == http.StatusForbidden:
+			return fmt.Errorf("webdav: ping %s", resp.Status)
+		case resp.StatusCode >= 500:
+			return fmt.Errorf("webdav: ping %s", resp.Status)
+		default:
+			return nil
+		}
+	}
+	return nil
+}
+
 // urlFor escapes each path segment separately: a filename may contain spaces
 // or non-ASCII, but the slashes are structure, not content.
 func (c *Client) urlFor(path string) string {

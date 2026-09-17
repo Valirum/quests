@@ -7,13 +7,17 @@
     uploadAttachment,
     attachmentDownloadUrl,
   } from '../js/api.js'
+  import {
+    peekAttachmentList,
+    setAttachmentList,
+    onAttachmentLiveInvalidate,
+  } from '../js/attachmentCache.js'
 
   /** @type {{ ownerType: 'quest' | 'questline', ownerId: number }} */
   let { ownerType, ownerId } = $props()
 
   /** @type {any[]} */
   let items = $state([])
-  let loading = $state(false)
   let uploading = $state(false)
   let error = $state('')
   let dragOver = $state(false)
@@ -23,31 +27,56 @@
   /** @type {number | null} */
   let commentBusy = $state(null)
 
+  function draftsFrom(rows) {
+    const drafts = /** @type {Record<number, string>} */ ({})
+    for (const a of rows || []) drafts[a.id] = a.comment || ''
+    return drafts
+  }
+
+  function applyRows(type, id, rows, { probed = false } = {}) {
+    const next = rows || []
+    setAttachmentList(type, id, next, { probed })
+    if (type !== ownerType || id !== ownerId) return
+    items = next
+    commentDraft = draftsFrom(next)
+  }
+
+  // Paint from cache before the first DOM pass so switching quests does not
+  // flash the previous owner's files (or an empty hole while we refetch).
+  $effect.pre(() => {
+    const type = ownerType
+    const id = ownerId
+    const hit = peekAttachmentList(type, id)
+    const next = hit?.items ?? []
+    error = ''
+    items = next
+    commentDraft = draftsFrom(next)
+  })
+
+  let liveNudge = $state(0)
+  $effect(() => onAttachmentLiveInvalidate(() => {
+    liveNudge += 1
+  }))
+
   $effect(() => {
     const type = ownerType
     const id = ownerId
+    void liveNudge
     let cancelled = false
-    if (!id) {
-      items = []
-      return
-    }
-    loading = true
-    error = ''
+    if (!id) return
+    const hit = peekAttachmentList(type, id)
+    if (hit?.probed) return
     listAttachments(type, id)
       .then((rows) => {
+        setAttachmentList(type, id, rows || [], { probed: true })
         if (cancelled) return
         items = rows || []
-        const drafts = {}
-        for (const a of items) drafts[a.id] = a.comment || ''
-        commentDraft = drafts
+        commentDraft = draftsFrom(items)
       })
       .catch((e) => {
         if (cancelled) return
         error = e?.message || String(e)
-        items = []
-      })
-      .finally(() => {
-        if (!cancelled) loading = false
+        if (!hit) applyRows(type, id, [], { probed: false })
       })
     return () => {
       cancelled = true
@@ -70,11 +99,9 @@
       for (const file of list) {
         await uploadAttachment(ownerType, ownerId, file)
       }
-      const rows = (await listAttachments(ownerType, ownerId)) || []
-      items = rows
-      const drafts = /** @type {Record<number, string>} */ ({})
-      for (const a of items) drafts[a.id] = a.comment || ''
-      commentDraft = drafts
+      applyRows(ownerType, ownerId, (await listAttachments(ownerType, ownerId)) || [], {
+        probed: true,
+      })
     } catch (e) {
       error = e?.message || String(e)
     } finally {
@@ -100,7 +127,12 @@
     error = ''
     try {
       const updated = await updateAttachmentComment(ownerType, ownerId, a.id, next)
-      items = items.map((row) => (row.id === a.id ? { ...row, ...updated } : row))
+      applyRows(
+        ownerType,
+        ownerId,
+        items.map((row) => (row.id === a.id ? { ...row, ...updated } : row)),
+        { probed: peekAttachmentList(ownerType, ownerId)?.probed ?? true },
+      )
     } catch (e) {
       error = e?.message || String(e)
     } finally {
@@ -112,7 +144,12 @@
     error = ''
     try {
       await deleteAttachment(ownerType, ownerId, a.id)
-      items = items.filter((row) => row.id !== a.id)
+      applyRows(
+        ownerType,
+        ownerId,
+        items.filter((row) => row.id !== a.id),
+        { probed: peekAttachmentList(ownerType, ownerId)?.probed ?? true },
+      )
     } catch (e) {
       error = e?.message || String(e)
     }
@@ -196,8 +233,6 @@
         </li>
       {/each}
     </ul>
-  {:else if loading}
-    <p class="block__body block__body--muted">Загрузка…</p>
   {/if}
 
   <!-- No "Вложений нет": an empty list already says that, and spelling it out

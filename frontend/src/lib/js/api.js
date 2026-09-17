@@ -323,8 +323,15 @@ function ownerAttachmentsPath(ownerType, ownerId, attachmentId) {
   return attachmentId == null ? base : `${base}/${attachmentId}`
 }
 
-export function listAttachments(ownerType, ownerId) {
-  return request(ownerAttachmentsPath(ownerType, ownerId))
+export function listAttachments(ownerType, ownerId, { stat = true } = {}) {
+  const path = ownerAttachmentsPath(ownerType, ownerId)
+  return request(stat ? path : `${path}?stat=0`)
+}
+
+/** All attachment metadata, grouped `{ quest: { [id]: [] }, questline: { … } }`.
+ * Default skips WebDAV Stat — cheap enough to run on every journal load. */
+export function listAllAttachments({ stat = false } = {}) {
+  return request(stat ? '/api/attachments?stat=1' : '/api/attachments')
 }
 
 export function attachmentDownloadUrl(ownerType, ownerId, attachmentId) {

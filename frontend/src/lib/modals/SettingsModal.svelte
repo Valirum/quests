@@ -2,11 +2,11 @@
   import { THEMES, applyTheme, currentThemeId } from '../js/theme.js'
   import Icon from '../ui/Icon.svelte'
 
-  /** @type {{ open?: boolean, onClose: () => void, health?: { api: string, overlay: string, telegram: string, detail?: any }, liveStatus?: string, username?: string, onLogout?: (() => void) | null }} */
+  /** @type {{ open?: boolean, onClose: () => void, health?: { api: string, overlay: string, telegram: string, webdav?: string, detail?: any }, liveStatus?: string, username?: string, onLogout?: (() => void) | null }} */
   let {
     open = false,
     onClose,
-    health = { api: 'unknown', overlay: 'unknown', telegram: 'unknown' },
+    health = { api: 'unknown', overlay: 'unknown', telegram: 'unknown', webdav: 'unknown' },
     liveStatus = 'off',
     username = '',
     onLogout = null,
@@ -42,15 +42,29 @@
   function statusLabel(s) {
     if (s === 'ok' || s === 'live') return 'онлайн'
     if (s === 'offline' || s === 'off') return 'офлайн'
+    if (s === 'disabled') return 'не настроен'
     if (s === 'connecting' || s === 'reconnect') return 'переподключение'
     return 'неизвестно'
   }
 
   function ageLabel(comp) {
-    const age = health?.detail?.components?.[comp]?.age_seconds
-    if (age == null) return 'нет heartbeat'
+    const row = health?.detail?.components?.[comp]
+    if (row?.status === 'disabled') {
+      return comp === 'clamav' ? 'нет адреса' : 'нет URL'
+    }
+    const age = row?.age_seconds
+    if (age == null) return comp === 'webdav' || comp === 'clamav' ? 'нет опроса' : 'нет heartbeat'
     if (age < 2) return 'только что'
     return `${age} с назад`
+  }
+
+  function probeStatus(comp) {
+    return health?.detail?.components?.[comp]?.status || health[comp] || 'unknown'
+  }
+
+  function chipOf(s) {
+    if (s === 'ok' || s === 'offline') return s
+    return 'unknown'
   }
 </script>
 
@@ -78,7 +92,7 @@
       <div class="modal__body">
         <section class="block">
           <h3 class="block__title">Сервисы</h3>
-          <p class="block__hint">API отвечает сам; HUD и бот шлют heartbeat раз в несколько секунд.</p>
+          <p class="block__hint">API отвечает сам; HUD и бот шлют heartbeat. WebDAV и ClamAV сервер опрашивает сам раз в 15 с.</p>
           <ul class="svc-list">
             <li class="svc" data-status={health.api}>
               <span class="svc__dot" aria-hidden="true"></span>
@@ -97,6 +111,18 @@
               <span class="svc__name">Telegram</span>
               <span class="svc__status">{statusLabel(health.telegram)}</span>
               <span class="svc__meta">{ageLabel('telegram')}</span>
+            </li>
+            <li class="svc" data-status={chipOf(probeStatus('webdav'))}>
+              <span class="svc__dot" aria-hidden="true"></span>
+              <span class="svc__name">WebDAV</span>
+              <span class="svc__status">{statusLabel(probeStatus('webdav'))}</span>
+              <span class="svc__meta">{ageLabel('webdav')}</span>
+            </li>
+            <li class="svc" data-status={chipOf(probeStatus('clamav'))}>
+              <span class="svc__dot" aria-hidden="true"></span>
+              <span class="svc__name">ClamAV</span>
+              <span class="svc__status">{statusLabel(probeStatus('clamav'))}</span>
+              <span class="svc__meta">{ageLabel('clamav')}</span>
             </li>
           </ul>
         </section>

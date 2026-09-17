@@ -87,6 +87,28 @@ func (s *Store) ListAttachments(ctx context.Context, ownerType string, ownerID i
 	return out, rows.Err()
 }
 
+// ListAllAttachments is every metadata row. Cheap (SQLite only) — use it to
+// seed a client index without stating WebDAV for every file.
+func (s *Store) ListAllAttachments(ctx context.Context) ([]Attachment, error) {
+	rows, err := s.DB.QueryContext(ctx, `
+		SELECT `+attachmentCols+`
+		FROM attachment
+		ORDER BY owner_type, owner_id, uploaded_at, id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]Attachment, 0)
+	for rows.Next() {
+		a, err := scanAttachment(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, a)
+	}
+	return out, rows.Err()
+}
+
 func (s *Store) GetAttachment(ctx context.Context, id int64) (Attachment, error) {
 	row := s.DB.QueryRowContext(ctx, `SELECT `+attachmentCols+` FROM attachment WHERE id = ?`, id)
 	a, err := scanAttachment(row)

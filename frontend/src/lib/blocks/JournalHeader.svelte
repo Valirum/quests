@@ -5,7 +5,7 @@
   /** @type {{
    *   view: 'journal' | 'toc' | 'calendar' | 'hero' | 'stats',
    *   liveStatus: string,
-   *   health: { api: string, overlay: string, telegram: string },
+   *   health: { api: string, overlay: string, telegram: string, webdav?: string },
    *   onViewChange: (v: 'journal' | 'toc' | 'calendar' | 'hero' | 'stats') => void,
    *   onOpenSettings: () => void,
    *   onOpenTemplates: () => void,
@@ -34,6 +34,12 @@
     }
     return { status: 'offline', title: `WebSocket: ${s}` }
   })
+
+  function davTitle(status) {
+    if (status === 'ok') return 'WebDAV / вложения: онлайн'
+    if (status === 'offline') return 'WebDAV / вложения: офлайн'
+    return 'WebDAV / вложения: не настроен'
+  }
 
   let menuOpen = $state(false)
   let menuX = $state(0)
@@ -202,6 +208,15 @@
         <span class="health__dot" aria-hidden="true"></span>
         {#if !healthCollapsed}<span class="health__label">Bot</span>{/if}
       </span>
+      <span
+        class="health__chip"
+        data-status={health.webdav || 'unknown'}
+        title={davTitle(health.webdav)}
+        aria-label={davTitle(health.webdav)}
+      >
+        <span class="health__dot" aria-hidden="true"></span>
+        {#if !healthCollapsed}<span class="health__label">DAV</span>{/if}
+      </span>
     {/snippet}
 
     <div class="health" role="status" aria-label="Состояние сервисов">
@@ -227,6 +242,10 @@
     <span class="health__chip">
       <span class="health__dot" aria-hidden="true"></span>
       <span class="health__label">Bot</span>
+    </span>
+    <span class="health__chip">
+      <span class="health__dot" aria-hidden="true"></span>
+      <span class="health__label">DAV</span>
     </span>
   </div>
   <div class="view-tabs" role="tablist" aria-label="Раздел" bind:this={tabsEl}>
