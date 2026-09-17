@@ -7,11 +7,13 @@
     updateNote,
   } from '../js/api.js'
   import { clearNoteDraft, getNoteDraft, noteDrafts, putNoteDraft } from '../js/noteDrafts.svelte.js'
+  import { copyText } from '../js/clipboard.js'
   import Icon from '../ui/Icon.svelte'
   import MarkdownBody from '../ui/MarkdownBody.svelte'
   import MentionTextarea from '../ui/MentionTextarea.svelte'
   import AttachmentsBlock from './AttachmentsBlock.svelte'
   import ConfirmModal from '../modals/ConfirmModal.svelte'
+  import ContextMenu from '../ui/ContextMenu.svelte'
 
   /** @type {{
    *   notes: any[],
@@ -43,8 +45,13 @@
   let saving = $state(false)
   let deleting = $state(false)
   let deleteOpen = $state(false)
+  let deleteTargetId = $state(/** @type {number | null} */ (null))
   let error = $state('')
   let saved = $state({ title: '', description: '', parentId: '', pinned: false })
+  let ctxOpen = $state(false)
+  let ctxX = $state(0)
+  let ctxY = $state(0)
+  let ctxNoteId = $state(/** @type {number | null} */ (null))
 
   let dirty = $derived(
     title !== saved.title ||
@@ -220,15 +227,16 @@
   }
 
   async function confirmDelete() {
-    if (selectedId == null || deleting) return
+    const id = deleteTargetId ?? selectedId
+    if (id == null || deleting) return
     deleting = true
     error = ''
     try {
-      const id = selectedId
       await deleteNote(id)
       clearNoteDraft(id)
       deleteOpen = false
-      onSelect(null)
+      deleteTargetId = null
+      if (id === selectedId) onSelect(null)
       onChanged()
     } catch (e) {
       error = e.message || String(e)
@@ -247,6 +255,101 @@
   function childrenOf(id) {
     return byParent.get(String(id)) || []
   }
+
+  function noteById(id) {
+    return notes.find((n) => n.id === id) ?? null
+  }
+
+  let ctxNote = $derived(ctxNoteId == null ? null : noteById(ctxNoteId))
+
+  let ctxItems = $derived.by(() => {
+    if (ctxNoteId == null) return []
+    const items = [
+      { id: 'copy-id', label: `Копировать note=${ctxNoteId}` },
+      { id: 'sep-copy', sep: true },
+      { id: 'add-child', label: 'Добавить дочернюю' },
+    ]
+    if (ctxNote?.parent_id != null) {
+      items.push({ id: 'move-up', label: 'На уровень вверх' })
+    }
+    items.push({ id: 'sep-danger', sep: true })
+    items.push({ id: 'delete', label: 'Удалить', danger: true })
+    return items
+  })
+
+  function openNoteMenu(event, note) {
+    if (!note?.id) return
+    event.preventDefault()
+    event.stopPropagation()
+    ctxNoteId = note.id
+    ctxX = event.clientX
+    ctxY = event.clientY
+    ctxOpen = true
+  }
+
+  function closeNoteMenu() {
+    ctxOpen = false
+  }
+
+  async function copyNoteRef(id) {
+    if (id == null) return
+    try {
+      await copyText(`note=${id}`)
+    } catch (e) {
+      error = e?.message || String(e)
+    }
+  }
+
+  async function moveNoteUp(id) {
+    const n = noteById(id)
+    if (!n?.parent_id) return
+    const parent = noteById(n.parent_id)
+    const next = parent?.parent_id ?? null
+    error = ''
+    try {
+      const savedRow = await updateNote(id, { parent_id: next })
+      const pid = next == null ? '' : String(next)
+      if (id === selectedId) {
+        saved = { ...saved, parentId: pid }
+        parentId = pid
+        detail = savedRow
+        const draft = getNoteDraft(id)
+        if (draft) putNoteDraft(id, { ...draft, parentId: pid })
+      }
+      onChanged()
+    } catch (e) {
+      error = e.message || String(e)
+    }
+  }
+
+  function requestDelete(id) {
+    if (id == null) return
+    deleteTargetId = id
+    deleteOpen = true
+  }
+
+  async function onCtxSelect(action) {
+    const id = ctxNoteId
+    if (action === 'copy-id') {
+      await copyNoteRef(id)
+      return
+    }
+    if (action === 'add-child') {
+      await addNote(id)
+      return
+    }
+    if (action === 'move-up') {
+      await moveNoteUp(id)
+      return
+    }
+    if (action === 'delete') {
+      requestDelete(id)
+    }
+  }
+
+  let deleteTargetTitle = $derived(
+    deleteTargetId == null ? '' : rowTitle(noteById(deleteTargetId) || { id: deleteTargetId, title: '' }),
+  )
 </script>
 
 <div class="notes" onkeydown={onKey}>
@@ -273,6 +376,7 @@
               class:notes__row--pin={n.pinned}
               style:padding-left="{0.7 + depth * 0.85}rem"
               onclick={() => onSelect(n.id)}
+              oncontextmenu={(e) => openNoteMenu(e, n)}
             >
               <Icon name="document" size={14} />
               <span class="notes__row-label">
@@ -296,7 +400,13 @@
     {#if selectedId == null}
       <p class="notes__empty">Выберите заметку или создайте новую</p>
     {:else}
-      <header class="notes__head">
+      <header
+        class="notes__head"
+        oncontextmenu={(e) => {
+          const n = noteById(selectedId)
+          if (n) openNoteMenu(e, n)
+        }}
+      >
         <div class="notes__title-wrap">
           <div class="notes__title-cluster">
             <span class="notes__title-grow">
@@ -316,7 +426,7 @@
         <button
           type="button"
           class="btn btn--icon btn--danger"
-          onclick={() => (deleteOpen = true)}
+          onclick={() => requestDelete(selectedId)}
           title="Удалить"
         >
           <Icon name="delete" />
@@ -399,13 +509,27 @@
   </section>
 </div>
 
+<ContextMenu
+  open={ctxOpen}
+  x={ctxX}
+  y={ctxY}
+  items={ctxItems}
+  onSelect={onCtxSelect}
+  onClose={closeNoteMenu}
+/>
+
 <ConfirmModal
   open={deleteOpen}
   title="Удалить заметку?"
-  message="Дочерние поднимутся в корень. Ссылки note=N в других текстах останутся."
+  message={deleteTargetTitle
+    ? `Удалить «${deleteTargetTitle}»? Дочерние поднимутся в корень. Ссылки note=N в других текстах останутся.`
+    : 'Дочерние поднимутся в корень. Ссылки note=N в других текстах останутся.'}
   busy={deleting}
   onCancel={() => {
-    if (!deleting) deleteOpen = false
+    if (!deleting) {
+      deleteOpen = false
+      deleteTargetId = null
+    }
   }}
   onConfirm={confirmDelete}
 />
