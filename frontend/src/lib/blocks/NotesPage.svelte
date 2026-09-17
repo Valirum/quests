@@ -147,8 +147,9 @@
     })
     if (id == null) {
       detail = null
-      saved = { title: '', description: '', parentId: '', pinned: false }
-      applyForm(saved)
+      const empty = { title: '', description: '', parentId: '', pinned: false }
+      applyForm(empty)
+      saved = empty
       loadedId = null
       return
     }
@@ -157,9 +158,10 @@
       .then((row) => {
         if (cancelled) return
         detail = row
-        saved = fromRow(row)
+        const next = fromRow(row)
         const draft = getNoteDraft(id)
-        applyForm(draft || saved)
+        applyForm(draft || next)
+        saved = next
         loadedId = id
         error = ''
       })
@@ -175,9 +177,10 @@
 
   $effect(() => {
     const id = selectedId
+    const loaded = loadedId
+    if (id == null || loaded !== id) return
     const form = { title, description, parentId, pinned }
     untrack(() => {
-      if (id == null || loadedId !== id) return
       if (draftsEqual(form, saved)) clearNoteDraft(id)
       else putNoteDraft(id, form)
     })
