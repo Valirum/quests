@@ -4,6 +4,9 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/valirum/quests/go/internal/timeutil"
@@ -16,6 +19,9 @@ type Note struct {
 	Pinned      bool
 	SortOrder   int
 	ParentID    *int64
+	Color       string
+	Icon        string
+	CustomIcon  *string
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
 }
@@ -28,7 +34,7 @@ type NoteFilter struct {
 	Pinned      *bool
 }
 
-const noteCols = `id, title, description, pinned, sort_order, parent_id, created_at, updated_at`
+const noteCols = `id, title, description, pinned, sort_order, parent_id, color, icon, custom_icon, created_at, updated_at`
 
 func (s *Store) ListNotes(ctx context.Context, f NoteFilter) ([]Note, error) {
 	q := `SELECT ` + noteCols + ` FROM note WHERE 1=1`
@@ -94,10 +100,27 @@ func (s *Store) CreateNote(ctx context.Context, n Note) (Note, error) {
 	if n.Pinned {
 		pin = 1
 	}
+	if n.ParentID != nil && (n.Color == "" || n.Icon == "") {
+		parent, err := s.GetNote(ctx, *n.ParentID)
+		if err == nil {
+			if n.Color == "" {
+				n.Color = parent.Color
+			}
+			if n.Icon == "" {
+				n.Icon = parent.Icon
+			}
+		}
+	}
+	if n.Color == "" {
+		n.Color = "#9a9a9a"
+	}
+	if n.Icon == "" {
+		n.Icon = "document"
+	}
 	res, err := s.DB.ExecContext(ctx, `
-		INSERT INTO note (title, description, pinned, sort_order, parent_id, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		n.Title, n.Description, pin, n.SortOrder, n.ParentID,
+		INSERT INTO note (title, description, pinned, sort_order, parent_id, color, icon, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		n.Title, n.Description, pin, n.SortOrder, n.ParentID, n.Color, n.Icon,
 		timeutil.ToDBUTC(n.CreatedAt), timeutil.ToDBUTC(n.UpdatedAt))
 	if err != nil {
 		return Note{}, err
@@ -129,6 +152,12 @@ func (s *Store) UpdateNote(ctx context.Context, id int64, patch map[string]any) 
 	if _, ok := patch["parent_id"]; ok {
 		cur.ParentID = noteAsInt64Ptr(patch["parent_id"])
 	}
+	if v, ok := patch["color"].(string); ok {
+		cur.Color = v
+	}
+	if v, ok := patch["icon"].(string); ok {
+		cur.Icon = v
+	}
 	if cur.ParentID != nil && *cur.ParentID == id {
 		return Note{}, ErrNoteCycle
 	}
@@ -145,11 +174,17 @@ func (s *Store) UpdateNote(ctx context.Context, id int64, patch map[string]any) 
 	if cur.Pinned {
 		pin = 1
 	}
+	if cur.Color == "" {
+		cur.Color = "#9a9a9a"
+	}
+	if cur.Icon == "" {
+		cur.Icon = "document"
+	}
 	now := timeutil.NowUTC()
 	_, err = s.DB.ExecContext(ctx, `
-		UPDATE note SET title=?, description=?, pinned=?, sort_order=?, parent_id=?, updated_at=?
+		UPDATE note SET title=?, description=?, pinned=?, sort_order=?, parent_id=?, color=?, icon=?, updated_at=?
 		WHERE id=?`,
-		cur.Title, cur.Description, pin, cur.SortOrder, cur.ParentID,
+		cur.Title, cur.Description, pin, cur.SortOrder, cur.ParentID, cur.Color, cur.Icon,
 		timeutil.ToDBUTC(now), id)
 	if err != nil {
 		return Note{}, err
@@ -180,6 +215,59 @@ func (s *Store) noteWouldCycle(ctx context.Context, noteID, parentID int64) (boo
 	return true, nil
 }
 
+func (s *Store) SetNoteIcon(ctx context.Context, id int64, filename string) (Note, error) {
+	now := timeutil.NowUTC()
+	_, err := s.DB.ExecContext(ctx, `
+		UPDATE note SET custom_icon=?, updated_at=? WHERE id=?`, filename, timeutil.ToDBUTC(now), id)
+	if err != nil {
+		return Note{}, err
+	}
+	return s.GetNote(ctx, id)
+}
+
+func (s *Store) ClearNoteIcon(ctx context.Context, id int64, dataDir string) (Note, error) {
+	cur, err := s.GetNote(ctx, id)
+	if err != nil {
+		return Note{}, err
+	}
+	now := timeutil.NowUTC()
+	_, err = s.DB.ExecContext(ctx, `UPDATE note SET custom_icon=NULL, updated_at=? WHERE id=?`, timeutil.ToDBUTC(now), id)
+	if err != nil {
+		return Note{}, err
+	}
+	if cur.CustomIcon != nil && *cur.CustomIcon != "" {
+		_ = os.Remove(filepath.Join(dataDir, "note-icons", *cur.CustomIcon))
+	}
+	return s.GetNote(ctx, id)
+}
+
+// CopyNoteCustomIcon duplicates parent's uploaded icon file under the child id.
+func (s *Store) CopyNoteCustomIcon(ctx context.Context, fromID, toID int64, dataDir string) (Note, error) {
+	from, err := s.GetNote(ctx, fromID)
+	if err != nil {
+		return Note{}, err
+	}
+	if from.CustomIcon == nil || *from.CustomIcon == "" || !SafeIconName(*from.CustomIcon) {
+		return s.GetNote(ctx, toID)
+	}
+	src := filepath.Join(dataDir, "note-icons", *from.CustomIcon)
+	ext := filepath.Ext(*from.CustomIcon)
+	if ext == "" {
+		ext = ".png"
+	}
+	name := fmt.Sprintf("%d%s", toID, ext)
+	dst := filepath.Join(dataDir, "note-icons", name)
+	raw, err := os.ReadFile(src)
+	if err != nil {
+		return s.GetNote(ctx, toID)
+	}
+	_ = os.MkdirAll(filepath.Dir(dst), 0o755)
+	if err := os.WriteFile(dst, raw, 0o644); err != nil {
+		return Note{}, err
+	}
+	return s.SetNoteIcon(ctx, toID, name)
+}
+
 func (s *Store) DeleteNote(ctx context.Context, id int64) error {
 	tx, err := s.DB.BeginTx(ctx, nil)
 	if err != nil {
@@ -204,7 +292,8 @@ func scanNote(row rowScanner) (Note, error) {
 	var pin int
 	var parent sql.NullInt64
 	var created, updated sql.NullString
-	err := row.Scan(&n.ID, &n.Title, &n.Description, &pin, &n.SortOrder, &parent, &created, &updated)
+	var colorNS, iconNS, custom sql.NullString
+	err := row.Scan(&n.ID, &n.Title, &n.Description, &pin, &n.SortOrder, &parent, &colorNS, &iconNS, &custom, &created, &updated)
 	if err != nil {
 		return n, err
 	}
@@ -212,6 +301,20 @@ func scanNote(row rowScanner) (Note, error) {
 	if parent.Valid {
 		v := parent.Int64
 		n.ParentID = &v
+	}
+	if colorNS.Valid && colorNS.String != "" {
+		n.Color = colorNS.String
+	} else {
+		n.Color = "#9a9a9a"
+	}
+	if iconNS.Valid && iconNS.String != "" {
+		n.Icon = iconNS.String
+	} else {
+		n.Icon = "document"
+	}
+	if custom.Valid && custom.String != "" {
+		s := custom.String
+		n.CustomIcon = &s
 	}
 	if t, err := timeutil.ParseFlexible(created.String); err == nil {
 		n.CreatedAt = t
@@ -223,25 +326,44 @@ func scanNote(row rowScanner) (Note, error) {
 }
 
 func NoteToRead(n Note) NoteRead {
-	return NoteRead{
+	out := NoteRead{
 		"id":          n.ID,
 		"title":       n.Title,
 		"description": n.Description,
 		"pinned":      n.Pinned,
 		"sort_order":  n.SortOrder,
 		"parent_id":   n.ParentID,
+		"color":       n.Color,
+		"icon":        n.Icon,
+		"custom_icon": nil,
+		"icon_url":    nil,
 		"created_at":  timeutil.ToUTCISO(&n.CreatedAt),
 		"updated_at":  timeutil.ToUTCISO(&n.UpdatedAt),
 	}
+	if n.CustomIcon != nil && *n.CustomIcon != "" {
+		out["custom_icon"] = *n.CustomIcon
+		u := fmt.Sprintf("/api/notes/%d/icon", n.ID)
+		if iso := timeutil.ToUTCISO(&n.UpdatedAt); iso != nil {
+			u += "?v=" + *iso
+		}
+		out["icon_url"] = u
+	}
+	return out
 }
 
 func NoteBrief(n Note) NoteRead {
-	return NoteRead{
+	out := NoteRead{
 		"id":        n.ID,
 		"title":     n.Title,
 		"parent_id": n.ParentID,
 		"pinned":    n.Pinned,
+		"color":     n.Color,
+		"icon":      n.Icon,
 	}
+	if n.CustomIcon != nil && *n.CustomIcon != "" {
+		out["icon_url"] = fmt.Sprintf("/api/notes/%d/icon", n.ID)
+	}
+	return out
 }
 
 func noteAsInt(v any) (int, bool) {

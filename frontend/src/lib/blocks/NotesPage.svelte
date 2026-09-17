@@ -13,7 +13,9 @@
   import MentionTextarea from '../ui/MentionTextarea.svelte'
   import AttachmentsBlock from './AttachmentsBlock.svelte'
   import ConfirmModal from '../modals/ConfirmModal.svelte'
+  import NoteIconModal from '../modals/NoteIconModal.svelte'
   import ContextMenu from '../ui/ContextMenu.svelte'
+  import QuestlineIcon from '../ui/QuestlineIcon.svelte'
 
   /** @type {{
    *   notes: any[],
@@ -37,6 +39,8 @@
   } = $props()
 
   let search = $state('')
+  /** @type {Record<string, boolean>} — false = свёрнуто; по умолчанию развёрнуто */
+  let treeOpen = $state({})
   let detail = $state(/** @type {any | null} */ (null))
   let title = $state('')
   let description = $state('')
@@ -52,6 +56,8 @@
   let ctxX = $state(0)
   let ctxY = $state(0)
   let ctxNoteId = $state(/** @type {number | null} */ (null))
+  let iconModalOpen = $state(false)
+  let iconModalNoteId = $state(/** @type {number | null} */ (null))
 
   let dirty = $derived(
     title !== saved.title ||
@@ -63,10 +69,24 @@
   let filtered = $derived.by(() => {
     const q = search.trim().toLowerCase()
     if (!q) return notes
-    return notes.filter((n) =>
-      `${n.title || ''} ${n.description || ''}`.toLowerCase().includes(q),
-    )
+    const byId = new Map(notes.map((n) => [n.id, n]))
+    /** @type {Set<number>} */
+    const visible = new Set()
+    for (const n of notes) {
+      if (!`${n.title || ''} ${n.description || ''}`.toLowerCase().includes(q)) continue
+      visible.add(n.id)
+      let cur = n
+      while (cur.parent_id != null) {
+        const parent = byId.get(cur.parent_id)
+        if (!parent) break
+        visible.add(parent.id)
+        cur = parent
+      }
+    }
+    return notes.filter((n) => visible.has(n.id))
   })
+
+  let searchActive = $derived(search.trim().length > 0)
 
   let byParent = $derived.by(() => {
     /** @type {Map<string, any[]>} */
@@ -259,6 +279,28 @@
     return byParent.get(String(id)) || []
   }
 
+  function hasChildren(id) {
+    return childrenOf(id).length > 0
+  }
+
+  function isTreeOpen(id) {
+    return treeOpen[String(id)] !== false
+  }
+
+  /** @param {MouseEvent} event */
+  function toggleTree(id, event) {
+    event.stopPropagation()
+    event.preventDefault()
+    const key = String(id)
+    treeOpen = { ...treeOpen, [key]: treeOpen[key] === false }
+  }
+
+  function showChildren(id) {
+    if (!hasChildren(id)) return false
+    if (searchActive) return true
+    return isTreeOpen(id)
+  }
+
   function noteById(id) {
     return notes.find((n) => n.id === id) ?? null
   }
@@ -275,6 +317,8 @@
     if (ctxNote?.parent_id != null) {
       items.push({ id: 'move-up', label: 'На уровень вверх' })
     }
+    items.push({ id: 'sep-icon', sep: true })
+    items.push({ id: 'icon', label: 'Иконка' })
     items.push({ id: 'sep-danger', sep: true })
     items.push({ id: 'delete', label: 'Удалить', danger: true })
     return items
@@ -345,9 +389,25 @@
       await moveNoteUp(id)
       return
     }
+    if (action === 'icon') {
+      iconModalNoteId = id
+      iconModalOpen = true
+      return
+    }
     if (action === 'delete') {
       requestDelete(id)
     }
+  }
+
+  let iconModalNote = $derived(
+    iconModalNoteId == null ? null : noteById(iconModalNoteId),
+  )
+
+  function onIconSaved(row) {
+    if (selectedId === row?.id) {
+      detail = row
+    }
+    onChanged()
   }
 
   let deleteTargetTitle = $derived(
@@ -359,9 +419,13 @@
   <aside class="notes__tree">
     <div class="notes__tools">
       <input class="search" type="search" placeholder="Поиск…" bind:value={search} />
-      <button type="button" class="btn btn--accent" onclick={() => addNote(null)}>
-        <Icon name="add" size={14} />
-        Заметка
+      <button
+        type="button"
+        class="btn btn--accent notes__add"
+        aria-label="Новая заметка"
+        onclick={() => addNote(null)}
+      >
+        +
       </button>
     </div>
     <div class="notes__list">
@@ -372,23 +436,48 @@
       {:else}
         {#snippet tree(nodes, depth)}
           {#each nodes as n (n.id)}
-            <button
-              type="button"
-              class="notes__row"
-              class:notes__row--on={n.id === selectedId}
-              class:notes__row--pin={n.pinned}
-              style:padding-left="{0.7 + depth * 0.85}rem"
-              onclick={() => onSelect(n.id)}
-              oncontextmenu={(e) => openNoteMenu(e, n)}
-            >
-              <Icon name="document" size={14} />
-              <span class="notes__row-label">
-                <span class="notes__row-title">{rowTitle(n)}</span>{#if rowDirty(n)}<span
-                    class="notes__unsaved"
-                    title="Несохранено">*</span>{/if}
-              </span>
-            </button>
-            {@render tree(childrenOf(n.id), depth + 1)}
+            <div class="notes__node" style:--notes-depth="{depth}">
+              {#if hasChildren(n.id)}
+                <button
+                  type="button"
+                  class="notes__fold"
+                  aria-expanded={showChildren(n.id)}
+                  aria-label={showChildren(n.id) ? 'Свернуть' : 'Развернуть'}
+                  onclick={(e) => toggleTree(n.id, e)}
+                >
+                  <Icon
+                    name={showChildren(n.id) ? 'chevron-down' : 'chevron-right'}
+                    size={12}
+                  />
+                </button>
+              {:else}
+                <span class="notes__fold notes__fold--spacer" aria-hidden="true"></span>
+              {/if}
+              <button
+                type="button"
+                class="notes__row"
+                class:notes__row--on={n.id === selectedId}
+                class:notes__row--pin={n.pinned}
+                onclick={() => onSelect(n.id)}
+                oncontextmenu={(e) => openNoteMenu(e, n)}
+              >
+                <span class="notes__row-icon" style="--line-color: {n.color || '#9a9a9a'}">
+                  <QuestlineIcon
+                    icon={n.icon || 'document'}
+                    iconUrl={n.icon_url}
+                    size="sm"
+                  />
+                </span>
+                <span class="notes__row-label">
+                  <span class="notes__row-title">{rowTitle(n)}</span>{#if rowDirty(n)}<span
+                      class="notes__unsaved"
+                      title="Несохранено">*</span>{/if}
+                </span>
+              </button>
+            </div>
+            {#if showChildren(n.id)}
+              {@render tree(childrenOf(n.id), depth + 1)}
+            {/if}
           {/each}
         {/snippet}
         {@render tree(roots, 0)}
@@ -521,6 +610,16 @@
   onClose={closeNoteMenu}
 />
 
+<NoteIconModal
+  open={iconModalOpen}
+  note={iconModalNote}
+  onClose={() => {
+    iconModalOpen = false
+    iconModalNoteId = null
+  }}
+  onSaved={onIconSaved}
+/>
+
 <ConfirmModal
   open={deleteOpen}
   title="Удалить заметку?"
@@ -566,22 +665,61 @@
     min-width: 0;
   }
 
+  .notes__add {
+    flex: 0 0 auto;
+    min-width: 2rem;
+    padding-inline: 0.55rem;
+    font-size: 1.1rem;
+    line-height: 1;
+  }
+
   .notes__list {
     flex: 1 1 auto;
     overflow: auto;
     padding: 0.35rem 0;
   }
 
+  .notes__node {
+    display: flex;
+    align-items: stretch;
+    padding-left: calc(0.35rem + var(--notes-depth, 0) * 0.85rem);
+  }
+
+  .notes__fold {
+    flex: 0 0 1.35rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 0;
+    padding: 0;
+    margin: 0;
+    background: transparent;
+    color: color-mix(in srgb, var(--color-fg, #e8e8e8) 55%, transparent);
+    cursor: pointer;
+    border-radius: 2px;
+  }
+
+  .notes__fold:hover {
+    color: var(--color-fg, #e8e8e8);
+    background: color-mix(in srgb, var(--color-fg, #e8e8e8) 6%, transparent);
+  }
+
+  .notes__fold--spacer {
+    pointer-events: none;
+  }
+
   .notes__row {
     display: flex;
     align-items: center;
     gap: 0.4rem;
-    width: 100%;
+    flex: 1 1 auto;
+    min-width: 0;
     border: 0;
+    border-left: 2px solid transparent;
     background: transparent;
     color: inherit;
     text-align: left;
-    padding: 0.32rem 0.7rem;
+    padding: 0.32rem 0.45rem 0.32rem 0.35rem;
     cursor: pointer;
     font-family: var(--font-body, Georgia, serif);
     font-size: var(--text-sm, 0.875rem);
@@ -593,7 +731,13 @@
 
   .notes__row--on {
     background: color-mix(in srgb, var(--color-fg, #e8e8e8) 6%, var(--color-bg-raised, #1a1a1a));
-    box-shadow: inset 2px 0 0 var(--color-fg, #e8e8e8);
+    border-left-color: var(--color-fg, #e8e8e8);
+  }
+
+  .notes__row-icon {
+    flex-shrink: 0;
+    display: inline-flex;
+    color: var(--line-color, #9a9a9a);
   }
 
   .notes__row-label {
