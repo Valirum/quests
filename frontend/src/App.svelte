@@ -983,6 +983,7 @@
         labels={refLabels}
         onRef={onJournalRef}
         notes={notes}
+        {questlines}
       />
     </div>
   {/if}

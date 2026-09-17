@@ -37,12 +37,14 @@
    *   onStepContextMenu?: (event: MouseEvent, step: any) => void,
    *   onSelectQuest?: (id: number) => void,
    *   notes?: any[],
+   *   questlines?: any[],
    *   labels?: Record<string, string>,
    *   onRef?: (kind: string, id: number) => void,
    * }} */
   let {
     selected,
     quests = [],
+    questlines = [],
     showAllQuests = false,
     nowMs,
     statusBusy,
@@ -88,11 +90,16 @@
 
   let inQuestline = $derived(Boolean(selected?.questline_id))
 
+  let lineRow = $derived(
+    questlines.find((l) => l.id === selected?.questline_id) ?? null,
+  )
+
   let lineMeta = $derived({
-    title: selected?.questline_title || 'Квестлайн',
-    color: selected?.questline_color || '#9a9a9a',
-    icon: selected?.questline_icon || 'document',
-    iconUrl: selected?.questline_icon_url || null,
+    title: lineRow?.title || selected?.questline_title || 'Квестлайн',
+    color: lineRow?.color || selected?.questline_color || '#9a9a9a',
+    icon: lineRow?.icon || selected?.questline_icon || 'document',
+    iconUrl: lineRow?.icon_url || selected?.questline_icon_url || null,
+    description: String(lineRow?.description || '').trim(),
   })
 
   let lineIndex = $derived(lineQuests.findIndex((q) => q.id === selected?.id))
@@ -395,6 +402,12 @@
         </div>
         <span class="detail__line-count">{lineQuests.length}</span>
       </header>
+
+      {#if lineMeta.description}
+        <div class="detail__line-desc block block--prose">
+          <MarkdownBody class="block__body" source={lineMeta.description} {labels} {onRef} />
+        </div>
+      {/if}
 
       <div class="detail__line-attach">
         <h3 class="block__label">Вложения квестлайна</h3>
