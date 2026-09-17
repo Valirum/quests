@@ -6,6 +6,7 @@
    *   quests?: any[],
    *   questlines?: any[],
    *   notes?: any[],
+   *   attachments?: any[],
    *   placeholder?: string,
    *   rows?: number,
    *   class?: string,
@@ -20,6 +21,7 @@
     quests = [],
     questlines = [],
     notes = [],
+    attachments = [],
     placeholder = '',
     rows = 3,
     class: className = '',
@@ -43,7 +45,7 @@
       return
     }
     mentionToken = token
-    mentionItems = matchMentions(token.query, { quests, questlines, notes })
+    mentionItems = matchMentions(token.query, { quests, questlines, notes, attachments })
     mentionIndex = 0
     mentionOpen = mentionItems.length > 0
   }

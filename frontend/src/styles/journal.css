@@ -207,6 +207,14 @@
     flex-direction: column;
   }
 
+  .journal__attachments {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+
   /* One row of status chips, labeled by default — a 2-column grid needs
      upkeep as items come and go, a line doesn't. Collapses to dot-only
      (label dropped, title tooltip carries the detail) only once it no

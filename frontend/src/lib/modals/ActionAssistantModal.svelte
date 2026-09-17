@@ -9,10 +9,11 @@
    *   quests: any[],
    *   questlines: any[],
    *   notes?: any[],
+   *   attachments?: any[],
    *   onClose: () => void,
    *   onApplied: () => void,
    * }} */
-  let { open = false, quests = [], questlines = [], notes = [], onClose, onApplied } = $props()
+  let { open = false, quests = [], questlines = [], notes = [], attachments = [], onClose, onApplied } = $props()
 
   let text = $state('')
   /** @type {'input' | 'loading' | 'preview' | 'applying'} */
@@ -147,6 +148,7 @@
             {quests}
             {questlines}
             {notes}
+            {attachments}
             rows={3}
             placeholder="Например: создай квестлайн Бэкапы и закинь туда @Про…"
             disabled={phase === 'loading'}

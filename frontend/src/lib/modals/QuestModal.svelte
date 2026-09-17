@@ -23,7 +23,7 @@
   import ConfirmModal from './ConfirmModal.svelte'
   import { untrack } from 'svelte'
 
-  /** @type {{ open: boolean, mode: 'create' | 'edit', quest?: any, defaults?: { questline_id?: number | null, category_id?: number | null }, quests?: any[], notes?: any[], onClose: () => void, onSaved: (q: any) => void, onDeleted?: (id: number) => void }} */
+  /** @type {{ open: boolean, mode: 'create' | 'edit', quest?: any, defaults?: { questline_id?: number | null, category_id?: number | null }, quests?: any[], notes?: any[], attachments?: any[], onClose: () => void, onSaved: (q: any) => void, onDeleted?: (id: number) => void }} */
   let {
     open = false,
     mode = 'create',
@@ -31,6 +31,7 @@
     defaults = null,
     quests = [],
     notes = [],
+    attachments = [],
     onClose,
     onSaved,
     onDeleted,
@@ -430,8 +431,9 @@
             {quests}
             {questlines}
             {notes}
+            {attachments}
             rows={3}
-            placeholder="@название — квест, заметка, шаг, квестлайн"
+            placeholder="@название — квест, заметка, файл, шаг, квестлайн"
           />
         </div>
 

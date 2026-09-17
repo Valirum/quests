@@ -6,18 +6,16 @@
    *   source?: string,
    *   class?: string,
    *   labels?: Record<string, string>,
-   *   attachmentUrl?: (id: number) => string | null,
    *   onRef?: (kind: string, id: number) => void,
    * }} */
   let {
     source = '',
     class: className = '',
     labels = {},
-    attachmentUrl,
     onRef,
   } = $props()
 
-  let html = $derived(renderMarkdown(source, { labels, attachmentUrl }))
+  let html = $derived(renderMarkdown(source, { labels }))
 
   function onClick(event) {
     const a = event.target instanceof Element ? event.target.closest('a') : null

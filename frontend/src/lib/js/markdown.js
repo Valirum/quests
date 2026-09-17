@@ -60,23 +60,15 @@ function splitCode(src) {
 
 /**
  * @param {string} source
- * @param {{ labels?: Record<string, string>, attachmentUrl?: (id: number) => string | null }} [opts]
+ * @param {{ labels?: Record<string, string> }} [opts]
  */
 function linkifyRefs(source, opts = {}) {
   const labels = opts.labels || {}
-  const attachmentUrl = opts.attachmentUrl
   const withMdLinks = splitCode(source)
     .map((part, i) => {
       if (i % 2 === 1) return part
-      let chunk = part.replace(/\]\(attachment:(\d+)\)/g, (_, id) => {
-        const url = attachmentUrl?.(Number(id))
-        return url ? `](${url})` : `](?attachment=${id})`
-      })
+      let chunk = part.replace(/\]\(attachment:(\d+)\)/g, (_, id) => `](?attachment=${id})`)
       chunk = chunk.replace(REF_RE, (full, kind, id) => {
-        if (kind === 'attachment' && attachmentUrl) {
-          const url = attachmentUrl(Number(id))
-          if (url) return `[${labels[`${kind}:${id}`] || full}](${url})`
-        }
         const label = labels[`${kind}:${id}`] || full
         return `[${label}](${refHref(kind, id)})`
       })

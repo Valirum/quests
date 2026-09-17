@@ -19,8 +19,8 @@
   import ConfirmModal from './ConfirmModal.svelte'
   import { untrack } from 'svelte'
 
-  /** @type {{ open: boolean, quests?: any[], notes?: any[], onClose: () => void, onChanged: () => void }} */
-  let { open = false, quests = [], notes = [], onClose, onChanged } = $props()
+  /** @type {{ open: boolean, quests?: any[], notes?: any[], attachments?: any[], onClose: () => void, onChanged: () => void }} */
+  let { open = false, quests = [], notes = [], attachments = [], onClose, onChanged } = $props()
 
   let templates = $state(/** @type {any[]} */ ([]))
   let loading = $state(false)
@@ -596,8 +596,9 @@
               {quests}
               {questlines}
               {notes}
+              {attachments}
               rows={2}
-              placeholder="@название — квест, заметка, шаг, квестлайн"
+              placeholder="@название — квест, заметка, файл, шаг, квестлайн"
             />
           </div>
 
