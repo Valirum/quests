@@ -41,6 +41,13 @@ def test_completed_keyboard_collapsed() -> None:
     assert rows[0][0].callback_data == "qe:7"
 
 
+def test_failed_keyboard_collapsed() -> None:
+    q = {"id": 8, "status": "failed", "steps": [{"id": 1, "title": "a"}]}
+    kb = quest_keyboard(q)
+    assert len(kb.inline_keyboard) == 1
+    assert kb.inline_keyboard[0][0].text == BTN_EDIT
+
+
 def test_completed_keyboard_expanded_has_done() -> None:
     q = {"id": 7, "status": "completed", "steps": []}
     kb = quest_keyboard(q, expanded=True)

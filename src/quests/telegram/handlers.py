@@ -33,6 +33,7 @@ from quests.telegram.keyboards import (
     BTN_LIST,
     BTN_NEW,
     BTN_NEW_LLM,
+    _is_closed,
     category_pick_keyboard,
     llm_confirm_keyboard,
     stt_confirm_keyboard,
@@ -357,7 +358,8 @@ def build_router(
         except ApiError as e:
             await _on_quest_callback_error(query, e)
             return
-        await _edit_quest_card(query, q, page=page, expanded=True)
+        # Не форсить expanded: если снаружи уже completed — свернуть в «Редактировать».
+        await _edit_quest_card(query, q, page=page, expanded=not _is_closed(q))
         await query.answer("обновлено")
 
     @router.callback_query(F.data.startswith("qp:"))
@@ -402,7 +404,7 @@ def build_router(
             await _on_quest_callback_error(query, e)
             return
         await _edit_quest_card(
-            query, q, page=0, expanded=new_status != "completed"
+            query, q, page=0, expanded=not _is_closed(q)
         )
         await query.answer(f"→ {new_status}")
 

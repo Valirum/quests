@@ -87,6 +87,14 @@ def stt_confirm_keyboard() -> InlineKeyboardMarkup:
     )
 
 
+# Статусы, у которых по умолчанию только «Редактировать» (без шагов/статусов).
+_CLOSED_STATUSES = frozenset({"completed", "failed", "archived"})
+
+
+def _is_closed(quest: dict) -> bool:
+    return str(quest.get("status") or "") in _CLOSED_STATUSES
+
+
 def _step_done(step: dict) -> bool:
     if step.get("done") is True:
         return True
@@ -108,9 +116,9 @@ def _clamp_page(page: int, n_steps: int) -> int:
 def quest_keyboard(
     quest: dict, *, page: int = 0, expanded: bool = False
 ) -> InlineKeyboardMarkup:
-    """Статусы + бинарные шаги. Выполненные по умолчанию — только «Редактировать»."""
+    """Статусы + бинарные шаги. Закрытые по умолчанию — только «Редактировать»."""
     qid = int(quest["id"])
-    if str(quest.get("status") or "") == "completed" and not expanded:
+    if _is_closed(quest) and not expanded:
         return InlineKeyboardMarkup(
             inline_keyboard=[
                 [
