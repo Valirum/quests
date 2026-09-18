@@ -63,7 +63,7 @@
   let deadlineOpen = $state(false)
   /** Unchecked = duration_seconds explicitly 0 ("no window", no auto-expire). */
   let windowEnabled = $state(true)
-  /** @type {{ key: string, title: string, progress_current: number, progress_total: number }[]} */
+  /** @type {{ key: string, id: number | null, title: string, description: string, progress_current: number, progress_total: number, check_command: string, check_interval_seconds: string, wait_previous: boolean, run_mode: string, check_open: boolean }[]} */
   let steps = $state([])
   let saving = $state(false)
   let deleting = $state(false)
@@ -107,6 +107,7 @@
       key: newStepKey(),
       id: null,
       title: '',
+      description: '',
       progress_current: 0,
       progress_total: 1,
       check_command: '',
@@ -203,6 +204,7 @@
             key: String(s.id ?? newStepKey()),
             id: s.id ?? null,
             title: s.title ?? '',
+            description: s.description ?? '',
             progress_current: s.progress_current ?? 0,
             progress_total: s.progress_total ?? 1,
             check_command: s.check_command ?? '',
@@ -273,7 +275,7 @@
         return {
           id: s.id != null ? Number(s.id) : null,
           title: s.title.trim(),
-          description: '',
+          description: String(s.description || '').trim(),
           progress_current: Math.max(0, Number(s.progress_current) || 0),
           progress_total: Math.max(1, Number(s.progress_total) || 1),
           sort_order: i,
@@ -664,6 +666,16 @@
                   <Icon name="delete" size={14} />
                 </button>
               </div>
+              <MentionTextarea
+                class="step-edit__desc"
+                bind:value={step.description}
+                {quests}
+                {questlines}
+                {notes}
+                {attachments}
+                rows={2}
+                placeholder="Описание шага (markdown, @упоминания)"
+              />
               {#if step.check_open}
                 <div class="step-edit__check">
                   <input

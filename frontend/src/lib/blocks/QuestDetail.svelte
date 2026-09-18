@@ -13,6 +13,7 @@
     significanceLabel,
     statusColor,
   } from '../js/questFormat.js'
+  import { downloadQuestPdf } from '../js/questPdf.js'
 
   /** @type {{
    *   selected: any | null,
@@ -70,6 +71,19 @@
   } = $props()
 
   const tzLabel = localTimeZone()
+  let pdfBusy = $state(false)
+
+  async function exportPdf(q) {
+    if (!q || pdfBusy) return
+    pdfBusy = true
+    try {
+      await downloadQuestPdf(q)
+    } catch (e) {
+      console.error(e)
+    } finally {
+      pdfBusy = false
+    }
+  }
 
   let lineQuests = $derived.by(() => {
     if (!selected?.questline_id) return []
@@ -134,8 +148,13 @@
     onSelectQuest?.(id)
   }
 
+  /** Only jump to top when switching quests — not on every silent refresh / step bump. */
+  let lastDetailQuestId = /** @type {number | null} */ (null)
+
   $effect(() => {
     const id = selected?.id ?? null
+    if (id === lastDetailQuestId) return
+    lastDetailQuestId = id
     if (id == null) return
     queueMicrotask(() => {
       document.querySelector('.detail')?.scrollTo({ top: 0 })
@@ -167,6 +186,20 @@
       aria-label="Править"
     >
       <Icon name="edit" />
+    </button>
+    <button
+      type="button"
+      class="btn btn--icon"
+      onclick={() => exportPdf(q)}
+      disabled={pdfBusy}
+      title={pdfBusy ? 'PDF…' : 'В PDF'}
+      aria-label={pdfBusy ? 'Выгрузка PDF…' : 'Выгрузить в PDF'}
+    >
+      {#if pdfBusy}
+        …
+      {:else}
+        <Icon name="document" />
+      {/if}
     </button>
     <button
       type="button"

@@ -25,6 +25,7 @@
   import { copyText } from './lib/js/clipboard.js'
   import ActionAssistantModal from './lib/modals/ActionAssistantModal.svelte'
   import QuestModal from './lib/modals/QuestModal.svelte'
+  import StepModal from './lib/modals/StepModal.svelte'
   import QuestlineModal from './lib/modals/QuestlineModal.svelte'
   import TemplatesModal from './lib/modals/TemplatesModal.svelte'
   import SettingsModal from './lib/modals/SettingsModal.svelte'
@@ -112,6 +113,9 @@
   let stepEditId = $state(/** @type {number | null} */ (null))
   let stepEditQuestId = $state(/** @type {number | null} */ (null))
   let stepEditValue = $state('')
+  let stepModalOpen = $state(false)
+  let stepModalQuestId = $state(/** @type {number | null} */ (null))
+  let stepModalStep = $state(/** @type {any | null} */ (null))
   /** Prefer this id across in-flight load() (URL / HUD focus). */
   let pendingSelectId = $state(/** @type {number | null} */ (null))
   /** When false — only active/delayed; when true — all statuses. */
@@ -145,7 +149,25 @@
       ]
     }
     if (ctxKind === 'step') {
-      return [{ id: 'copy-id', label: `Копировать step=${ctxStepId}` }]
+      const found = findStepRef(ctxStepId)
+      const total = Math.max(1, Number(found?.step?.progress_total) || 1)
+      /** @type {{ id: string, label?: string, sep?: boolean, danger?: boolean }[]} */
+      const items = [{ id: 'copy-id', label: `Копировать step=${ctxStepId}` }]
+      if (total > 1) {
+        items.push(
+          { id: 'sep-bump', sep: true },
+          { id: 'inc', label: '+1' },
+          { id: 'dec', label: '−1' },
+        )
+      }
+      items.push(
+        { id: 'sep-done', sep: true },
+        { id: 'complete', label: 'Выполнить' },
+        { id: 'reset', label: 'Обнулить' },
+        { id: 'sep-edit', sep: true },
+        { id: 'edit', label: 'Редактировать' },
+      )
+      return items
     }
     return []
   })
@@ -167,7 +189,12 @@
     /** @type {Record<string, string>} */
     const m = {}
     for (const n of notes) m[`note:${n.id}`] = n.title || `note=${n.id}`
-    for (const q of quests) m[`quest:${q.id}`] = q.title || `quest=${q.id}`
+    for (const q of quests) {
+      m[`quest:${q.id}`] = q.title || `quest=${q.id}`
+      for (const s of q.steps || []) {
+        m[`step:${s.id}`] = s.title || `step=${s.id}`
+      }
+    }
     for (const l of questlines) m[`questline:${l.id}`] = l.title || `questline=${l.id}`
     for (const a of attachments) {
       m[`attachment:${a.id}`] = a.filename || `attachment=${a.id}`
@@ -323,7 +350,7 @@
     event.stopPropagation()
     ctxKind = 'step'
     ctxStepId = step.id
-    ctxQuestId = null
+    ctxQuestId = findQuestIdForStep(step.id) ?? selectedId
     ctxLineId = null
     ctxX = event.clientX
     ctxY = event.clientY
@@ -447,8 +474,39 @@
       onQuestContextSelect(action)
       return
     }
-    if (ctxKind === 'step' && action === 'copy-id') {
+    if (ctxKind === 'step') {
+      onStepContextSelect(action)
+    }
+  }
+
+  async function onStepContextSelect(action) {
+    if (action === 'copy-id') {
       copyIdToClipboard('step', ctxStepId)
+      return
+    }
+    const found = findStepRef(ctxStepId)
+    if (!found) return
+    const { step, questId } = found
+    if (action === 'inc') {
+      await bumpStep(step, 1, questId)
+      return
+    }
+    if (action === 'dec') {
+      await bumpStep(step, -1, questId)
+      return
+    }
+    if (action === 'complete') {
+      await setStepProgress(step, step.progress_total, questId)
+      return
+    }
+    if (action === 'reset') {
+      await setStepProgress(step, 0, questId)
+      return
+    }
+    if (action === 'edit') {
+      stepModalQuestId = questId
+      stepModalStep = step
+      stepModalOpen = true
     }
   }
 
@@ -577,6 +635,14 @@
   function findQuestIdForStep(stepId) {
     for (const q of quests) {
       if (q.steps?.some((s) => s.id === stepId)) return q.id
+    }
+    return null
+  }
+
+  function findStepRef(stepId) {
+    for (const q of quests) {
+      const step = q.steps?.find((s) => s.id === stepId)
+      if (step) return { step, questId: q.id }
     }
     return null
   }
@@ -1092,6 +1158,22 @@
   }}
   onSaved={onSaved}
   onDeleted={onDeleted}
+/>
+
+<StepModal
+  open={stepModalOpen}
+  questId={stepModalQuestId}
+  step={stepModalStep}
+  {quests}
+  {questlines}
+  {notes}
+  {attachments}
+  onClose={() => {
+    stepModalOpen = false
+    stepModalStep = null
+    stepModalQuestId = null
+  }}
+  onSaved={(q) => applyQuest(q, { select: false })}
 />
 
 <QuestlineModal

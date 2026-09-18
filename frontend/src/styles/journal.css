@@ -1342,8 +1342,9 @@
   }
 
   .detail {
-    display: flex;
-    flex-direction: column;
+    /* Block, not flex: flex+overflow children used to clip long step lists. */
+    display: block;
+    overflow-x: hidden;
     overflow-y: auto;
     min-height: 0;
     height: 100%;
@@ -1676,12 +1677,15 @@
     border: 0;
     border-radius: 0;
     background: transparent;
-    overflow: hidden;
+    /* overflow≠visible → flex min-height 0 → clips steps; .detail must scroll. */
+    flex: 0 0 auto;
+    min-height: min-content;
+    overflow: visible;
   }
 
   .detail__quest-body-inner {
-    overflow: hidden;
-    min-height: 0;
+    overflow: visible;
+    min-height: min-content;
     margin-left: 0;
     margin-right: 0;
   }

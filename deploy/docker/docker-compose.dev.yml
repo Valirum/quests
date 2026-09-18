@@ -1,0 +1,38 @@
+# Local API only — no bot / nginx / clamav.
+# Host data + frontend/dist are bind-mounted so SPA rebuilds don't need an image rebuild.
+#
+#   ./scripts/dev-api-docker.sh
+#   ./scripts/dev-api-docker.sh --rebuild   # after Go/Python/Dockerfile changes
+#
+# network_mode: host + 127.0.0.1 so QUESTS_AUTH=off is allowed (0.0.0.0 refuses
+# unauthenticated binds).
+name: quests-dev
+
+services:
+  api:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile
+      target: api
+    image: quests-api:local
+    container_name: quests-api-dev
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      QUESTS_ROOT: /app
+      QUESTS_DATA_DIR: /app/data
+      QUESTS_HOST: "127.0.0.1"
+      QUESTS_PORT: "8765"
+      QUESTS_AUTH: "off"
+      QUESTS_SECURE_COOKIES: "0"
+      QUESTS_CLAMAV_ADDR: ""
+      QUESTS_WEBDAV_URL: ""
+    volumes:
+      - ../../data:/app/data
+      - ../../frontend/dist:/app/frontend/dist:ro
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8765/api/ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 25s
