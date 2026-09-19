@@ -68,28 +68,39 @@ class NoticeRouter:
         """Pull durable /api/quest-log into the log panel (no-op unless mode=log)."""
         if self.minor_mode != "log":
             return
-        try:
+        if self._log_refresh_pending:
+            return
+        self._log_refresh_pending = True
+
+        def work():
             from ..services.api_client import fetch_quest_log
 
-            rows = fetch_quest_log(limit=MINOR_LOG_MAX)
-        except Exception:
-            return
-        self.log.load_from_api(rows)
+            return fetch_quest_log(limit=MINOR_LOG_MAX)
+
+        def on_done(rows) -> None:
+            self._log_refresh_pending = False
+            self.log.load_from_api(rows)
+
+        def on_error(_exc) -> None:
+            self._log_refresh_pending = False
+
+        from ..services.api_client import run_async
+
+        run_async(work, on_done=on_done, on_error=on_error, name="hud-quest-log")
 
     def schedule_refresh_log(self, *, delay_ms: int = 200) -> None:
         """Debounced refresh after live events (DB write is async)."""
         if self.minor_mode != "log":
             return
-        if self._log_refresh_pending:
+        if getattr(self, "_log_schedule_src", None) is not None:
             return
-        self._log_refresh_pending = True
 
         def _go() -> bool:
-            self._log_refresh_pending = False
+            self._log_schedule_src = None
             self.refresh_log()
             return False
 
-        GLib.timeout_add(max(0, int(delay_ms)), _go)
+        self._log_schedule_src = GLib.timeout_add(max(0, int(delay_ms)), _go)
 
     def _sync_minor_hosts(self) -> None:
         if self.minor_mode == "toast":

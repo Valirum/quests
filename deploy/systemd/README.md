@@ -46,7 +46,17 @@ QUESTS_PORT=8765
 
 ## Удалённый HUD
 
-На машине оверлея: `QUESTS_API=http://SERVER:8765` (env unit или `api_base` в `data/overlay.json`).
+Нужны `QUESTS_API` / `QUESTS_WEB_URL` и при включённом auth — `QUESTS_API_TOKEN`
+(логин SPA недостаточно). Удобно через drop-in:
+
+```bash
+# ~/.config/systemd/user/quests-overlay.service.d/override.conf
+[Service]
+EnvironmentFile=-%h/.config/quests/overlay.env
+```
+
+Пошагово (токен на Docker/systemd, niri-бинды, чеклист ошибок):
+[`../../docs/hud-workstation.md`](../../docs/hud-workstation.md).
 
 ## Health
 

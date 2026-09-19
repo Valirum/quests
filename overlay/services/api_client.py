@@ -2,11 +2,63 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 import urllib.error
 import urllib.parse
 import urllib.request
+from collections.abc import Callable
+from typing import TypeVar
 
 DEFAULT_API = "http://127.0.0.1:8765"
+
+T = TypeVar("T")
+
+
+def run_async(
+    work: Callable[[], T],
+    *,
+    on_done: Callable[[T], None] | None = None,
+    on_error: Callable[[BaseException], None] | None = None,
+    name: str = "overlay-api",
+) -> None:
+    """Run blocking API work off the GTK main loop; marshal results via GLib.idle_add.
+
+    Remote ``QUESTS_API`` (tailnet) can take hundreds of ms–seconds per call.
+    Doing that on the UI thread feels like multi-second input lag.
+    """
+
+    def worker() -> None:
+        try:
+            result = work()
+        except BaseException as exc:  # noqa: BLE001 — forward to UI callback
+            if on_error is not None:
+
+                def _err() -> bool:
+                    on_error(exc)
+                    return False
+
+                try:
+                    from gi.repository import GLib
+
+                    GLib.idle_add(_err)
+                except Exception:
+                    pass
+            return
+        if on_done is None:
+            return
+
+        def _ok() -> bool:
+            on_done(result)
+            return False
+
+        try:
+            from gi.repository import GLib
+
+            GLib.idle_add(_ok)
+        except Exception:
+            pass
+
+    threading.Thread(target=worker, name=name, daemon=True).start()
 
 
 def resolve_api_base() -> str:
