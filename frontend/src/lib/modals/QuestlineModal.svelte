@@ -162,7 +162,7 @@
         saved = await clearQuestlineIcon(line.id)
       }
 
-      onSaved(saved)
+      onSaved(saved, { mode })
       onClose()
     } catch (e) {
       formError = e.message || String(e)

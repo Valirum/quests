@@ -360,7 +360,7 @@
         const afterSteps = await syncQuestSteps(quest.id, stepsPayload, quest?.steps || [])
         if (afterSteps) saved = afterSteps
       }
-      onSaved(saved)
+      onSaved(saved, { mode })
       onClose()
     } catch (e) {
       formError = e.message || String(e)

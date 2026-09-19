@@ -23,6 +23,7 @@
   import { OPEN_STATUSES } from './lib/js/questFormat.js'
   import { groupQuestsByCategory } from './lib/js/questGroups.js'
   import { copyText } from './lib/js/clipboard.js'
+  import { statusToastLabel, toast } from './lib/js/toasts.svelte.js'
   import ActionAssistantModal from './lib/modals/ActionAssistantModal.svelte'
   import QuestModal from './lib/modals/QuestModal.svelte'
   import StepModal from './lib/modals/StepModal.svelte'
@@ -31,6 +32,7 @@
   import SettingsModal from './lib/modals/SettingsModal.svelte'
   import ConfirmModal from './lib/modals/ConfirmModal.svelte'
   import ContextMenu from './lib/ui/ContextMenu.svelte'
+  import ToastHost from './lib/ui/ToastHost.svelte'
   import HeroPanel from './lib/blocks/HeroPanel.svelte'
   import StatsPanel from './lib/blocks/StatsPanel.svelte'
   import JournalHeader from './lib/blocks/JournalHeader.svelte'
@@ -365,9 +367,12 @@
   async function copyIdToClipboard(kind, id) {
     if (id == null) return
     try {
-      await copyText(`${kind}=${id}`)
+      const text = `${kind}=${id}`
+      await copyText(text)
+      toast(`Скопировано ${text}`, { kind: 'success', ttl: 1600 })
     } catch (e) {
       error = e?.message || String(e)
+      toast(error, { kind: 'error' })
     }
   }
 
@@ -401,8 +406,10 @@
     try {
       const saved = await updateQuest(quest.id, { status })
       applyQuest(saved)
+      toast(`Статус: ${statusToastLabel(status)}`, { kind: 'success' })
     } catch (e) {
       error = e.message || String(e)
+      toast(error, { kind: 'error' })
     } finally {
       statusBusy = false
     }
@@ -421,8 +428,10 @@
         duration_seconds: secs,
       })
       applyQuest(saved)
+      toast(`Отложен на ${minutes} мин`, { kind: 'success' })
     } catch (e) {
       error = e.message || String(e)
+      toast(error, { kind: 'error' })
     } finally {
       statusBusy = false
     }
@@ -519,19 +528,23 @@
       lineDeleteConfirmOpen = false
       ctxLineId = null
       await load({ silent: true })
+      toast('Квестлайн удалён', { kind: 'success' })
     } catch (e) {
       error = e.message || String(e)
+      toast(error, { kind: 'error' })
     } finally {
       lineDeleting = false
     }
   }
 
-  function onQuestlineSaved() {
+  function onQuestlineSaved(_line, meta = {}) {
     load({ silent: true })
+    if (meta.mode === 'create') toast('Квестлайн создан', { kind: 'success' })
   }
 
   function onQuestlineDeleted() {
     load({ silent: true })
+    toast('Квестлайн удалён', { kind: 'success' })
   }
 
   function requestDeleteSelected(quest = selected) {
@@ -552,6 +565,7 @@
       onDeleted(id)
     } catch (e) {
       error = e.message || String(e)
+      toast(error, { kind: 'error' })
     } finally {
       deleting = false
     }
@@ -566,8 +580,13 @@
       const next = q.status === 'completed' ? 'active' : 'completed'
       const saved = await updateQuest(q.id, { status: next })
       applyQuest(saved, { select: false })
+      toast(
+        next === 'completed' ? 'Отмечен выполненным' : 'Снова активен',
+        { kind: 'success' },
+      )
     } catch (e) {
       error = e.message || String(e)
+      toast(error, { kind: 'error' })
     } finally {
       statusBusy = false
     }
@@ -672,14 +691,16 @@
     if (select) selectedId = quest.id
   }
 
-  function onSaved(quest) {
+  function onSaved(quest, meta = {}) {
     selectedId = quest.id
     load({ silent: true })
+    if (meta.mode === 'create') toast('Квест создан', { kind: 'success' })
   }
 
   function onDeleted(id) {
     if (selectedId === id) selectedId = null
     load({ silent: true })
+    toast('Квест удалён', { kind: 'success' })
   }
 
   function questIdFromUrl() {
@@ -1037,6 +1058,8 @@
   {#if error}
     <p class="banner-error" role="alert">{error}</p>
   {/if}
+
+  <ToastHost />
 
   {#if view === 'hero'}
     <div class="journal__hero">
