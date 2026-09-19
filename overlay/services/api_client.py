@@ -31,10 +31,13 @@ def run_async(
         try:
             result = work()
         except BaseException as exc:  # noqa: BLE001 — forward to UI callback
+            # Bind now: Python clears ``except as`` targets leaving the block
+            # (3.11+), so a late GLib.idle_add closure must not close over ``exc``.
+            err: BaseException = exc
             if on_error is not None:
 
-                def _err() -> bool:
-                    on_error(exc)
+                def _err(e: BaseException = err) -> bool:
+                    on_error(e)
                     return False
 
                 try:
@@ -46,9 +49,10 @@ def run_async(
             return
         if on_done is None:
             return
+        done_result = result
 
-        def _ok() -> bool:
-            on_done(result)
+        def _ok(payload: T = done_result) -> bool:
+            on_done(payload)
             return False
 
         try:
