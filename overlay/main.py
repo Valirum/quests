@@ -62,6 +62,7 @@ from .services import (
     start_server,
     stop_server,
 )
+from .services.api_client import run_async
 from .stylepacks import apply_style_pack, build_css, build_passthrough_css, list_packs
 
 APP_ID = "dev.quests.overlay"
@@ -182,6 +183,11 @@ def on_activate(app: Gtk.Application) -> None:
         "settings_open": False,
         "pending_refresh": False,
         "sync_ticks": 0,
+        # Last successful API snapshot — rebuild interactive/collapse without RTT.
+        "cache_items": [],
+        "cache_categories": [],
+        "refresh_gen": 0,
+        "poll_inflight": False,
     }
 
     def persist() -> None:
@@ -297,154 +303,192 @@ def on_activate(app: Gtk.Application) -> None:
         GLib.timeout_add(120, pass_once)
         GLib.timeout_add(300, pass_once)
 
-    def refresh_hud(*, force: bool = False) -> None:
+    def refresh_hud(*, force: bool = False, refetch: bool = True) -> None:
+        """Rebuild HUD. Network stays off the GTK thread (remote API is slow).
+
+        ``refetch=False`` paints from ``cache_*`` immediately (toggle / collapse).
+        ``refetch=True`` kicks a background fetch and applies when ready.
+        """
         if state.get("dragging") and not force:
             return
-        categories_raw: list[dict] = []
-        try:
+
+        def apply_from_raw(items: list[dict], categories_raw: list[dict], *, force_build: bool) -> None:
+            state["cache_items"] = list(items)
+            state["cache_categories"] = list(categories_raw)
+            try:
+                cat_slug, cat_label, cat_opts = resolve_hud_category(
+                    categories_raw, str(state.get("hud_category") or "")
+                )
+                prev_cat = str(state.get("hud_category") or "")
+                if cat_slug != prev_cat:
+                    state["hud_category"] = cat_slug
+                    if cat_slug:
+                        persist()
+                favorites, urgent, category = split_hud_quests(
+                    items, category_slug=cat_slug or None
+                )
+            except (ValueError, TypeError, KeyError):
+                favorites, urgent, category = [], [], []
+                cat_slug, cat_label, cat_opts = resolve_hud_category(
+                    [], str(state.get("hud_category") or "")
+                )
+
+            def _fp(block):
+                # Timers tick in place — exclude live countdown text from rebuild key.
+                return tuple(
+                    (
+                        q.quest_id,
+                        q.title,
+                        q.deadline_at,
+                        q.duration_seconds,
+                        q.overdue,
+                        tuple((s.title, s.progress) for s in q.steps),
+                    )
+                    for q in block
+                )
+
+            fingerprint = (
+                _fp(favorites),
+                _fp(urgent),
+                _fp(category),
+                cat_slug,
+                state["interactive"],
+                state["collapsed"],
+                state["settings_open"],
+                state["monitor_index"],
+                state["style_pack"],
+                state["passthrough_bg_mode"],
+                bool(state["toasts_major"]),
+                str(state["toasts_minor_mode"]),
+                str(state["minor_bg_mode"]),
+                str(state["minor_log_line_mode"]),
+            )
+            if not force_build and fingerprint == state["fingerprint"]:
+                return
+            state["fingerprint"] = fingerprint
+            state["pending_refresh"] = False
+
+            def open_quest(quest_id: int) -> None:
+                try:
+                    focus_quest(quest_id)
+                except Exception:
+                    pass
+
+            def on_hud_moved() -> None:
+                remember_margins()
+
+            def prepare_drag(handle: Gtk.Widget) -> None:
+                attach_drag_handle(
+                    handle,
+                    window=hud,
+                    display=display,
+                    state=state,
+                    on_moved=on_hud_moved,
+                )
+
+            mons = list_monitors(display)
+            total = len(mons)
+            idx = state["monitor_index"] % total if total else 0
+            mon_opts = [
+                (i, monitor_label(m, i, total)) for i, m in enumerate(mons)
+            ]
+            packs = [(p["id"], p["label"]) for p in list_packs()]
+
+            child, _hotspot, timers = build_hud(
+                favorites,
+                urgent,
+                category,
+                interactive=state["interactive"],
+                collapsed=state["collapsed"],
+                settings_open=bool(state["settings_open"]),
+                monitors=mon_opts,
+                monitor_index=idx,
+                style_pack_id=str(state["style_pack"]),
+                style_packs=packs,
+                categories=cat_opts,
+                category_slug=cat_slug,
+                category_label=cat_label,
+                passthrough_bg_mode=str(state["passthrough_bg_mode"]),
+                passthrough_bg_alpha=float(state["passthrough_bg_alpha"]),
+                hud_text_alpha=float(state["hud_text_alpha"]),
+                toasts_major=bool(state["toasts_major"]),
+                toasts_minor_mode=str(state["toasts_minor_mode"]),
+                minor_bg_mode=str(state["minor_bg_mode"]),
+                minor_bg_alpha=float(state["minor_bg_alpha"]),
+                minor_text_alpha=float(state["minor_text_alpha"]),
+                minor_log_width=int(state["minor_log_width"]),
+                minor_log_height=int(state["minor_log_height"]),
+                minor_log_line_mode=str(state["minor_log_line_mode"]),
+                on_select_monitor=select_monitor if state["interactive"] else None,
+                on_select_style=set_style_pack if state["interactive"] else None,
+                on_select_category=set_hud_category if state["interactive"] else None,
+                on_hud_look=set_hud_look if state["interactive"] else None,
+                on_major_toasts=set_major_toasts if state["interactive"] else None,
+                on_minor_toasts=set_minor_toasts if state["interactive"] else None,
+                on_toggle_collapsed=toggle_collapsed,
+                on_toggle_settings=toggle_settings if state["interactive"] else None,
+                on_prepare_drag_handle=prepare_drag if state["interactive"] else None,
+                on_open_quest=open_quest,
+            )
+            state["timer_bindings"] = timers
+
+            if state["interactive"]:
+                hud.add_css_class("hud-window--interactive")
+                hud.remove_css_class("hud-window--passthrough")
+            else:
+                hud.remove_css_class("hud-window--interactive")
+                hud.add_css_class("hud-window--passthrough")
+            if state["collapsed"]:
+                hud.add_css_class("hud-window--collapsed")
+                hud.set_opacity(0.1)
+            else:
+                hud.remove_css_class("hud-window--collapsed")
+                hud.set_opacity(1.0)
+            hud.set_child(child)
+            apply_stored_margins()
+            schedule_input_sync()
+
+        # Instant paint from cache (interactive toggle must not wait on tailnet).
+        if not refetch or state["cache_items"] or state["cache_categories"]:
+            apply_from_raw(
+                list(state.get("cache_items") or []),
+                list(state.get("cache_categories") or []),
+                force_build=force,
+            )
+            if not refetch:
+                return
+
+        state["refresh_gen"] = int(state.get("refresh_gen") or 0) + 1
+        gen = int(state["refresh_gen"])
+
+        def work() -> tuple[list[dict], list[dict]]:
             items = fetch_quests()
             try:
                 categories_raw = fetch_categories()
-            except (urllib.error.URLError, TimeoutError, ValueError, TypeError, KeyError):
+            except (urllib.error.URLError, TimeoutError, ValueError, TypeError, KeyError, OSError):
                 categories_raw = []
-            cat_slug, cat_label, cat_opts = resolve_hud_category(
-                categories_raw, str(state.get("hud_category") or "")
-            )
-            prev_cat = str(state.get("hud_category") or "")
-            if cat_slug != prev_cat:
-                state["hud_category"] = cat_slug
-                if cat_slug:
-                    persist()
-            favorites, urgent, category = split_hud_quests(
-                items, category_slug=cat_slug or None
-            )
-        except (urllib.error.URLError, TimeoutError, ValueError, TypeError, KeyError):
-            favorites, urgent, category = [], [], []
-            cat_slug, cat_label, cat_opts = resolve_hud_category(
-                [], str(state.get("hud_category") or "")
-            )
+            return list(items), list(categories_raw)
 
-        def _fp(block):
-            # Timers tick in place — exclude live countdown text from rebuild key.
-            return tuple(
-                (
-                    q.quest_id,
-                    q.title,
-                    q.deadline_at,
-                    q.duration_seconds,
-                    q.overdue,
-                    tuple((s.title, s.progress) for s in q.steps),
-                )
-                for q in block
-            )
+        def on_done(payload: tuple[list[dict], list[dict]]) -> None:
+            if gen != int(state.get("refresh_gen") or 0):
+                return
+            items, categories_raw = payload
+            apply_from_raw(items, categories_raw, force_build=force)
 
-        fingerprint = (
-            _fp(favorites),
-            _fp(urgent),
-            _fp(category),
-            cat_slug,
-            state["interactive"],
-            state["collapsed"],
-            state["settings_open"],
-            state["monitor_index"],
-            state["style_pack"],
-            state["passthrough_bg_mode"],
-            bool(state["toasts_major"]),
-            str(state["toasts_minor_mode"]),
-            str(state["minor_bg_mode"]),
-            str(state["minor_log_line_mode"]),
-        )
-        if not force and fingerprint == state["fingerprint"]:
-            return
-        state["fingerprint"] = fingerprint
-        state["pending_refresh"] = False
+        def on_error(_exc: BaseException) -> None:
+            if gen != int(state.get("refresh_gen") or 0):
+                return
+            # Keep last cache on screen; only clear if we never loaded.
+            if not state.get("cache_items") and not state.get("fingerprint"):
+                apply_from_raw([], [], force_build=True)
 
-        def open_quest(quest_id: int) -> None:
-            try:
-                focus_quest(quest_id)
-            except Exception:
-                pass
-
-        def on_hud_moved() -> None:
-            remember_margins()
-
-        def prepare_drag(handle: Gtk.Widget) -> None:
-            attach_drag_handle(
-                handle,
-                window=hud,
-                display=display,
-                state=state,
-                on_moved=on_hud_moved,
-            )
-
-        mons = list_monitors(display)
-        total = len(mons)
-        idx = state["monitor_index"] % total if total else 0
-        mon_opts = [
-            (i, monitor_label(m, i, total)) for i, m in enumerate(mons)
-        ]
-        packs = [(p["id"], p["label"]) for p in list_packs()]
-
-        child, _hotspot, timers = build_hud(
-            favorites,
-            urgent,
-            category,
-            interactive=state["interactive"],
-            collapsed=state["collapsed"],
-            settings_open=bool(state["settings_open"]),
-            monitors=mon_opts,
-            monitor_index=idx,
-            style_pack_id=str(state["style_pack"]),
-            style_packs=packs,
-            categories=cat_opts,
-            category_slug=cat_slug,
-            category_label=cat_label,
-            passthrough_bg_mode=str(state["passthrough_bg_mode"]),
-            passthrough_bg_alpha=float(state["passthrough_bg_alpha"]),
-            hud_text_alpha=float(state["hud_text_alpha"]),
-            toasts_major=bool(state["toasts_major"]),
-            toasts_minor_mode=str(state["toasts_minor_mode"]),
-            minor_bg_mode=str(state["minor_bg_mode"]),
-            minor_bg_alpha=float(state["minor_bg_alpha"]),
-            minor_text_alpha=float(state["minor_text_alpha"]),
-            minor_log_width=int(state["minor_log_width"]),
-            minor_log_height=int(state["minor_log_height"]),
-            minor_log_line_mode=str(state["minor_log_line_mode"]),
-            on_select_monitor=select_monitor if state["interactive"] else None,
-            on_select_style=set_style_pack if state["interactive"] else None,
-            on_select_category=set_hud_category if state["interactive"] else None,
-            on_hud_look=set_hud_look if state["interactive"] else None,
-            on_major_toasts=set_major_toasts if state["interactive"] else None,
-            on_minor_toasts=set_minor_toasts if state["interactive"] else None,
-            on_toggle_collapsed=toggle_collapsed,
-            on_toggle_settings=toggle_settings if state["interactive"] else None,
-            on_prepare_drag_handle=prepare_drag if state["interactive"] else None,
-            on_open_quest=open_quest,
-        )
-        state["timer_bindings"] = timers
-
-        if state["interactive"]:
-            hud.add_css_class("hud-window--interactive")
-            hud.remove_css_class("hud-window--passthrough")
-        else:
-            hud.remove_css_class("hud-window--interactive")
-            hud.add_css_class("hud-window--passthrough")
-        if state["collapsed"]:
-            hud.add_css_class("hud-window--collapsed")
-            hud.set_opacity(0.1)
-        else:
-            hud.remove_css_class("hud-window--collapsed")
-            hud.set_opacity(1.0)
-        hud.set_child(child)
-        apply_stored_margins()
-        schedule_input_sync()
-
+        run_async(work, on_done=on_done, on_error=on_error, name="hud-refresh")
     def set_collapsed(collapsed: bool) -> str:
         state["collapsed"] = bool(collapsed)
         if state["collapsed"]:
             state["interactive"] = False
             state["settings_open"] = False
-        refresh_hud(force=True)
+        refresh_hud(force=True, refetch=False)
         return "collapsed" if state["collapsed"] else "expanded"
 
     def toggle_collapsed() -> str:
@@ -454,7 +498,7 @@ def on_activate(app: Gtk.Application) -> None:
 
     def toggle_settings() -> str:
         state["settings_open"] = not bool(state.get("settings_open"))
-        refresh_hud(force=True)
+        refresh_hud(force=True, refetch=False)
         return "settings" if state["settings_open"] else "quests"
 
     def hud_output_name() -> str:
@@ -486,7 +530,8 @@ def on_activate(app: Gtk.Application) -> None:
             state["collapsed"] = False
         else:
             state["settings_open"] = False
-        refresh_hud(force=True)
+        # Paint chrome immediately — never block keys on remote /api/quests (~1s).
+        refresh_hud(force=True, refetch=False)
         if state["interactive"]:
             # Ensure layer-shell keyboard grab can land on this surface.
             hud.present()
@@ -506,7 +551,7 @@ def on_activate(app: Gtk.Application) -> None:
         result = sync_monitor()
         apply_stored_margins()
         persist()
-        refresh_hud(force=True)
+        refresh_hud(force=True, refetch=False)
         if state["interactive"]:
             focus_hud_output()
         return result
@@ -520,7 +565,7 @@ def on_activate(app: Gtk.Application) -> None:
         result = sync_monitor()
         apply_stored_margins()
         persist()
-        refresh_hud(force=True)
+        refresh_hud(force=True, refetch=False)
         if state["interactive"]:
             focus_hud_output()
         return result
@@ -530,7 +575,7 @@ def on_activate(app: Gtk.Application) -> None:
         state["style_pack"] = pack
         reload_css()
         persist()
-        refresh_hud(force=True)
+        refresh_hud(force=True, refetch=False)
         return f"style: {pack}"
 
     def set_hud_look(mode: str, alpha: float, text_alpha: float) -> None:
@@ -551,13 +596,13 @@ def on_activate(app: Gtk.Application) -> None:
         persist()
         # Rebuild so mode chips update; skip on alpha-only (scale must stay mounted).
         if mode_key != prev_mode:
-            refresh_hud(force=True)
+            refresh_hud(force=True, refetch=False)
 
     def set_major_toasts(major: bool) -> None:
         state["toasts_major"] = bool(major)
         notices.set_enabled(major=state["toasts_major"])
         persist()
-        refresh_hud(force=True)
+        refresh_hud(force=True, refetch=False)
 
     def set_minor_toasts(cfg: dict) -> None:
         mode_key = str(cfg.get("mode") or "").strip().lower()
@@ -609,19 +654,30 @@ def on_activate(app: Gtk.Application) -> None:
         )
         persist()
         if mode_key != prev_mode or bg_key != prev_bg:
-            refresh_hud(force=True)
+            refresh_hud(force=True, refetch=False)
 
     def set_hud_category(slug: str) -> str:
         state["hud_category"] = str(slug or "").strip()
         persist()
-        refresh_hud(force=True)
+        refresh_hud(force=True, refetch=False)
         return f"category: {state['hud_category'] or '—'}"
 
     def cycle_category(*, delta: int) -> str:
-        try:
-            cats = fetch_categories()
-        except (urllib.error.URLError, TimeoutError, ValueError, TypeError, KeyError):
-            cats = []
+        cats = list(state.get("cache_categories") or [])
+        if not cats:
+            # Rare cold path — fetch once, then cycle.
+            def work() -> list[dict]:
+                return list(fetch_categories())
+
+            def on_done(cats_raw: list[dict]) -> None:
+                state["cache_categories"] = cats_raw
+                nxt = cycle_hud_category(
+                    cats_raw, str(state.get("hud_category") or ""), delta=delta
+                )
+                set_hud_category(nxt)
+
+            run_async(work, on_done=on_done, name="hud-categories")
+            return "category: …"
         nxt = cycle_hud_category(cats, str(state.get("hud_category") or ""), delta=delta)
         return set_hud_category(nxt)
 
@@ -739,21 +795,34 @@ def on_activate(app: Gtk.Application) -> None:
         return True
 
     def poll_events() -> bool:
-        try:
-            revision, events = fetch_events(state["revision"])
-            post_heartbeat()
-        except (urllib.error.URLError, TimeoutError, ValueError, TypeError, KeyError):
+        if state.get("poll_inflight"):
             return True
+        state["poll_inflight"] = True
+        since = int(state.get("revision") or 0)
 
-        if revision != state["revision"]:
-            new_events = [e for e in events if int(e.get("revision", 0)) > state["revision"]]
-            state["revision"] = revision
-            if new_events:
-                handle_events(new_events)
-            else:
-                refresh_hud(force=True)
+        def work() -> tuple[int, list[dict]]:
+            revision, events = fetch_events(since)
+            post_heartbeat()
+            return int(revision), list(events)
+
+        def on_done(payload: tuple[int, list[dict]]) -> None:
+            state["poll_inflight"] = False
+            revision, events = payload
+            if revision != state["revision"]:
+                new_events = [
+                    e for e in events if int(e.get("revision", 0)) > state["revision"]
+                ]
+                state["revision"] = revision
+                if new_events:
+                    handle_events(new_events)
+                else:
+                    refresh_hud(force=True)
+
+        def on_error(_exc: BaseException) -> None:
+            state["poll_inflight"] = False
+
+        run_async(work, on_done=on_done, on_error=on_error, name="hud-poll")
         return True
-
     def on_realize(_w) -> None:
         sync_monitor()
         surface = hud.get_surface()
@@ -785,11 +854,15 @@ def on_activate(app: Gtk.Application) -> None:
     get_idle_monitor().start()
     refresh_hud(force=True)
     notices.refresh_log()
-    try:
-        revision, _ = fetch_events(0)
-        state["revision"] = revision
-    except (urllib.error.URLError, TimeoutError, ValueError, TypeError, KeyError):
-        pass
+
+    def _boot_events() -> tuple[int, list]:
+        return fetch_events(0)
+
+    def _boot_events_done(payload: tuple[int, list]) -> None:
+        revision, _ = payload
+        state["revision"] = int(revision)
+
+    run_async(_boot_events, on_done=_boot_events_done, name="hud-boot-events")
 
     ipc_sock = start_server(ipc_handler)
 

@@ -184,20 +184,23 @@ journalctl --user -u quests-telegram.service -f
 
 ## 5. Рабочая станция (HUD)
 
-На машине с niri / Wayland (не Docker):
+Оверлей — на ПК с Wayland/niri, не на сервере. Логин/пароль SPA **не**
+подходят: нужен bearer `QUESTS_API_TOKEN` (на Docker-сервере:
+`docker exec quests-api quests-server token add overlay-pc`).
+
+Полный чеклист (env, systemd, niri, отладка): **[`../docs/hud-workstation.md`](../docs/hud-workstation.md)**.
+
+Кратко:
 
 ```bash
-export QUESTS_API=http://SERVER_IP:8765
-export QUESTS_WEB_URL=http://SERVER_IP:8765
-
-./scripts/run-overlay-smoke.sh
-# или systemd:
-# systemctl --user enable --now quests-overlay.service
+# на ПК после токена в ~/.config/quests/overlay.env:
+ln -sfn "$PWD" ~/Quests   # если клон не в ~/Quests
+# unit + EnvironmentFile — см. docs/hud-workstation.md
+systemctl --user import-environment WAYLAND_DISPLAY XDG_RUNTIME_DIR DISPLAY NIRI_SOCKET
+systemctl --user enable --now quests-overlay.service
 ```
 
-Либо `api_base` в `data/overlay.json` (env `QUESTS_API` важнее файла).
-
-Перезапуск оверлея → чип **HUD** в веб-форме станет зелёным.
+Чип **HUD** в SPA / `GET /api/health` → `components.overlay.status=ok`.
 
 ---
 
