@@ -1,5 +1,5 @@
 <script>
-  import { untrack } from 'svelte'
+  import { untrack, tick } from 'svelte'
   import {
     createNote,
     deleteNote,
@@ -8,6 +8,14 @@
   } from '../js/api.js'
   import { clearNoteDraft, getNoteDraft, noteDrafts, putNoteDraft } from '../js/noteDrafts.svelte.js'
   import { copyText } from '../js/clipboard.js'
+  import {
+    caretOffsetFromPoint,
+    mapRenderedOffsetToSource,
+    mapSourceOffsetToRendered,
+    placeTextareaCaret,
+    scrollRootToTextOffset,
+  } from '../js/mdCaretMap.js'
+  import { downloadNoteMarkdown, downloadNotePdf } from '../js/noteExport.js'
   import Icon from '../ui/Icon.svelte'
   import MarkdownBody from '../ui/MarkdownBody.svelte'
   import MentionTextarea from '../ui/MentionTextarea.svelte'
@@ -60,6 +68,13 @@
   let ctxX = $state(0)
   let ctxY = $state(0)
   let ctxNoteId = $state(/** @type {number | null} */ (null))
+  let parentMenuOpen = $state(false)
+  let parentMenuX = $state(0)
+  let parentMenuY = $state(0)
+  let exportMenuOpen = $state(false)
+  let exportMenuX = $state(0)
+  let exportMenuY = $state(0)
+  let exportBusy = $state(false)
   let iconModalOpen = $state(false)
   let iconModalNoteId = $state(/** @type {number | null} */ (null))
 
@@ -299,10 +314,78 @@
   }
 
   function onKey(event) {
-    if ((event.ctrlKey || event.metaKey) && event.key === 's') {
-      event.preventDefault()
-      if (dirty) save()
+    if (!(event.ctrlKey || event.metaKey)) return
+    // code=KeyS — раскладконезависимо (ru: Ctrl+ы); key оставляем как запасной.
+    const isSave =
+      event.code === 'KeyS' || event.key.toLowerCase() === 's' || event.key === 'ы' || event.key === 'Ы'
+    if (!isSave) return
+    // Перехват браузерного «Сохранить страницу» — keydown + preventDefault.
+    event.preventDefault()
+    event.stopPropagation()
+    if (dirty && selectedId != null) save()
+  }
+
+  $effect(() => {
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  })
+
+  let editEl = $state(/** @type {HTMLTextAreaElement | null} */ (null))
+  let titleEl = $state(/** @type {HTMLInputElement | null} */ (null))
+  let previewEl = $state(/** @type {HTMLDivElement | null} */ (null))
+  let titleEditing = $state(false)
+
+  let titleReadonly = $derived(viewMode === 'formatted' && !titleEditing)
+
+  $effect(() => {
+    if (viewMode !== 'formatted') titleEditing = false
+  })
+
+  function previewMdRoot() {
+    return previewEl?.querySelector?.('.md') ?? previewEl
+  }
+
+  /** @param {MouseEvent} [event] */
+  async function startBodyEdit(event) {
+    if (viewMode !== 'formatted') return
+    event?.preventDefault?.()
+    let offset = description.length
+    const mdRoot = previewMdRoot()
+    if (event && mdRoot) {
+      const rendered = mdRoot.textContent ?? ''
+      const renOff = caretOffsetFromPoint(mdRoot, event.clientX, event.clientY)
+      offset = mapRenderedOffsetToSource(description, rendered, renOff)
     }
+    setViewMode('raw')
+    await tick()
+    if (editEl) placeTextareaCaret(editEl, offset)
+  }
+
+  async function startTitleEdit() {
+    if (!titleReadonly) return
+    titleEditing = true
+    await tick()
+    titleEl?.focus()
+    titleEl?.select()
+  }
+
+  /** Esc в сыром/оба при фокусе в textarea → режим просмотра около каретки. */
+  async function onEditKeydown(event) {
+    if (event.key !== 'Escape') return
+    if (viewMode === 'formatted') return
+    event.preventDefault()
+    const caret = editEl?.selectionStart ?? 0
+    const src = description
+    setViewMode('formatted')
+    await tick()
+    await tick()
+    requestAnimationFrame(() => {
+      const mdRoot = previewMdRoot()
+      if (!mdRoot) return
+      const rendered = mdRoot.textContent ?? ''
+      const renOff = mapSourceOffsetToRendered(src, rendered, caret)
+      scrollRootToTextOffset(mdRoot, renOff)
+    })
   }
 
   function childrenOf(id) {
@@ -334,6 +417,104 @@
   function noteById(id) {
     return notes.find((n) => n.id === id) ?? null
   }
+
+  /** candidate is under ancestor (cannot become its parent). */
+  function isUnder(candidateId, ancestorId) {
+    if (candidateId == null || ancestorId == null) return false
+    let cur = noteById(candidateId)
+    const seen = new Set()
+    while (cur?.parent_id != null && !seen.has(cur.id)) {
+      seen.add(cur.id)
+      if (cur.parent_id === ancestorId) return true
+      cur = noteById(cur.parent_id)
+    }
+    return false
+  }
+
+  let crumbs = $derived.by(() => {
+    /** @type {{ id: number | null, title: string }[]} */
+    const out = [{ id: null, title: 'Корень' }]
+    const pid = parentId === '' ? null : Number(parentId)
+    if (pid == null || Number.isNaN(pid)) return out
+    /** @type {{ id: number, title: string }[]} */
+    const chain = []
+    let cur = noteById(pid)
+    const seen = new Set()
+    while (cur && !seen.has(cur.id)) {
+      seen.add(cur.id)
+      chain.unshift({ id: cur.id, title: cur.title || `note=${cur.id}` })
+      cur = cur.parent_id != null ? noteById(cur.parent_id) : null
+    }
+    return out.concat(chain)
+  })
+
+  let parentMenuItems = $derived.by(() => {
+    /** @type {{ id: string, label: string }[]} */
+    const items = [{ id: 'root', label: '— корень —' }]
+    if (selectedId == null) return items
+    for (const n of notes) {
+      if (n.id === selectedId) continue
+      if (isUnder(n.id, selectedId)) continue
+      items.push({ id: String(n.id), label: n.title || `note=${n.id}` })
+    }
+    return items
+  })
+
+  /** @param {MouseEvent} event */
+  function openParentPicker(event) {
+    event.preventDefault()
+    event.stopPropagation()
+    const el = /** @type {HTMLElement} */ (event.currentTarget)
+    const rect = el.getBoundingClientRect()
+    parentMenuX = rect.left
+    parentMenuY = rect.bottom + 4
+    parentMenuOpen = true
+  }
+
+  function setParentFromMenu(action) {
+    if (action === 'root') parentId = ''
+    else parentId = action
+  }
+
+  /** @param {number | null} id */
+  function setParentCrumb(id) {
+    parentId = id == null ? '' : String(id)
+  }
+
+  /** @param {MouseEvent} event */
+  function openExportMenu(event) {
+    event.preventDefault()
+    event.stopPropagation()
+    const el = /** @type {HTMLElement} */ (event.currentTarget)
+    const rect = el.getBoundingClientRect()
+    exportMenuX = rect.left
+    exportMenuY = rect.bottom + 4
+    exportMenuOpen = true
+  }
+
+  async function onExportSelect(action) {
+    if (selectedId == null || exportBusy) return
+    const payload = {
+      id: selectedId,
+      title: title.trim() || detail?.title || `note=${selectedId}`,
+      description,
+    }
+    exportBusy = true
+    error = ''
+    try {
+      if (action === 'md') downloadNoteMarkdown(payload)
+      else if (action === 'pdf') await downloadNotePdf(payload, { labels })
+    } catch (e) {
+      error = e?.message || String(e)
+    } finally {
+      exportBusy = false
+    }
+  }
+
+  let exportMenuItems = $derived([
+    { id: 'md', label: 'Markdown (.md)' },
+    { id: 'pdf', label: exportBusy ? 'PDF…' : 'PDF' },
+  ])
 
   let ctxNote = $derived(ctxNoteId == null ? null : noteById(ctxNoteId))
 
@@ -445,7 +626,7 @@
   )
 </script>
 
-<div class="notes" onkeydown={onKey}>
+<div class="notes">
   <aside class="notes__tree">
     <div class="notes__tools">
       <input class="search" type="search" placeholder="Поиск…" bind:value={search} />
@@ -529,72 +710,112 @@
           if (n) openNoteMenu(e, n)
         }}
       >
-        <div class="notes__title-wrap">
+        <div class="notes__head-row">
           <div class="notes__title-cluster">
             <span class="notes__title-grow">
               <span class="notes__title-sizer" aria-hidden="true">{title || '\u00a0'}</span>
-              <input class="notes__title" size="1" bind:value={title} />
+              <input
+                class="notes__title"
+                class:notes__title--locked={titleReadonly}
+                size="1"
+                bind:this={titleEl}
+                bind:value={title}
+                readonly={titleReadonly}
+                title={titleReadonly ? 'Двойной клик — править заголовок' : undefined}
+                ondblclick={startTitleEdit}
+              />
             </span>
             {#if dirty}<span class="notes__unsaved" title="Несохранено">*</span>{/if}
           </div>
-        </div>
-        {#if dirty}
-          <button type="button" class="btn btn--ghost" onclick={revert}>Отменить</button>
-        {/if}
-        <button type="button" class="btn btn--accent" disabled={saving || !dirty} onclick={save}>
-          <Icon name="save" />
-          {saving ? '…' : 'Сохранить'}
-        </button>
-        <button
-          type="button"
-          class="btn btn--icon btn--danger"
-          onclick={() => requestDelete(selectedId)}
-          title="Удалить"
-        >
-          <Icon name="delete" />
-        </button>
-      </header>
-      <div class="notes__meta">
-        <label class="notes__check">
-          <input type="checkbox" bind:checked={pinned} />
-          Закрепить
-        </label>
-        <label class="notes__parent">
-          Родитель
-          <select bind:value={parentId}>
-            <option value="">— корень —</option>
-            {#each notes as n (n.id)}
-              {#if n.id !== selectedId}
-                <option value={String(n.id)}>{n.title}</option>
-              {/if}
-            {/each}
-          </select>
-        </label>
-        {#if selectedId}
-          <button type="button" class="btn btn--ghost" onclick={() => addNote(selectedId)}>
-            Дочерняя
-          </button>
-        {/if}
-        <div
-          class="notes__view opt-slider"
-          role="radiogroup"
-          aria-label="Режим просмотра"
-        >
-          {#each VIEW_MODES as mode (mode.id)}
+          <div class="detail__actions notes__actions">
             <button
               type="button"
-              class="opt-slider__opt"
-              class:opt-slider__opt--on={viewMode === mode.id}
-              role="radio"
-              aria-checked={viewMode === mode.id}
-              title={mode.id}
-              onclick={() => setViewMode(mode.id)}
+              class="btn btn--icon"
+              class:notes__pin--on={pinned}
+              onclick={() => (pinned = !pinned)}
+              title={pinned ? 'Открепить' : 'Закрепить'}
+              aria-label={pinned ? 'Открепить' : 'Закрепить'}
+              aria-pressed={pinned}
             >
-              {mode.label}
+              <Icon name={pinned ? 'pin-filled' : 'pin'} />
             </button>
-          {/each}
+            {#if dirty}
+              <button
+                type="button"
+                class="btn btn--icon"
+                onclick={revert}
+                title="Отменить правки"
+                aria-label="Отменить правки"
+              >
+                <Icon name="renew" />
+              </button>
+            {/if}
+            <button
+              type="button"
+              class="btn btn--icon"
+              disabled={saving || !dirty}
+              onclick={save}
+              title={saving ? 'Сохранение…' : 'Сохранить (Ctrl+S)'}
+              aria-label={saving ? 'Сохранение…' : 'Сохранить'}
+            >
+              {#if saving}…{:else}<Icon name="save" />{/if}
+            </button>
+            <button
+              type="button"
+              class="btn btn--icon"
+              disabled={exportBusy}
+              onclick={openExportMenu}
+              title={exportBusy ? 'Выгрузка…' : 'Скачать'}
+              aria-label={exportBusy ? 'Выгрузка…' : 'Скачать заметку'}
+              aria-haspopup="menu"
+            >
+              {#if exportBusy}…{:else}<Icon name="document" />{/if}
+            </button>
+            <button
+              type="button"
+              class="btn btn--icon btn--danger"
+              onclick={() => requestDelete(selectedId)}
+              title="Удалить"
+              aria-label="Удалить"
+            >
+              <Icon name="delete" />
+            </button>
+          </div>
         </div>
-      </div>
+        <div class="notes__colophon">
+          <nav class="notes__crumbs" aria-label="Родитель">
+            {#each crumbs as c, i (c.id ?? 'root')}
+              {#if i > 0}<span class="notes__crumb-sep" aria-hidden="true">/</span>{/if}
+              <button
+                type="button"
+                class="notes__crumb"
+                class:notes__crumb--here={i === crumbs.length - 1}
+                onclick={(e) => {
+                  if (i === crumbs.length - 1) openParentPicker(e)
+                  else setParentCrumb(c.id)
+                }}
+                title={i === crumbs.length - 1 ? 'Сменить родителя' : `Вложить в «${c.title}»`}
+              >
+                {c.title}
+              </button>
+            {/each}
+          </nav>
+          <div class="notes__modes" role="radiogroup" aria-label="Режим просмотра">
+            {#each VIEW_MODES as mode (mode.id)}
+              <button
+                type="button"
+                class="notes__mode"
+                class:notes__mode--on={viewMode === mode.id}
+                role="radio"
+                aria-checked={viewMode === mode.id}
+                onclick={() => setViewMode(mode.id)}
+              >
+                {mode.label}
+              </button>
+            {/each}
+          </div>
+        </div>
+      </header>
       <div
         class="notes__split"
         class:notes__split--raw={viewMode === 'raw'}
@@ -606,23 +827,31 @@
             class="notes__edit"
             placement="inside"
             bind:value={description}
+            bind:el={editEl}
             {quests}
             {questlines}
             {notes}
             {attachments}
             rows={16}
             placeholder="Markdown. @название — ссылка. Код и конфиг — в блоках ``` … ```"
+            onkeydown={onEditKeydown}
           />
         {/if}
         {#if viewMode !== 'raw'}
-          <div class="notes__preview">
+          <div
+            class="notes__preview block--prose"
+            class:notes__preview--doc={viewMode === 'formatted'}
+            bind:this={previewEl}
+            title={viewMode === 'formatted' ? 'Двойной клик — править' : undefined}
+            ondblclick={startBodyEdit}
+          >
             <MarkdownBody source={description} {labels} {onRef} />
           </div>
         {/if}
       </div>
       {#if detail?.refs?.length}
-        <div class="notes__links">
-          <h3>Ссылки</h3>
+        <div class="block notes__links">
+          <h3 class="block__label">Ссылки</h3>
           <ul>
             {#each detail.refs as ref (`${ref.kind}-${ref.id}`)}
               <li>
@@ -636,8 +865,8 @@
         </div>
       {/if}
       {#if detail?.backlinks?.length}
-        <div class="notes__links">
-          <h3>Ссылаются</h3>
+        <div class="block notes__links">
+          <h3 class="block__label">Ссылаются</h3>
           <ul>
             {#each detail.backlinks as ref (`b-${ref.kind}-${ref.id}`)}
               <li>
@@ -651,8 +880,8 @@
         </div>
       {/if}
       {#if selectedId}
-        <div class="notes__attach">
-          <h3>Вложения этой страницы</h3>
+        <div class="block notes__attach">
+          <h3 class="block__label">Вложения</h3>
           <AttachmentsBlock ownerType="note" ownerId={selectedId} />
         </div>
       {/if}
@@ -667,6 +896,24 @@
   items={ctxItems}
   onSelect={onCtxSelect}
   onClose={closeNoteMenu}
+/>
+
+<ContextMenu
+  open={parentMenuOpen}
+  x={parentMenuX}
+  y={parentMenuY}
+  items={parentMenuItems}
+  onSelect={setParentFromMenu}
+  onClose={() => (parentMenuOpen = false)}
+/>
+
+<ContextMenu
+  open={exportMenuOpen}
+  x={exportMenuX}
+  y={exportMenuY}
+  items={exportMenuItems}
+  onSelect={onExportSelect}
+  onClose={() => (exportMenuOpen = false)}
 />
 
 <NoteIconModal
@@ -715,7 +962,7 @@
   .notes__tools {
     display: flex;
     gap: 0.4rem;
-    padding: 0.6rem;
+    padding: 0.55rem 0.6rem;
     border-bottom: 1px solid var(--color-border, #333);
   }
 
@@ -735,7 +982,7 @@
   .notes__list {
     flex: 1 1 auto;
     overflow: auto;
-    padding: 0.35rem 0;
+    padding: 0.25rem 0;
   }
 
   .notes__node {
@@ -778,7 +1025,7 @@
     background: transparent;
     color: inherit;
     text-align: left;
-    padding: 0.32rem 0.45rem 0.32rem 0.35rem;
+    padding: 0.28rem 0.45rem 0.28rem 0.35rem;
     cursor: pointer;
     font-family: var(--font-body, Georgia, serif);
     font-size: var(--text-sm, 0.875rem);
@@ -846,10 +1093,10 @@
   .notes__page {
     min-height: 0;
     overflow: auto;
-    padding: 1rem 1.25rem 2rem;
+    padding: var(--space-5, 1.5rem) var(--space-6, 2rem) 2rem;
     display: flex;
     flex-direction: column;
-    gap: 0.75rem;
+    gap: var(--space-4, 1rem);
   }
 
   .notes__empty,
@@ -864,25 +1111,36 @@
   }
 
   .notes__head {
-    display: flex;
-    gap: 0.5rem;
-    align-items: center;
+    margin: 0 0 var(--space-2, 0.5rem);
+    padding: 0 0 var(--space-3, 0.75rem);
+    border-bottom: 1px solid var(--color-border, #333);
   }
 
-  .notes__title-wrap {
-    flex: 1 1 auto;
-    min-width: 0;
+  .notes__head-row {
     display: flex;
-    align-items: baseline;
-    border-bottom: 1px solid var(--color-border, #333);
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3, 0.75rem);
+  }
+
+  .notes__actions {
+    flex-shrink: 0;
+  }
+
+  .notes__pin--on {
+    color: var(--color-accent, #c9a227);
   }
 
   .notes__title-cluster {
     display: inline-flex;
     align-items: baseline;
+    flex: 1 1 auto;
+    min-width: 0;
     max-width: 100%;
     font-family: var(--font-display, Georgia, serif);
-    font-size: var(--text-xl, 1.4rem);
+    font-size: clamp(1.35rem, 2.4vw, 1.85rem);
+    font-weight: 700;
+    line-height: 1.15;
   }
 
   .notes__title-grow {
@@ -895,7 +1153,7 @@
   .notes__title-sizer,
   .notes__title {
     grid-area: 1 / 1;
-    padding: 0.2rem 0;
+    padding: 0.15rem 0;
     font: inherit;
   }
 
@@ -914,67 +1172,123 @@
     box-sizing: border-box;
   }
 
+  .notes__title--locked {
+    cursor: default;
+    caret-color: transparent;
+  }
+
+  .notes__title--locked:focus {
+    outline: none;
+  }
+
   .notes__title-cluster .notes__unsaved {
     flex-shrink: 0;
-    padding: 0.2rem 0;
+    padding: 0.15rem 0;
   }
 
-  .notes__meta {
+  .notes__colophon {
     display: flex;
     flex-wrap: wrap;
-    gap: 0.75rem;
-    align-items: center;
-    font-size: var(--text-sm, 0.875rem);
-    color: var(--color-fg-muted, #9a9a9a);
-  }
-
-  .notes__parent select {
-    margin-left: 0.35rem;
-  }
-
-  .notes__view {
-    margin-left: auto;
-    flex: 0 0 auto;
-    display: flex;
-    flex-direction: row;
-    flex-wrap: nowrap;
-    gap: 2px;
-    padding: 3px;
-    border: 1px solid var(--color-border, #333);
-    border-radius: var(--radius-lg, 12px);
-    background: var(--color-bg-muted, #242424);
-  }
-
-  .notes__view .opt-slider__opt {
-    flex: 0 0 auto;
-    margin: 0;
-    padding: 0.3rem 0.65rem;
-    border: 0;
-    border-radius: calc(var(--radius-lg, 12px) - 2px);
-    background: transparent;
-    color: var(--color-fg-muted, #9a9a9a);
-    font: inherit;
-    font-size: var(--text-xs, 0.75rem);
+    align-items: baseline;
+    gap: 0.35rem 0.85rem;
+    margin: 0.45rem 0 0;
+    font-family: var(--font-ui, sans-serif);
+    font-size: 0.72rem;
     letter-spacing: 0.02em;
+    color: var(--color-fg-muted, #9a9a9a);
+  }
+
+  .notes__crumbs {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.25rem 0.35rem;
+    min-width: 0;
+  }
+
+  .notes__crumb {
+    border: 0;
+    padding: 0;
+    margin: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+    max-width: 12rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  .notes__crumb:hover {
+    color: var(--color-fg, #e8e8e8);
+  }
+
+  .notes__crumb--here {
+    color: var(--color-fg, #e8e8e8);
+    text-decoration: underline;
+    text-underline-offset: 0.2em;
+  }
+
+  .notes__crumb-sep {
+    opacity: 0.45;
+    user-select: none;
+  }
+
+  .notes__modes {
+    margin-left: auto;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.65rem;
+    align-items: baseline;
+  }
+
+  .notes__mode {
+    border: 0;
+    padding: 0;
+    margin: 0;
+    background: transparent;
+    color: var(--color-fg-subtle, #6e6e6e);
+    font: inherit;
+    letter-spacing: 0.02em;
     cursor: pointer;
   }
 
-  .notes__view .opt-slider__opt--on {
-    background: var(--color-bg-raised, #1a1a1a);
+  .notes__mode:hover {
+    color: var(--color-fg-muted, #9a9a9a);
+  }
+
+  .notes__mode--on {
     color: var(--color-fg, #e8e8e8);
-    box-shadow: var(--shadow-soft);
+    box-shadow: 0 1px 0 currentColor;
   }
 
   .notes__split {
     display: grid;
-    gap: 0.75rem;
+    gap: 0;
     min-height: 18rem;
     flex: 1 1 auto;
   }
 
   .notes__split--combined {
     grid-template-columns: 1fr 1fr;
+    gap: 0 1.1rem;
+    background: linear-gradient(
+      to right,
+      transparent calc(50% - 0.5px),
+      var(--color-border, #333) calc(50% - 0.5px),
+      var(--color-border, #333) calc(50% + 0.5px),
+      transparent calc(50% + 0.5px)
+    );
+  }
+
+  .notes__split--combined :global(textarea.notes__edit) {
+    border-right: 0;
+    padding-right: 0.25rem;
+  }
+
+  .notes__split--combined .notes__preview {
+    padding-left: 0.25rem;
   }
 
   .notes__split--raw,
@@ -987,30 +1301,32 @@
     min-height: 18rem;
     height: 100%;
     resize: vertical;
-    padding: 0.75rem;
-    border: 1px solid var(--color-border, #333);
+    padding: 0.15rem 0.1rem 0.75rem;
+    border: 0;
     border-radius: 0;
-    background: var(--color-bg, #121212);
+    background: transparent;
     color: inherit;
     font-family: var(--font-mono, ui-monospace, monospace);
     font-size: 0.85rem;
-    line-height: 1.45;
+    line-height: 1.5;
   }
 
   .notes__preview {
-    border: 1px solid var(--color-border, #333);
-    padding: 0.75rem 1rem;
+    padding: 0.15rem 0.25rem 0.75rem 0.85rem;
     overflow: auto;
     min-height: 18rem;
   }
 
-  .notes__links h3,
-  .notes__attach h3 {
-    margin: 0 0 0.35rem;
-    font-size: var(--text-xs, 0.75rem);
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-    color: var(--color-fg-subtle, #6e6e6e);
+  .notes__split--formatted .notes__preview {
+    padding-left: 0.1rem;
+  }
+
+  .notes__preview--doc {
+    cursor: text;
+  }
+
+  .notes__split--raw :global(textarea.notes__edit) {
+    padding-left: 0.1rem;
   }
 
   .notes__links ul {
@@ -1023,13 +1339,18 @@
   }
 
   .notes__link {
-    border: 1px solid var(--color-border, #333);
+    border: 0;
+    border-bottom: 1px solid color-mix(in srgb, var(--color-border, #333) 80%, transparent);
     background: transparent;
     color: inherit;
-    padding: 0.2rem 0.5rem;
+    padding: 0.15rem 0;
     cursor: pointer;
     font-family: var(--font-ui, sans-serif);
     font-size: var(--text-sm, 0.875rem);
+  }
+
+  .notes__link:hover {
+    border-bottom-color: var(--color-fg-muted, #9a9a9a);
   }
 
   .notes__kind {
@@ -1039,20 +1360,35 @@
     font-size: 0.7rem;
   }
 
+  .notes__attach {
+    margin-top: 0.25rem;
+    padding-top: var(--space-4, 1rem);
+    border-top: 1px solid var(--color-border, #333);
+  }
+
   @media (max-width: 720px) {
     .notes {
       grid-template-columns: 1fr;
     }
+    .notes__page {
+      padding: 1rem 1rem 2rem;
+    }
     .notes__split--combined {
       grid-template-columns: 1fr;
+      gap: 0.85rem;
+      background: none;
     }
-    .notes__view {
+    .notes__split--combined :global(textarea.notes__edit) {
+      border-bottom: 1px solid var(--color-border, #333);
+      padding-bottom: 0.85rem;
+      padding-right: 0.1rem;
+    }
+    .notes__split--combined .notes__preview {
+      padding-left: 0.1rem;
+    }
+    .notes__modes {
       margin-left: 0;
       width: 100%;
-    }
-    .notes__view .opt-slider__opt {
-      flex: 1 1 0;
-      text-align: center;
     }
   }
 </style>
