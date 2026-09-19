@@ -54,6 +54,8 @@
   let deleteTargetId = $state(/** @type {number | null} */ (null))
   let error = $state('')
   let saved = $state({ title: '', description: '', parentId: '', pinned: false })
+  /** @type {'raw' | 'combined' | 'formatted'} */
+  let viewMode = $state(loadViewMode())
   let ctxOpen = $state(false)
   let ctxX = $state(0)
   let ctxY = $state(0)
@@ -112,6 +114,32 @@
   let roots = $derived(byParent.get('root') || [])
 
   let loadedId = $state(/** @type {number | null} */ (null))
+
+  const VIEW_MODES = /** @type {const} */ ([
+    { id: 'raw', label: 'Текст' },
+    { id: 'combined', label: 'Оба' },
+    { id: 'formatted', label: 'Просмотр' },
+  ])
+
+  function loadViewMode() {
+    try {
+      const v = localStorage.getItem('quests.notes.viewMode')
+      if (v === 'raw' || v === 'combined' || v === 'formatted') return v
+    } catch {
+      /* ignore */
+    }
+    return 'combined'
+  }
+
+  /** @param {'raw' | 'combined' | 'formatted'} mode */
+  function setViewMode(mode) {
+    viewMode = mode
+    try {
+      localStorage.setItem('quests.notes.viewMode', mode)
+    } catch {
+      /* ignore */
+    }
+  }
 
   function fromRow(row) {
     return {
@@ -547,22 +575,50 @@
             Дочерняя
           </button>
         {/if}
-      </div>
-      <div class="notes__split">
-        <MentionTextarea
-          class="notes__edit"
-          placement="inside"
-          bind:value={description}
-          {quests}
-          {questlines}
-          {notes}
-          {attachments}
-          rows={16}
-          placeholder="Markdown. @название — ссылка. Код и конфиг — в блоках ``` … ```"
-        />
-        <div class="notes__preview">
-          <MarkdownBody source={description} {labels} {onRef} />
+        <div
+          class="notes__view opt-slider"
+          role="radiogroup"
+          aria-label="Режим просмотра"
+        >
+          {#each VIEW_MODES as mode (mode.id)}
+            <button
+              type="button"
+              class="opt-slider__opt"
+              class:opt-slider__opt--on={viewMode === mode.id}
+              role="radio"
+              aria-checked={viewMode === mode.id}
+              title={mode.id}
+              onclick={() => setViewMode(mode.id)}
+            >
+              {mode.label}
+            </button>
+          {/each}
         </div>
+      </div>
+      <div
+        class="notes__split"
+        class:notes__split--raw={viewMode === 'raw'}
+        class:notes__split--combined={viewMode === 'combined'}
+        class:notes__split--formatted={viewMode === 'formatted'}
+      >
+        {#if viewMode !== 'formatted'}
+          <MentionTextarea
+            class="notes__edit"
+            placement="inside"
+            bind:value={description}
+            {quests}
+            {questlines}
+            {notes}
+            {attachments}
+            rows={16}
+            placeholder="Markdown. @название — ссылка. Код и конфиг — в блоках ``` … ```"
+          />
+        {/if}
+        {#if viewMode !== 'raw'}
+          <div class="notes__preview">
+            <MarkdownBody source={description} {labels} {onRef} />
+          </div>
+        {/if}
       </div>
       {#if detail?.refs?.length}
         <div class="notes__links">
@@ -876,12 +932,54 @@
     margin-left: 0.35rem;
   }
 
+  .notes__view {
+    margin-left: auto;
+    flex: 0 0 auto;
+    display: flex;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    gap: 2px;
+    padding: 3px;
+    border: 1px solid var(--color-border, #333);
+    border-radius: var(--radius-lg, 12px);
+    background: var(--color-bg-muted, #242424);
+  }
+
+  .notes__view .opt-slider__opt {
+    flex: 0 0 auto;
+    margin: 0;
+    padding: 0.3rem 0.65rem;
+    border: 0;
+    border-radius: calc(var(--radius-lg, 12px) - 2px);
+    background: transparent;
+    color: var(--color-fg-muted, #9a9a9a);
+    font: inherit;
+    font-size: var(--text-xs, 0.75rem);
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+    cursor: pointer;
+  }
+
+  .notes__view .opt-slider__opt--on {
+    background: var(--color-bg-raised, #1a1a1a);
+    color: var(--color-fg, #e8e8e8);
+    box-shadow: var(--shadow-soft);
+  }
+
   .notes__split {
     display: grid;
-    grid-template-columns: 1fr 1fr;
     gap: 0.75rem;
     min-height: 18rem;
     flex: 1 1 auto;
+  }
+
+  .notes__split--combined {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .notes__split--raw,
+  .notes__split--formatted {
+    grid-template-columns: 1fr;
   }
 
   .notes__split :global(textarea.notes__edit) {
@@ -903,6 +1001,7 @@
     border: 1px solid var(--color-border, #333);
     padding: 0.75rem 1rem;
     overflow: auto;
+    min-height: 18rem;
   }
 
   .notes__links h3,
@@ -944,8 +1043,16 @@
     .notes {
       grid-template-columns: 1fr;
     }
-    .notes__split {
+    .notes__split--combined {
       grid-template-columns: 1fr;
+    }
+    .notes__view {
+      margin-left: 0;
+      width: 100%;
+    }
+    .notes__view .opt-slider__opt {
+      flex: 1 1 0;
+      text-align: center;
     }
   }
 </style>
