@@ -1,8 +1,116 @@
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
+import hljs from 'highlight.js/lib/core'
+import bash from 'highlight.js/lib/languages/bash'
+import css from 'highlight.js/lib/languages/css'
+import dockerfile from 'highlight.js/lib/languages/dockerfile'
+import go from 'highlight.js/lib/languages/go'
+import ini from 'highlight.js/lib/languages/ini'
+import javascript from 'highlight.js/lib/languages/javascript'
+import json from 'highlight.js/lib/languages/json'
+import markdownLang from 'highlight.js/lib/languages/markdown'
+import python from 'highlight.js/lib/languages/python'
+import rust from 'highlight.js/lib/languages/rust'
+import sql from 'highlight.js/lib/languages/sql'
+import typescript from 'highlight.js/lib/languages/typescript'
+import xml from 'highlight.js/lib/languages/xml'
+import yaml from 'highlight.js/lib/languages/yaml'
 import { REF_RE, refHref } from './refs.js'
 
+hljs.registerLanguage('bash', bash)
+hljs.registerLanguage('shell', bash)
+hljs.registerLanguage('sh', bash)
+hljs.registerLanguage('zsh', bash)
+hljs.registerLanguage('css', css)
+hljs.registerLanguage('dockerfile', dockerfile)
+hljs.registerLanguage('docker', dockerfile)
+hljs.registerLanguage('go', go)
+hljs.registerLanguage('golang', go)
+hljs.registerLanguage('ini', ini)
+hljs.registerLanguage('toml', ini)
+hljs.registerLanguage('javascript', javascript)
+hljs.registerLanguage('js', javascript)
+hljs.registerLanguage('json', json)
+hljs.registerLanguage('markdown', markdownLang)
+hljs.registerLanguage('md', markdownLang)
+hljs.registerLanguage('python', python)
+hljs.registerLanguage('py', python)
+hljs.registerLanguage('rust', rust)
+hljs.registerLanguage('rs', rust)
+hljs.registerLanguage('sql', sql)
+hljs.registerLanguage('typescript', typescript)
+hljs.registerLanguage('ts', typescript)
+hljs.registerLanguage('xml', xml)
+hljs.registerLanguage('html', xml)
+hljs.registerLanguage('svg', xml)
+hljs.registerLanguage('yaml', yaml)
+hljs.registerLanguage('yml', yaml)
+
+/** Canonical language id for CSS / data-lang (aliases → primary). */
+const LANG_CANON = {
+  sh: 'bash',
+  shell: 'bash',
+  zsh: 'bash',
+  js: 'javascript',
+  ts: 'typescript',
+  py: 'python',
+  rs: 'rust',
+  golang: 'go',
+  docker: 'dockerfile',
+  yml: 'yaml',
+  md: 'markdown',
+  html: 'xml',
+  svg: 'xml',
+  toml: 'ini',
+}
+
 marked.setOptions({ gfm: true, breaks: true })
+
+marked.use({
+  renderer: {
+    code({ text, lang }) {
+      const rawLang = String(lang || '')
+        .trim()
+        .split(/\s+/)[0]
+        .toLowerCase()
+      const canon = LANG_CANON[rawLang] || rawLang
+      const highlighted = highlightFence(text, canon || rawLang)
+      const langAttr = canon ? ` data-lang="${escapeAttr(canon)}"` : ''
+      const classAttr = canon
+        ? ` class="hljs language-${escapeAttr(canon)}"`
+        : ' class="hljs"'
+      return `<div class="md-codeblock"${langAttr}><pre><code${classAttr}>${highlighted}</code></pre></div>\n`
+    },
+  },
+})
+
+/**
+ * @param {string} code
+ * @param {string} lang
+ */
+function highlightFence(code, lang) {
+  const src = String(code ?? '').replace(/\n$/, '')
+  if (lang && hljs.getLanguage(lang)) {
+    try {
+      return hljs.highlight(src, { language: lang, ignoreIllegals: true }).value
+    } catch {
+      /* fall through */
+    }
+  }
+  return escapeHtml(src)
+}
+
+function escapeHtml(s) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+}
+
+function escapeAttr(s) {
+  return String(s).replace(/[^a-z0-9_+-]/gi, '')
+}
 
 const PURIFY_OPTS = {
   ALLOWED_TAGS: [
@@ -30,8 +138,11 @@ const PURIFY_OPTS = {
     'tr',
     'th',
     'td',
+    'div',
+    'span',
   ],
-  ALLOWED_ATTR: ['href', 'rel', 'target', 'src', 'alt', 'align'],
+  ALLOWED_ATTR: ['href', 'rel', 'target', 'src', 'alt', 'align', 'class'],
+  ADD_ATTR: ['data-lang'],
   ALLOW_DATA_ATTR: false,
 }
 

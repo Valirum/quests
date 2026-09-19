@@ -1,6 +1,10 @@
 <script>
+  import { untrack } from 'svelte'
   import { renderMarkdown } from '../js/markdown.js'
   import { parseRefHref } from '../js/refs.js'
+  import { copyText } from '../js/clipboard.js'
+  import copySvg from '../../assets/icons/copy.svg?raw'
+  import checkSvg from '../../assets/icons/checkmark.svg?raw'
 
   /** @type {{
    *   source?: string,
@@ -16,6 +20,57 @@
   } = $props()
 
   let html = $derived(renderMarkdown(source, { labels }))
+  /** @type {HTMLDivElement | undefined} */
+  let root = $state()
+
+  $effect(() => {
+    const el = root
+    const _ = html
+    if (!el) return
+    untrack(() => enhanceCodeBlocks(el))
+  })
+
+  /**
+   * @param {HTMLElement} rootEl
+   */
+  function enhanceCodeBlocks(rootEl) {
+    for (const block of rootEl.querySelectorAll('.md-codeblock')) {
+      if (block.querySelector(':scope > .md-codeblock__copy')) continue
+      const pre = block.querySelector(':scope > pre')
+      if (!pre) continue
+
+      const btn = document.createElement('button')
+      btn.type = 'button'
+      btn.className = 'md-codeblock__copy'
+      btn.setAttribute('aria-label', 'Копировать')
+      btn.title = 'Копировать'
+      btn.innerHTML = copySvg
+
+      btn.addEventListener('click', async (event) => {
+        event.preventDefault()
+        event.stopPropagation()
+        const code = pre.querySelector('code')
+        const text = code?.textContent ?? pre.textContent ?? ''
+        try {
+          await copyText(text)
+          btn.classList.add('md-codeblock__copy--done')
+          btn.innerHTML = checkSvg
+          btn.setAttribute('aria-label', 'Скопировано')
+          btn.title = 'Скопировано'
+          window.setTimeout(() => {
+            btn.classList.remove('md-codeblock__copy--done')
+            btn.innerHTML = copySvg
+            btn.setAttribute('aria-label', 'Копировать')
+            btn.title = 'Копировать'
+          }, 1400)
+        } catch {
+          /* ignore */
+        }
+      })
+
+      block.prepend(btn)
+    }
+  }
 
   function onClick(event) {
     const a = event.target instanceof Element ? event.target.closest('a') : null
@@ -29,5 +84,5 @@
 </script>
 
 {#if html}
-  <div class={['md', className]} onclick={onClick}>{@html html}</div>
+  <div class={['md', className]} bind:this={root} onclick={onClick}>{@html html}</div>
 {/if}
