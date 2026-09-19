@@ -80,4 +80,5 @@ SQLite: `data/quests.db`.
 User systemd units: [`deploy/systemd/`](deploy/systemd/).  
 Деплой на сервер после клона: [`deploy/SERVER.md`](deploy/SERVER.md).  
 Docker (api / bot / frontend): [`deploy/docker/`](deploy/docker/).  
+HUD на удалённый API (токен, unit, niri): [`docs/hud-workstation.md`](docs/hud-workstation.md).  
 CI на `main` деплоит на прод сам (self-hosted runner прямо на сервере): [`docs/deploy-ssh.md`](docs/deploy-ssh.md).

@@ -5,19 +5,23 @@ Global Cursor config (``~/.cursor/mcp.json``) so any workspace can use it::
     {
       "mcpServers": {
         "quests": {
-          "command": "/usr/bin/uv",
+          "command": "/home/amarant/.local/bin/uv",
           "args": [
             "run",
             "--directory",
-            "/home/amarant/Documents/projects/Quests",
+            "/home/amarant/Quests",
             "quests-mcp"
           ],
-          "env": { "QUESTS_API": "http://127.0.0.1:8765" }
+          "env": {
+            "QUESTS_API": "http://SERVER:8765",
+            "QUESTS_API_TOKEN": "<from quests-server token add mcp-cursor>"
+          }
         }
       }
     }
 
-Or: ``QUESTS_API=… uv run quests-mcp --api http://…``
+Local open API: omit ``QUESTS_API_TOKEN`` and point ``QUESTS_API`` at loopback.
+Or: ``QUESTS_API=… QUESTS_API_TOKEN=… uv run --directory ~/Quests quests-mcp``.
 """
 
 from __future__ import annotations
