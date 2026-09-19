@@ -16,6 +16,7 @@
     scrollRootToTextOffset,
   } from '../js/mdCaretMap.js'
   import { downloadNoteMarkdown, downloadNotePdf } from '../js/noteExport.js'
+  import { toast, toastDone, toastProgress } from '../js/toasts.svelte.js'
   import Icon from '../ui/Icon.svelte'
   import MarkdownBody from '../ui/MarkdownBody.svelte'
   import MentionTextarea from '../ui/MentionTextarea.svelte'
@@ -256,6 +257,7 @@
     const t = title.trim()
     if (!t) {
       error = 'Нужен заголовок'
+      toast(error, { kind: 'error' })
       return
     }
     saving = true
@@ -272,8 +274,10 @@
       applyForm(saved)
       clearNoteDraft(selectedId)
       onChanged()
+      toast('Сохранено', { kind: 'success', ttl: 1400 })
     } catch (e) {
       error = e.message || String(e)
+      toast(error, { kind: 'error' })
     } finally {
       saving = false
     }
@@ -289,8 +293,10 @@
       })
       await onChanged()
       onSelect(created.id)
+      toast('Заметка создана', { kind: 'success' })
     } catch (e) {
       error = e.message || String(e)
+      toast(error, { kind: 'error' })
     }
   }
 
@@ -306,8 +312,10 @@
       deleteTargetId = null
       if (id === selectedId) onSelect(null)
       onChanged()
+      toast('Заметка удалена', { kind: 'success' })
     } catch (e) {
       error = e.message || String(e)
+      toast(error, { kind: 'error' })
     } finally {
       deleting = false
     }
@@ -502,10 +510,27 @@
     exportBusy = true
     error = ''
     try {
-      if (action === 'md') downloadNoteMarkdown(payload)
-      else if (action === 'pdf') await downloadNotePdf(payload, { labels })
+      if (action === 'md') {
+        downloadNoteMarkdown(payload)
+        toast('Markdown сохранён', { kind: 'success' })
+      } else if (action === 'pdf') {
+        const tid = 'pdf-note'
+        toastProgress(tid, 'Генерация PDF…')
+        try {
+          await downloadNotePdf(payload, { labels })
+          toastDone(tid, 'PDF сохранён')
+        } catch (e) {
+          toastDone(tid, e?.message || 'Не удалось сохранить PDF', 'error')
+          throw e
+        }
+      }
     } catch (e) {
-      error = e?.message || String(e)
+      if (action !== 'pdf') {
+        error = e?.message || String(e)
+        toast(error, { kind: 'error' })
+      } else {
+        error = e?.message || String(e)
+      }
     } finally {
       exportBusy = false
     }
@@ -552,9 +577,12 @@
   async function copyNoteRef(id) {
     if (id == null) return
     try {
-      await copyText(`note=${id}`)
+      const text = `note=${id}`
+      await copyText(text)
+      toast(`Скопировано ${text}`, { kind: 'success', ttl: 1600 })
     } catch (e) {
       error = e?.message || String(e)
+      toast(error, { kind: 'error' })
     }
   }
 

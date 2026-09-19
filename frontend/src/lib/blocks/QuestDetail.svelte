@@ -14,6 +14,7 @@
     statusColor,
   } from '../js/questFormat.js'
   import { downloadQuestPdf } from '../js/questPdf.js'
+  import { toastDone, toastProgress } from '../js/toasts.svelte.js'
 
   /** @type {{
    *   selected: any | null,
@@ -76,10 +77,14 @@
   async function exportPdf(q) {
     if (!q || pdfBusy) return
     pdfBusy = true
+    const tid = 'pdf-quest'
+    toastProgress(tid, 'Генерация PDF…')
     try {
       await downloadQuestPdf(q)
+      toastDone(tid, 'PDF сохранён')
     } catch (e) {
       console.error(e)
+      toastDone(tid, e?.message || 'Не удалось сохранить PDF', 'error')
     } finally {
       pdfBusy = false
     }
