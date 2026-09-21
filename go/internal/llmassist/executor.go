@@ -148,12 +148,16 @@ func (e *Executor) createQuestline(act Action, dryRun bool) (ActionResult, error
 	if act.Icon != nil {
 		body["icon"] = *act.Icon
 	}
-	catID, err := e.resolveCategory(act.Category)
-	if err != nil {
-		return ActionResult{}, execErrf(act.Index, "%s", err)
-	}
-	if catID != nil {
-		body["category_id"] = *catID
+	if act.CategoryID != nil {
+		body["category_id"] = *act.CategoryID
+	} else {
+		catID, err := e.resolveCategory(act.Category)
+		if err != nil {
+			return ActionResult{}, execErrf(act.Index, "%s", err)
+		}
+		if catID != nil {
+			body["category_id"] = *catID
+		}
 	}
 
 	if dryRun {
@@ -196,6 +200,8 @@ func (e *Executor) createQuest(act Action, questlineID *int64, dryRun bool) (Act
 	}
 	if questlineID != nil {
 		body["questline_id"] = *questlineID
+	} else if act.CategoryID != nil {
+		body["category_id"] = *act.CategoryID
 	} else {
 		catID, err := e.resolveCategory(act.Category)
 		if err != nil {

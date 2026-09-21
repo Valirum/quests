@@ -1,8 +1,8 @@
-"""Local LLM helpers: free-form text → structured quest draft.
+"""Local LLM helpers (legacy single-quest draft).
 
-The action-batch assistant (text -> quest CRUD) lives in Go now
-(go/internal/llmassist) — this package keeps only the single-quest draft
-path used by the Telegram bot's /new-llm and `quests llm-add`.
+The Telegram bot and web «Команда» now share Go action-batch
+(go/internal/llmassist via /api/llm/actions/*). This package remains for
+`quests llm-add` / older draft tooling until that CLI is switched too.
 """
 
 from __future__ import annotations

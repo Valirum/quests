@@ -37,8 +37,20 @@ func (s *Server) postLLMActionsPreview(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Minute)
 	defer cancel()
+
+	cats, err := s.Store.ListCategories(r.Context())
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	hints := make([]llmassist.CategoryHint, 0, len(cats))
+	for _, c := range cats {
+		hints = append(hints, llmassist.CategoryHint{ID: c.ID, Slug: c.Slug, Label: c.Label})
+	}
+	pc := llmassist.DefaultPromptContext(hints)
+
 	settings := llmassist.LoadSettings()
-	batch, err := llmassist.ExtractActionBatch(ctx, settings, text)
+	batch, err := llmassist.ExtractActionBatch(ctx, settings, text, pc)
 	if err != nil {
 		// "detail" (not "error") — that's the key api.js's request() reads
 		// for non-2xx bodies; otherwise the UI shows the bare HTTP

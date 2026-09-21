@@ -6,7 +6,13 @@
 // per-language dependency cost to isolate.
 package llmassist
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"fmt"
+	"os"
+	"strings"
+	"time"
+)
 
 var actionKinds = []string{
 	"create_questline",
@@ -18,6 +24,48 @@ var actionKinds = []string{
 }
 
 var statusValues = []string{"active", "delayed", "completed", "failed", "archived"}
+
+// CategoryHint is a live journal category for the system prompt appendix.
+type CategoryHint struct {
+	ID    int64
+	Slug  string
+	Label string
+}
+
+// PromptContext is per-request dynamic data injected into the system prompt.
+type PromptContext struct {
+	NowLocal   string
+	TimeZone   string
+	Categories []CategoryHint
+}
+
+// DefaultPromptContext builds NowLocal/TZ from QUESTS_TZ / TZ / time.Local.
+func DefaultPromptContext(categories []CategoryHint) PromptContext {
+	tzName := strings.TrimSpace(os.Getenv("QUESTS_TZ"))
+	if tzName == "" {
+		tzName = strings.TrimSpace(os.Getenv("TZ"))
+	}
+	loc := time.Local
+	if tzName != "" {
+		if l, err := time.LoadLocation(tzName); err == nil {
+			loc = l
+		}
+	} else {
+		tzName = loc.String()
+		if tzName == "Local" {
+			tzName = "Europe/Moscow"
+			if l, err := time.LoadLocation(tzName); err == nil {
+				loc = l
+			}
+		}
+	}
+	now := time.Now().In(loc)
+	return PromptContext{
+		NowLocal:   now.Format("2006-01-02 15:04 Monday"),
+		TimeZone:   tzName,
+		Categories: categories,
+	}
+}
 
 // ActionStep is an inline step for create_quest's steps list.
 type ActionStep struct {
@@ -150,60 +198,83 @@ func ActionBatchJSONSchema() map[string]any {
 	}
 }
 
-// SystemPrompt is the same Russian prompt the Python version used, verbatim.
-func SystemPrompt() string {
+// SystemPrompt builds the action-batch system message, including live clock
+// and journal categories so create_quest doesn't land in «Без раздела».
+func SystemPrompt(pc PromptContext) string {
 	schema, _ := json.Marshal(ActionBatchJSONSchema())
-	return "Ты преобразуешь запрос пользователя в список действий (actions) над " +
-		"журналом квестов Quests.\n" +
-		"СИНТАКСИС ССЫЛОК: quest=N / questline=N / step=N — это точные числовые id, " +
-		"подставленные фронтом через автокомплит по УЖЕ СУЩЕСТВУЮЩЕЙ сущности. " +
-		"Если видишь такой тег — просто скопируй N в соответствующее *_id поле, " +
-		"ничего не резолвь и не выдумывай.\n" +
-		"Любое название БЕЗ такого тега (обычный текст) — это title НОВОЙ сущности, " +
-		"которую нужно создать (create_quest/create_questline/новый шаг). " +
-		"Если голый текст совпадает с title, который создаётся ДРУГИМ action'ом в " +
-		"ЭТОМ ЖЕ списке — это ссылка на него: используй questline_id_ref/quest_id_ref " +
-		"с индексом создающего action'а, а НЕ questline_id/quest_id и НЕ " +
-		"questline/category (те поля — только для имени НОВОГО объекта при его " +
-		"создании или для резолва имени уже существующего объекта по подстроке).\n" +
-		"Действия и когда их использовать:\n" +
-		"  • create_questline — создать новый квестлайн. title обязателен.\n" +
-		"  • create_quest — создать НОВЫЙ квест с нуля. steps — только если " +
-		"пользователь явно перечислил шаги нового квеста. Если квест создаётся " +
-		"СРАЗУ ВНУТРИ квестлайна, который тоже создаётся в этом же запросе — " +
-		"ОБЯЗАТЕЛЬНО проставь questline_id_ref на индекс create_questline " +
-		"action'а, не забывай это поле.\n" +
-		"  • update_quest — изменить СУЩЕСТВУЮЩИЙ квест (обязателен quest_id из " +
-		"тега quest=N, или quest_id_ref если квест создаётся в этом же батче): " +
-		"статус, title, pinned, значимость, и ГЛАВНОЕ — прикрепление к квестлайну " +
-		"(questline_id из тега questline=N, questline_id_ref если квестлайн " +
-		"создаётся тут же, или questline как имя уже существующего для резолва " +
-		"по подстроке; clear_questline=true — отвязать).\n" +
-		"  • add_step — добавить НОВЫЙ шаг внутрь существующего квеста (quest_id " +
-		"из тега quest=N). title обязателен, steps не используется.\n" +
-		"  • update_step / delete_step — quest_id + step_id (оба из тегов).\n" +
-		"Примеры:\n" +
-		"  \"создай квестлайн Бэкапы и закинь туда quest=42\" →\n" +
-		"    [{index:0, action:create_questline, title:\"Бэкапы\"}, " +
-		"{index:1, action:update_quest, quest_id:42, questline_id_ref:0}]\n" +
-		"  \"перенеси quest=5 в questline=3, поставь completed\" →\n" +
-		"    [{index:0, action:update_quest, quest_id:5, questline_id:3, " +
-		"status:\"completed\"}]\n" +
-		"  \"quest=9 сделай completed и создай квестлайн Инфраструктура, закинь " +
-		"его туда\" →\n" +
-		"    [{index:0, action:update_quest, quest_id:9, status:\"completed\"}, " +
-		"{index:1, action:create_questline, title:\"Инфраструктура\"}, " +
-		"{index:2, action:update_quest, quest_id:9, questline_id_ref:1}]\n" +
-		"  \"создай квестлайн Мониторинг с квестом Настроить графану\" →\n" +
-		"    [{index:0, action:create_questline, title:\"Мониторинг\"}, " +
-		"{index:1, action:create_quest, title:\"Настроить графану\", " +
-		"questline_id_ref:0}]\n" +
-		"Верни ОДИН JSON-объект по схеме, без пояснений вне JSON. Поля, не нужные " +
-		"для конкретного action, оставляй null (clear_questline=false по " +
-		"умолчанию, steps=null кроме create_quest с явными шагами).\n" +
-		"status один из: active, delayed, completed, failed, archived.\n" +
-		"needs_clarification=true (actions=[]) только если запрос реально " +
-		"неоднозначен (непонятно, какой квест/шаг/квестлайн имеется в виду и " +
-		"тег/имя не помогает установить это однозначно).\n" +
-		"JSON Schema:\n" + string(schema)
+	var b strings.Builder
+	b.WriteString("Ты преобразуешь запрос пользователя в список действий (actions) над ")
+	b.WriteString("журналом квестов Quests.\n")
+	b.WriteString("СИНТАКСИС ССЫЛОК: quest=N / questline=N / step=N — это точные числовые id, ")
+	b.WriteString("подставленные клиентом через автокомплит/копирование по УЖЕ СУЩЕСТВУЮЩЕЙ сущности. ")
+	b.WriteString("Если видишь такой тег — просто скопируй N в соответствующее *_id поле, ")
+	b.WriteString("ничего не резолвь и не выдумывай.\n")
+	b.WriteString("Любое название БЕЗ такого тега (обычный текст) — это title НОВОЙ сущности, ")
+	b.WriteString("которую нужно создать (create_quest/create_questline/новый шаг). ")
+	b.WriteString("Если голый текст совпадает с title, который создаётся ДРУГИМ action'ом в ")
+	b.WriteString("ЭТОМ ЖЕ списке — это ссылка на него: используй questline_id_ref/quest_id_ref ")
+	b.WriteString("с индексом создающего action'а, а НЕ questline_id/quest_id и НЕ ")
+	b.WriteString("questline/category (те поля — только для имени НОВОГО объекта при его ")
+	b.WriteString("создании или для резолва имени уже существующего объекта по подстроке).\n")
+	b.WriteString("Действия и когда их использовать:\n")
+	b.WriteString("  • create_questline — создать новый квестлайн. title обязателен. ")
+	b.WriteString("Категорию квестлайна задай через category (slug или label) или category_id.\n")
+	b.WriteString("  • create_quest — создать НОВЫЙ квест с нуля. steps — только если ")
+	b.WriteString("пользователь явно перечислил шаги (запятая, «и», нумерация); иначе steps=null ")
+	b.WriteString("(не выдумывай подготовку/проверку/коммит). Если квест создаётся ")
+	b.WriteString("СРАЗУ ВНУТРИ квестлайна, который тоже создаётся в этом же запросе — ")
+	b.WriteString("ОБЯЗАТЕЛЬНО проставь questline_id_ref на индекс create_questline ")
+	b.WriteString("action'а. Если квестлайн НЕ задан — ОБЯЗАТЕЛЬНО проставь category ")
+	b.WriteString("(slug/label из списка ниже) или category_id; null только если раздел ")
+	b.WriteString("действительно неясен.\n")
+	b.WriteString("  • update_quest — изменить СУЩЕСТВУЮЩИЙ квест (обязателен quest_id из ")
+	b.WriteString("тега quest=N, или quest_id_ref если квест создаётся в этом же батче): ")
+	b.WriteString("статус, title, pinned, значимость, category, и ГЛАВНОЕ — прикрепление к квестлайну ")
+	b.WriteString("(questline_id из тега questline=N, questline_id_ref если квестлайн ")
+	b.WriteString("создаётся тут же, или questline как имя уже существующего для резолва ")
+	b.WriteString("по подстроке; clear_questline=true — отвязать).\n")
+	b.WriteString("  • add_step — добавить НОВЫЙ шаг внутрь существующего квеста (quest_id ")
+	b.WriteString("из тега quest=N). title обязателен, steps не используется.\n")
+	b.WriteString("  • update_step / delete_step — quest_id + step_id (оба из тегов).\n")
+	b.WriteString("Примеры:\n")
+	b.WriteString("  \"создай квестлайн Бэкапы и закинь туда quest=42\" →\n")
+	b.WriteString("    [{index:0, action:create_questline, title:\"Бэкапы\"}, ")
+	b.WriteString("{index:1, action:update_quest, quest_id:42, questline_id_ref:0}]\n")
+	b.WriteString("  \"перенеси quest=5 в questline=3, поставь completed\" →\n")
+	b.WriteString("    [{index:0, action:update_quest, quest_id:5, questline_id:3, ")
+	b.WriteString("status:\"completed\"}]\n")
+	b.WriteString("  \"quest=9 сделай completed и создай квестлайн Инфраструктура, закинь ")
+	b.WriteString("его туда\" →\n")
+	b.WriteString("    [{index:0, action:update_quest, quest_id:9, status:\"completed\"}, ")
+	b.WriteString("{index:1, action:create_questline, title:\"Инфраструктура\"}, ")
+	b.WriteString("{index:2, action:update_quest, quest_id:9, questline_id_ref:1}]\n")
+	b.WriteString("  \"создай квестлайн Мониторинг с квестом Настроить графану\" →\n")
+	b.WriteString("    [{index:0, action:create_questline, title:\"Мониторинг\"}, ")
+	b.WriteString("{index:1, action:create_quest, title:\"Настроить графану\", ")
+	b.WriteString("questline_id_ref:0}]\n")
+	b.WriteString("Верни ОДИН JSON-объект по схеме, без пояснений вне JSON. Поля, не нужные ")
+	b.WriteString("для конкретного action, оставляй null (clear_questline=false по ")
+	b.WriteString("умолчанию, steps=null кроме create_quest с явными шагами).\n")
+	b.WriteString("status один из: active, delayed, completed, failed, archived.\n")
+	b.WriteString("deadline_at — ISO-8601 в локальном времени пользователя или с offset; ")
+	b.WriteString("считай относительно «сейчас» ниже (не UTC, если пользователь не сказал GMT).\n")
+	b.WriteString("needs_clarification=true (actions=[]) только если запрос реально ")
+	b.WriteString("неоднозначен (непонятно, какой квест/шаг/квестлайн имеется в виду и ")
+	b.WriteString("тег/имя не помогает установить это однозначно).\n")
+
+	b.WriteString("\nКОНТЕКСТ СЕЙЧАС:\n")
+	b.WriteString(fmt.Sprintf("  Локальное время: %s\n", pc.NowLocal))
+	b.WriteString(fmt.Sprintf("  Часовой пояс: %s (все относительные сроки — от этого якоря).\n", pc.TimeZone))
+	b.WriteString("РАЗДЕЛЫ (category / category_id) — выбирай из списка; для create_quest ")
+	b.WriteString("без квестлайна почти всегда нужен раздел:\n")
+	if len(pc.Categories) == 0 {
+		b.WriteString("  (список пуст — category=null)\n")
+	} else {
+		for _, c := range pc.Categories {
+			b.WriteString(fmt.Sprintf("  • id=%d slug=%q label=%q\n", c.ID, c.Slug, c.Label))
+		}
+	}
+	b.WriteString("\nJSON Schema:\n")
+	b.Write(schema)
+	return b.String()
 }
