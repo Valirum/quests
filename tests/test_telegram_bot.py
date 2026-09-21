@@ -35,17 +35,21 @@ def test_completed_keyboard_collapsed() -> None:
     q = {"id": 7, "status": "completed", "steps": [{"id": 1, "title": "a"}]}
     kb = quest_keyboard(q)
     rows = kb.inline_keyboard
-    assert len(rows) == 1
-    assert len(rows[0]) == 1
-    assert rows[0][0].text == BTN_EDIT
-    assert rows[0][0].callback_data == "qe:7"
+    # copy quest= / step= rows, then Edit
+    assert len(rows) >= 2
+    assert rows[0][0].text == "quest=7"
+    assert rows[0][0].copy_text is not None
+    assert rows[0][0].copy_text.text == "quest=7"
+    assert rows[-1][0].text == BTN_EDIT
+    assert rows[-1][0].callback_data == "qe:7"
 
 
 def test_failed_keyboard_collapsed() -> None:
     q = {"id": 8, "status": "failed", "steps": [{"id": 1, "title": "a"}]}
     kb = quest_keyboard(q)
-    assert len(kb.inline_keyboard) == 1
-    assert kb.inline_keyboard[0][0].text == BTN_EDIT
+    assert kb.inline_keyboard[0][0].text == "quest=8"
+    assert kb.inline_keyboard[-1][0].text == BTN_EDIT
+    assert kb.inline_keyboard[-1][0].callback_data == "qe:8"
 
 
 def test_completed_keyboard_expanded_has_done() -> None:
