@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from aiogram.types import (
+    CopyTextButton,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
     KeyboardButton,
@@ -50,7 +51,7 @@ def llm_confirm_keyboard(
 ) -> InlineKeyboardMarkup:
     """Two rows: Create/Cancel, then Prev/Next (edges omitted)."""
     row1 = [
-        InlineKeyboardButton(text="✓ Создать", callback_data="llm:ok"),
+        InlineKeyboardButton(text="✓ Применить", callback_data="llm:ok"),
         InlineKeyboardButton(text="✖ Отмена", callback_data="llm:no"),
     ]
     rows: list[list[InlineKeyboardButton]] = [row1]
@@ -113,20 +114,52 @@ def _clamp_page(page: int, n_steps: int) -> int:
     return max(0, min(int(page), pages - 1))
 
 
+def _copy_btn(label: str, payload: str) -> InlineKeyboardButton:
+    """Telegram CopyTextButton — taps copy entity=N into the clipboard."""
+    text = payload[:256]
+    shown = label if len(label) <= 28 else label[:25] + "…"
+    return InlineKeyboardButton(text=shown, copy_text=CopyTextButton(text=text))
+
+
+def entity_copy_rows(quest: dict) -> list[list[InlineKeyboardButton]]:
+    """Rows of copy-buttons for quest / questline / steps (for LLM «Команда»)."""
+    rows: list[list[InlineKeyboardButton]] = []
+    qid = quest.get("id")
+    if qid is not None:
+        rows.append([_copy_btn(f"quest={qid}", f"quest={int(qid)}")])
+    lid = quest.get("questline_id")
+    if lid is not None:
+        rows.append([_copy_btn(f"questline={int(lid)}", f"questline={int(lid)}")])
+    step_btns: list[InlineKeyboardButton] = []
+    for step in list(quest.get("steps") or [])[:8]:
+        sid = step.get("id")
+        if sid is None:
+            continue
+        step_btns.append(_copy_btn(f"step={int(sid)}", f"step={int(sid)}"))
+        if len(step_btns) == 3:
+            rows.append(step_btns)
+            step_btns = []
+    if step_btns:
+        rows.append(step_btns)
+    return rows
+
+
 def quest_keyboard(
     quest: dict, *, page: int = 0, expanded: bool = False
 ) -> InlineKeyboardMarkup:
     """Статусы + бинарные шаги. Закрытые по умолчанию — только «Редактировать»."""
     qid = int(quest["id"])
+    copy_rows = entity_copy_rows(quest)
     if _is_closed(quest) and not expanded:
         return InlineKeyboardMarkup(
             inline_keyboard=[
+                *copy_rows,
                 [
                     InlineKeyboardButton(
                         text=BTN_EDIT,
                         callback_data=f"qe:{qid}",
                     )
-                ]
+                ],
             ]
         )
 
@@ -134,6 +167,7 @@ def quest_keyboard(
     page = _clamp_page(page, len(steps))
 
     rows: list[list[InlineKeyboardButton]] = [
+        *copy_rows,
         [
             InlineKeyboardButton(
                 text=STATUSES[0][1],

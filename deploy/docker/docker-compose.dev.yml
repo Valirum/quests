@@ -27,6 +27,10 @@ services:
       QUESTS_SECURE_COOKIES: "0"
       QUESTS_CLAMAV_ADDR: ""
       QUESTS_WEBDAV_URL: ""
+      TZ: Europe/Moscow
+      QUESTS_TZ: Europe/Moscow
+    env_file:
+      - .env.dev
     volumes:
       - ../../data:/app/data
       - ../../frontend/dist:/app/frontend/dist:ro

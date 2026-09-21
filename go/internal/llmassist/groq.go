@@ -76,7 +76,7 @@ func llmErrf(format string, a ...any) error {
 // ExtractActionBatch calls Groq with constrained JSON-schema decoding and
 // parses the result into an ActionBatch. No agentic tool-calling loop —
 // one request, one structured answer, same as the quest-draft path.
-func ExtractActionBatch(ctx context.Context, settings Settings, text string) (ActionBatch, error) {
+func ExtractActionBatch(ctx context.Context, settings Settings, text string, pc PromptContext) (ActionBatch, error) {
 	if settings.Provider != "groq" {
 		return ActionBatch{}, llmErrf("action-batch извлечение поддерживается только через Groq (provider=%q)", settings.Provider)
 	}
@@ -87,7 +87,7 @@ func ExtractActionBatch(ctx context.Context, settings Settings, text string) (Ac
 	payload := map[string]any{
 		"model": settings.Model,
 		"messages": []map[string]string{
-			{"role": "system", "content": SystemPrompt()},
+			{"role": "system", "content": SystemPrompt(pc)},
 			{"role": "user", "content": strings.TrimSpace(text)},
 		},
 		"temperature": settings.Temperature,

@@ -88,6 +88,44 @@ class QuestsApi:
         data = await self.request("GET", "/api/categories")
         return list(data or [])
 
+    async def list_questlines(self) -> list[dict]:
+        data = await self.request("GET", "/api/questlines")
+        return list(data or [])
+
+    async def preview_actions(self, text: str) -> dict:
+        """LLM action-batch dry-run (may take up to a few minutes)."""
+        url = f"{self.base}/api/llm/actions/preview"
+        headers = {"Authorization": f"Bearer {self._token}"} if self._token else None
+        try:
+            async with self._session.request(
+                "POST",
+                url,
+                json={"text": text},
+                headers=headers,
+                timeout=aiohttp.ClientTimeout(total=200),
+            ) as resp:
+                raw = await resp.read()
+                if resp.status >= 400:
+                    detail = raw.decode("utf-8", errors="replace")
+                    try:
+                        parsed = json.loads(detail)
+                        detail = str(parsed.get("detail", detail))
+                    except (json.JSONDecodeError, TypeError, AttributeError):
+                        pass
+                    raise ApiError(f"API {resp.status}: {detail}", status=resp.status)
+                return await resp.json(content_type=None)
+        except aiohttp.ClientError as e:
+            raise ApiError(
+                f"не удалось связаться с API ({self.base}): {e}"
+            ) from e
+
+    async def apply_actions(self, batch: dict[str, Any]) -> dict:
+        return await self.request(
+            "POST",
+            "/api/llm/actions/apply",
+            body={"batch": batch},
+        )
+
     async def events_since(self, since: int) -> dict:
         return await self.request("GET", "/api/events", query={"since": since})
 

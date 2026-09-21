@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import re
 from datetime import UTC, datetime, timedelta
@@ -14,17 +13,9 @@ from aiogram.filters import Command, CommandStart, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, Message
-from pydantic import ValidationError
 
-from quests.llm import (
-    LlmError,
-    QuestDraft,
-    draft_to_create_body,
-    extract_quest_draft,
-    format_draft_preview,
-)
-from quests.llm.config import load_llm_settings
 from quests.stt import SttError, get_stt, load_stt_settings
+from quests.telegram.actions_preview import format_actions_preview, history_to_prompt_text
 from quests.telegram.api_client import ApiError, QuestsApi
 from quests.telegram.formatters import format_active_by_category, format_quest_card
 from quests.telegram.keyboards import (
@@ -52,10 +43,11 @@ _NAV_BUTTONS = {BTN_LIST, BTN_NEW, BTN_NEW_LLM, BTN_HELP, BTN_CANCEL}
 
 HELP = (
     "<b>Quests · Telegram</b>\n"
-    f"{BTN_LIST} / /list — активные по разделам\n"
+    f"{BTN_LIST} / /list — активные: раздел → квестлайн → квесты\n"
     f"{BTN_NEW} / /new — создать задачу\n"
-    f"{BTN_NEW_LLM} / /new-llm — текст или голос → квест (Cursor)\n"
+    f"{BTN_NEW_LLM} / /new-llm — текст или голос → план действий (как «Команда» в вебе)\n"
     "Или просто напиши задачу в чат (больше 10 символов).\n"
+    "На карточке квеста кнопки quest=/questline=/step= копируют ссылку в буфер.\n"
     "/quest &lt;id&gt; — карточка, статус и шаги\n"
     f"{BTN_CANCEL} / /cancel — отменить диалог\n"
     f"{BTN_HELP} / /help — справка"
@@ -564,7 +556,7 @@ def build_router(
             label="created",
         )
 
-    # ── LLM free-form create ──────────────────────────────────────────────
+    # ── LLM free-form → Go action-batch (same as web «Команда») ───────────
 
     async def _run_llm(
         message: Message,
@@ -573,28 +565,18 @@ def build_router(
         *,
         history: list[tuple[str, str]] | None = None,
     ) -> None:
-        llm_settings = load_llm_settings()
-        if llm_settings.provider == "cursor":
-            label = f"Cursor · {llm_settings.model}"
-        elif llm_settings.provider == "groq":
-            label = f"Groq · {llm_settings.model}"
-        else:
-            label = f"Ollama · {llm_settings.model}"
         wait = await tg_retry(
             lambda: message.answer(
-                f"Думаю ({label})…",
+                "Думаю (API · action-batch)…",
                 reply_markup=reply_kb,
             ),
             label="llm-wait",
         )
         chat_id = message.chat.id if message.chat else None
+        prompt = history_to_prompt_text(user_text, history)
         try:
-            bundle = await extract_quest_draft(
-                user_text,
-                settings=llm_settings,
-                history=history,
-            )
-        except LlmError as e:
+            res = await api.preview_actions(prompt)
+        except ApiError as e:
             await tg_soft(lambda: wait.delete(), label="llm-wait-del")
             await _purge_dialog(message.bot, state, chat_id)
             await tg_retry(
@@ -604,36 +586,41 @@ def build_router(
             return
         await tg_soft(lambda: wait.delete(), label="llm-wait-del")
 
-        if bundle.needs_clarification and (bundle.clarify_question or "").strip():
+        if res.get("needs_clarification"):
+            q = (res.get("clarify_question") or "Уточни, пожалуйста.").strip()
             hist = list(history or [])
             hist.append(("user", user_text))
-            hist.append(
-                (
-                    "assistant",
-                    json.dumps(bundle.model_dump(), ensure_ascii=False),
-                )
-            )
+            hist.append(("assistant", q))
             await state.update_data(llm_history=hist)
             await state.set_state(CreateLlm.clarify)
             await _say(
                 message,
                 state,
-                f"Уточни: {_esc_html(bundle.clarify_question)}",
+                f"Уточни: {_esc_html(q)}",
                 reply_markup=reply_kb,
             )
             return
 
-        drafts = [d.model_dump() for d in bundle.variations]
-        await state.update_data(llm_drafts=drafts, llm_draft_index=0)
+        batch = res.get("batch") or {}
+        preview = list(res.get("preview") or [])
+        if not batch.get("actions"):
+            await _purge_dialog(message.bot, state, chat_id)
+            await tg_retry(
+                lambda: message.answer(
+                    "Модель не предложила действий. Переформулируй.",
+                    reply_markup=reply_kb,
+                ),
+                label="llm-empty",
+            )
+            return
+
+        await state.update_data(llm_batch=batch, llm_preview=preview)
         await state.set_state(CreateLlm.confirm)
-        total = len(drafts)
         await _say(
             message,
             state,
-            format_draft_preview(
-                bundle.primary, html=True, index=0, total=total
-            ),
-            reply_markup=llm_confirm_keyboard(index=0, total=total),
+            format_actions_preview(batch, preview),
+            reply_markup=llm_confirm_keyboard(index=0, total=1),
             parse_mode="HTML",
         )
 
@@ -643,7 +630,6 @@ def build_router(
     async def cmd_new_llm(message: Message, state: FSMContext) -> None:
         await _purge_dialog(message.bot, state, message.chat.id if message.chat else None)
         text = message.text or ""
-        # /new-llm <описание> или /new_llm <описание>
         inline = ""
         if text.startswith("/"):
             parts = text.split(maxsplit=1)
@@ -658,7 +644,9 @@ def build_router(
             message,
             state,
             "Опиши задачу текстом или <b>голосом</b> (или Отмена).\n"
-            "Пример: «на час разобрать почту: рабочая и личная, раздел работа»",
+            "Можно создавать/менять квесты и квестлайны, как «Команда» в журнале.\n"
+            "Ссылки: скопируй quest=N / questline=N с карточки.\n"
+            "Пример: «на час разобрать почту, раздел работа»",
             reply_markup=reply_kb,
         )
 
@@ -857,89 +845,43 @@ def build_router(
             )
         await query.answer("отменено")
 
-    async def _llm_show_variant(
-        query: CallbackQuery, state: FSMContext, delta: int
-    ) -> None:
-        data = await state.get_data()
-        drafts = list(data.get("llm_drafts") or [])
-        if not drafts and data.get("llm_draft"):
-            drafts = [data["llm_draft"]]
-        if not drafts:
-            await query.answer("черновик потерян", show_alert=True)
-            return
-        idx = int(data.get("llm_draft_index") or 0) + delta
-        idx = max(0, min(len(drafts) - 1, idx))
-        await state.update_data(llm_draft_index=idx)
-        try:
-            draft = QuestDraft.model_validate(drafts[idx])
-        except ValidationError as e:
-            await query.answer(f"bad draft: {e}", show_alert=True)
-            return
-        text = format_draft_preview(
-            draft, html=True, index=idx, total=len(drafts)
-        )
-        kb = llm_confirm_keyboard(index=idx, total=len(drafts))
-        msg = query.message
-        if msg is None:
-            await query.answer()
-            return
-        try:
-            await msg.edit_text(text, reply_markup=kb, parse_mode="HTML")
-        except TelegramBadRequest as e:
-            if "message is not modified" not in str(e).lower():
-                await query.answer(str(e), show_alert=True)
-                return
-        await query.answer(f"{idx + 1}/{len(drafts)}")
-
     @router.callback_query(StateFilter(CreateLlm.confirm), F.data == "llm:prev")
     async def llm_prev(query: CallbackQuery, state: FSMContext) -> None:
-        await _llm_show_variant(query, state, -1)
+        await query.answer("один план")
 
     @router.callback_query(StateFilter(CreateLlm.confirm), F.data == "llm:next")
     async def llm_next(query: CallbackQuery, state: FSMContext) -> None:
-        await _llm_show_variant(query, state, 1)
+        await query.answer("один план")
 
     @router.callback_query(StateFilter(CreateLlm.confirm), F.data == "llm:ok")
     async def llm_ok(query: CallbackQuery, state: FSMContext) -> None:
         data = await state.get_data()
-        drafts = list(data.get("llm_drafts") or [])
-        if not drafts and data.get("llm_draft"):
-            drafts = [data["llm_draft"]]
-        idx = int(data.get("llm_draft_index") or 0)
-        raw = drafts[idx] if drafts and 0 <= idx < len(drafts) else None
+        batch = data.get("llm_batch")
         chat = query.message.chat if query.message else None  # type: ignore[union-attr]
         chat_id = chat.id if chat else None
         if query.message is not None:
             await _track_bot_msg(state, query.message)  # type: ignore[arg-type]
-        if not raw:
+        if not batch or not batch.get("actions"):
             await _purge_dialog(query.bot, state, chat_id)
-            await query.answer("черновик потерян", show_alert=True)
+            await query.answer("план потерян", show_alert=True)
             return
         try:
-            draft = QuestDraft.model_validate(raw)
-        except ValidationError as e:
-            await _purge_dialog(query.bot, state, chat_id)
-            await query.answer(f"bad draft: {e}", show_alert=True)
-            return
-        try:
-            cats = await api.list_categories()
-            body = draft_to_create_body(draft, categories=cats)
-            q = await api.create_quest(body)
-        except (ApiError, LlmError) as e:
+            result = await api.apply_actions(batch)
+        except ApiError as e:
             await query.answer(str(e), show_alert=True)
             return
         await _purge_dialog(query.bot, state, chat_id)
+        n = len((result or {}).get("results") or batch.get("actions") or [])
         if chat_id is not None:
-            title = _esc_html(str(q.get("title") or draft.title))
             await tg_retry(
                 lambda: query.bot.send_message(  # type: ignore[union-attr]
                     chat_id,
-                    f"Создано задание «{title}»",
+                    f"Применено действий: {n}",
                     reply_markup=reply_kb,
                 ),
-                label="llm-created",
+                label="llm-applied",
             )
-        await query.answer("создано")
+        await query.answer("готово")
 
     @router.message(F.text)
     async def unhandled_text(message: Message, state: FSMContext) -> None:
