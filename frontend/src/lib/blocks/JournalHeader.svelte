@@ -189,7 +189,6 @@
       </button>
     {/if}
     <div class="brand" bind:this={brandEl}>
-      <span class="brand__mark" aria-hidden="true">◈</span>
       {#if view === 'hero' || view === 'stats'}
         <!-- Only views without their own tab in view-tabs need a label here —
              journal/toc/notes/attachments/calendar already show which one is

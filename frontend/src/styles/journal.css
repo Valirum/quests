@@ -38,16 +38,6 @@
     min-height: 2.25rem;
   }
 
-  .brand__mark {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    color: var(--color-accent, #c9a227);
-    font-size: 1.15rem;
-    line-height: 1;
-    transform: translateY(0.02em);
-  }
-
   .brand__title {
     margin: 0;
     font-family: var(--font-display, Georgia, serif);
