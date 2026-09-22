@@ -190,23 +190,15 @@
     {/if}
     <div class="brand" bind:this={brandEl}>
       <span class="brand__mark" aria-hidden="true">◈</span>
-      <h1 class="brand__title">
-        {#if view === 'hero'}
-          Лист
-        {:else if view === 'calendar'}
-          Календарь
-        {:else if view === 'stats'}
-          Статистика
-        {:else if view === 'toc'}
-          Оглавление
-        {:else if view === 'notes'}
-          Заметки
-        {:else if view === 'attachments'}
-          Вложения
-        {:else}
-          Задачи
-        {/if}
-      </h1>
+      {#if view === 'hero' || view === 'stats'}
+        <!-- Only views without their own tab in view-tabs need a label here —
+             journal/toc/notes/attachments/calendar already show which one is
+             active via the tab's own highlight, so a second label was just
+             repeating it. -->
+        <h1 class="brand__title">
+          {view === 'hero' ? 'Лист' : 'Статистика'}
+        </h1>
+      {/if}
     </div>
 
     {#snippet healthChips()}
