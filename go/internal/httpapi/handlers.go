@@ -68,6 +68,7 @@ func (s *Server) Handler() http.Handler {
 	s.registerAuth(mux)
 	s.registerAttachments(mux)
 	s.registerNotes(mux)
+	s.registerPDF(mux)
 	s.registerParity(mux)
 	s.registerLLMActions(mux)
 	s.mountSPA(mux)

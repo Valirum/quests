@@ -25,6 +25,9 @@ bot = [
 mcp = [
     "mcp>=2.0.0",
 ]
+pdf = [
+    "weasyprint>=62.0",
+]
 
 [project.scripts]
 quests = "quests.cli:main"

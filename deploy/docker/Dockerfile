@@ -27,7 +27,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     QUESTS_ROOT=/app
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends curl ca-certificates \
+    && apt-get install -y --no-install-recommends \
+       curl ca-certificates \
+       libpango-1.0-0 libpangoft2-1.0-0 libharfbuzz-subset0 \
+       fonts-dejavu-core fontconfig \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
@@ -44,6 +47,7 @@ RUN uv sync --locked --no-dev
 
 # --- API runtime: Go server + SPA + Alembic migrate ---
 FROM python-base AS api
+RUN uv sync --locked --no-dev --extra pdf
 COPY --from=go-build /out/quests-server /usr/local/bin/quests-server
 COPY --from=go-build /out/quests /usr/local/bin/quests
 COPY --from=frontend /src/frontend/dist /app/frontend/dist
