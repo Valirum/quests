@@ -1414,8 +1414,10 @@
   }
 
   @media (max-width: 720px) {
+    /* Stay side-by-side and just shrink — no stacking, which pushed the
+       note detail below a full-height tree and made it feel lost. */
     .notes {
-      grid-template-columns: 1fr;
+      grid-template-columns: minmax(7rem, 30%) 1fr;
     }
     .notes__page {
       padding: 1rem 1rem 2rem;
