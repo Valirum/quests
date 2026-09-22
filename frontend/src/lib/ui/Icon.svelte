@@ -1,6 +1,8 @@
 <script>
   import add from '../../assets/icons/add.svg?raw'
   import arrowUp from '../../assets/icons/arrow-up.svg?raw'
+  import attachment from '../../assets/icons/attachment.svg?raw'
+  import calendar from '../../assets/icons/calendar.svg?raw'
   import checkmark from '../../assets/icons/checkmark.svg?raw'
   import chevronDown from '../../assets/icons/chevron-down.svg?raw'
   import chevronRight from '../../assets/icons/chevron-right.svg?raw'
@@ -27,6 +29,8 @@
   const ICONS = {
     add,
     'arrow-up': arrowUp,
+    attachment,
+    calendar,
     checkmark,
     'chevron-down': chevronDown,
     'chevron-right': chevronRight,

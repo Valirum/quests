@@ -278,9 +278,11 @@
       class:view-tab--on={view === 'journal'}
       role="tab"
       aria-selected={view === 'journal'}
+      title="Журнал"
       onclick={() => onViewChange('journal')}
     >
-      Журнал
+      <Icon name="scroll" size={15} />
+      <span class="view-tab__label">Журнал</span>
     </button>
     <button
       type="button"
@@ -288,9 +290,11 @@
       class:view-tab--on={view === 'toc'}
       role="tab"
       aria-selected={view === 'toc'}
+      title="Оглавление"
       onclick={() => onViewChange('toc')}
     >
-      Оглавление
+      <Icon name="layers" size={15} />
+      <span class="view-tab__label">Оглавление</span>
     </button>
     <button
       type="button"
@@ -298,9 +302,11 @@
       class:view-tab--on={view === 'notes'}
       role="tab"
       aria-selected={view === 'notes'}
+      title="Заметки"
       onclick={() => onViewChange('notes')}
     >
-      Заметки
+      <Icon name="document" size={15} />
+      <span class="view-tab__label">Заметки</span>
     </button>
     <button
       type="button"
@@ -308,9 +314,11 @@
       class:view-tab--on={view === 'attachments'}
       role="tab"
       aria-selected={view === 'attachments'}
+      title="Вложения"
       onclick={() => onViewChange('attachments')}
     >
-      Вложения
+      <Icon name="attachment" size={15} />
+      <span class="view-tab__label">Вложения</span>
     </button>
     <button
       type="button"
@@ -318,9 +326,11 @@
       class:view-tab--on={view === 'calendar'}
       role="tab"
       aria-selected={view === 'calendar'}
+      title="Календарь"
       onclick={() => onViewChange('calendar')}
     >
-      Календарь
+      <Icon name="calendar" size={15} />
+      <span class="view-tab__label">Календарь</span>
     </button>
   </div>
   {#snippet fullActions()}

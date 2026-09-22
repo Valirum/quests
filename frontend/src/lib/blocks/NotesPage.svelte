@@ -158,6 +158,19 @@
     }
   }
 
+  // "Оба" needs a side-by-side split that doesn't fit the full-screen single
+  // pane below 480px — drop out of it there (the option itself is hidden by
+  // CSS too) so a note never opens into a mode with no toggle back to it.
+  $effect(() => {
+    const mq = window.matchMedia('(max-width: 480px)')
+    const apply = () => {
+      if (mq.matches && viewMode === 'combined') setViewMode('formatted')
+    }
+    apply()
+    mq.addEventListener('change', apply)
+    return () => mq.removeEventListener('change', apply)
+  })
+
   function fromRow(row) {
     return {
       title: row.title || '',
@@ -835,6 +848,7 @@
                 type="button"
                 class="notes__mode"
                 class:notes__mode--on={viewMode === mode.id}
+                data-mode={mode.id}
                 role="radio"
                 aria-checked={viewMode === mode.id}
                 onclick={() => setViewMode(mode.id)}
@@ -1459,6 +1473,12 @@
 
     .notes--sidebar-collapsed .notes__page {
       display: flex;
+    }
+
+    /* No room for a side-by-side split; the $effect above steers away from
+       it too, so this is just for anyone still mid-toggle on resize. */
+    .notes__mode[data-mode="combined"] {
+      display: none;
     }
   }
 </style>
