@@ -72,6 +72,26 @@
   let searchQuery = $state('')
   /** @type {'journal' | 'toc' | 'notes' | 'attachments' | 'calendar' | 'hero' | 'stats'} */
   let view = $state('journal')
+  /** Sidebar visibility per view that has one — remembered across reloads. */
+  let sidebarCollapsed = $state(loadSidebarCollapsed())
+
+  function loadSidebarCollapsed() {
+    try {
+      const raw = JSON.parse(localStorage.getItem('quests.sidebarCollapsed') || '{}')
+      return { journal: !!raw.journal, notes: !!raw.notes }
+    } catch {
+      return { journal: false, notes: false }
+    }
+  }
+
+  function toggleSidebar(key) {
+    sidebarCollapsed = { ...sidebarCollapsed, [key]: !sidebarCollapsed[key] }
+    try {
+      localStorage.setItem('quests.sidebarCollapsed', JSON.stringify(sidebarCollapsed))
+    } catch {
+      /* ignore */
+    }
+  }
   /** Bump to refresh hero silently after quest events. */
   let heroNonce = $state(0)
   /** Bump to refresh stats silently after quest events. */
@@ -1047,6 +1067,8 @@
     {view}
     {liveStatus}
     {health}
+    sidebarCollapsed={view === 'notes' ? sidebarCollapsed.notes : sidebarCollapsed.journal}
+    onToggleSidebar={() => toggleSidebar(view === 'notes' ? 'notes' : 'journal')}
     onViewChange={(v) => setView(v)}
     onOpenSettings={openSettings}
     onOpenTemplates={openTemplates}
@@ -1095,6 +1117,7 @@
         {attachments}
         selectedId={selectedNoteId}
         labels={refLabels}
+        sidebarCollapsed={sidebarCollapsed.notes}
         onSelect={(id) => selectNoteFromUi(id)}
         onChanged={() => load({ silent: true })}
         onRef={onJournalRef}
@@ -1113,7 +1136,7 @@
       />
     </div>
   {:else}
-    <div class="journal__body">
+    <div class="journal__body" class:journal__body--sidebar-collapsed={sidebarCollapsed.journal}>
       <QuestSidebar
         {loading}
         {quests}

@@ -19,6 +19,7 @@
   import save from '../../assets/icons/save.svg?raw'
   import scroll from '../../assets/icons/scroll.svg?raw'
   import settings from '../../assets/icons/settings.svg?raw'
+  import sidebar from '../../assets/icons/sidebar.svg?raw'
   import subtract from '../../assets/icons/subtract.svg?raw'
   import target from '../../assets/icons/target.svg?raw'
   import terminal from '../../assets/icons/terminal.svg?raw'
@@ -44,6 +45,7 @@
     save,
     scroll,
     settings,
+    sidebar,
     subtract,
     target,
     terminal,

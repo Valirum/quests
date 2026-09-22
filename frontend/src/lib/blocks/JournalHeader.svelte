@@ -6,6 +6,8 @@
    *   view: 'journal' | 'toc' | 'notes' | 'attachments' | 'calendar' | 'hero' | 'stats',
    *   liveStatus: string,
    *   health: { api: string, overlay: string, telegram: string, webdav?: string },
+   *   sidebarCollapsed?: boolean,
+   *   onToggleSidebar?: (() => void) | null,
    *   onViewChange: (v: 'journal' | 'toc' | 'notes' | 'attachments' | 'calendar' | 'hero' | 'stats') => void,
    *   onOpenSettings: () => void,
    *   onOpenTemplates: () => void,
@@ -17,6 +19,8 @@
     view,
     liveStatus,
     health,
+    sidebarCollapsed = false,
+    onToggleSidebar = null,
     onViewChange,
     onOpenSettings,
     onOpenTemplates,
@@ -24,6 +28,9 @@
     onOpenCreateQuest,
     onOpenAssistant,
   } = $props()
+
+  /** Only 'journal' and 'notes' have a collapsible sidebar. */
+  let showSidebarToggle = $derived(view === 'journal' || view === 'notes')
 
   /** Map WS states onto the same chip palette as API/HUD/Bot. */
   let liveChip = $derived.by(() => {
@@ -169,6 +176,18 @@
 
 <header class="journal__header" bind:this={headerEl}>
   <div class="header-left" bind:this={leftEl}>
+    {#if showSidebarToggle}
+      <button
+        type="button"
+        class="btn btn--ghost btn--icon sidebar-toggle"
+        onclick={onToggleSidebar}
+        title={sidebarCollapsed ? 'Показать боковую панель' : 'Скрыть боковую панель'}
+        aria-label={sidebarCollapsed ? 'Показать боковую панель' : 'Скрыть боковую панель'}
+        aria-pressed={sidebarCollapsed}
+      >
+        <Icon name="sidebar" size={16} />
+      </button>
+    {/if}
     <div class="brand" bind:this={brandEl}>
       <span class="brand__mark" aria-hidden="true">◈</span>
       <h1 class="brand__title">
