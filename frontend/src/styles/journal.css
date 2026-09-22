@@ -2389,7 +2389,6 @@
   @media (max-width: 760px) {
     .journal__body {
       grid-template-columns: 1fr;
-      grid-template-rows: minmax(12rem, 40vh) 1fr;
     }
 
     .sidebar {
