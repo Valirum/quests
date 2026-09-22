@@ -42,6 +42,7 @@ class TemplateEmitOutcome(str, Enum):
     miss = "miss"
     scheduled = "scheduled"
     materialized = "materialized"
+    error = "error"  # emit_pool_command exhausted its retries this period
 
 
 class QuestSignificance(str, Enum):
@@ -318,6 +319,12 @@ class QuestTemplateBase(SQLModel):
     # Local window for random scheduled_at ("HH:MM"). Empty → 00:00..23:59.
     emit_window_start: Optional[str] = Field(default=None, max_length=8)
     emit_window_end: Optional[str] = Field(default=None, max_length=8)
+    # Shell command run on each roll; stdout must be a JSON array of
+    # {title, description?, weight?, ref?}. Independent of emit_mode — a
+    # fixed template can pool content too. Empty pool / zero total weight = miss.
+    emit_pool_command: Optional[str] = Field(default=None, max_length=2000)
+    # How many items to draw from the pool per successful roll.
+    emit_pool_pick: int = Field(default=1, ge=1)
     # JSON attribute weights copied onto instances, e.g. {"str":1,"int":2}.
     reward_attrs: Optional[str] = Field(default=None, max_length=500)
     category_id: Optional[int] = Field(
@@ -404,6 +411,8 @@ class QuestTemplateUpdate(SQLModel):
     emit_chance: Optional[float] = Field(default=None, ge=0.0, le=1.0)
     emit_window_start: Optional[str] = Field(default=None, max_length=8)
     emit_window_end: Optional[str] = Field(default=None, max_length=8)
+    emit_pool_command: Optional[str] = Field(default=None, max_length=2000)
+    emit_pool_pick: Optional[int] = Field(default=None, ge=1)
     steps: Optional[List[QuestTemplateStepCreate]] = None
     reward_attrs: Optional[str] = Field(default=None, max_length=500)
     category_id: Optional[int] = None
@@ -443,6 +452,11 @@ class TemplateEmitRoll(SQLModel, table=True):
     outcome: TemplateEmitOutcome = TemplateEmitOutcome.miss
     # UTC naive; set when outcome=scheduled (and kept after materialize).
     scheduled_at: Optional[datetime] = None
+    # emit_pool_command failures this period (capped at 3, then outcome=error).
+    attempts: int = 0
+    # JSON array of chosen items' `ref` (or a title/description hash when no
+    # ref was given), used to exclude recent picks on later periods.
+    picked_refs: Optional[str] = None
     created_at: datetime = Field(default_factory=utcnow)
     updated_at: datetime = Field(default_factory=utcnow)
 
