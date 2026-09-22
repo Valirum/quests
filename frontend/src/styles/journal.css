@@ -2387,13 +2387,10 @@
   }
 
   @media (max-width: 760px) {
+    /* Stay side-by-side and just shrink — no stacking, which pushed the
+       detail pane below a full-height sidebar and made it feel lost. */
     .journal__body {
-      grid-template-columns: 1fr;
-    }
-
-    .sidebar {
-      border-right: 0;
-      border-bottom: 1px solid var(--color-border, #333);
+      grid-template-columns: minmax(7rem, 30%) 1fr;
     }
   }
 
