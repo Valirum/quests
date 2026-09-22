@@ -44,6 +44,7 @@
     quests = [],
     questlines = [],
     attachments = [],
+    sidebarCollapsed = false,
     onSelect,
     onChanged,
     onRef,
@@ -654,7 +655,7 @@
   )
 </script>
 
-<div class="notes">
+<div class="notes" class:notes--sidebar-collapsed={sidebarCollapsed}>
   <aside class="notes__tree">
     <div class="notes__tools">
       <input class="search" type="search" placeholder="Поиск…" bind:value={search} />
@@ -979,10 +980,19 @@
     overflow: hidden;
   }
 
+  .notes--sidebar-collapsed {
+    grid-template-columns: 0 1fr;
+  }
+
+  .notes--sidebar-collapsed .notes__tree {
+    border-right: 0;
+  }
+
   .notes__tree {
     display: flex;
     flex-direction: column;
     min-height: 0;
+    overflow: hidden;
     border-right: 1px solid var(--color-border, #333);
     background: var(--color-bg-raised, #1a1a1a);
   }
@@ -1174,13 +1184,22 @@
   .notes__title-grow {
     position: relative;
     display: inline-grid;
-    min-width: 1ch;
+    /* Flex items default to min-width:auto (= their content's min-content),
+       and the sizer's white-space:pre makes that the full title width —
+       without an explicit 0 here a long title refuses to shrink and
+       overlaps the pin/save buttons instead of clipping. */
+    min-width: 0;
     max-width: 100%;
+    overflow: hidden;
   }
 
   .notes__title-sizer,
   .notes__title {
     grid-area: 1 / 1;
+    /* Same min-width:auto trap applies to grid items sizing their track —
+       without this the track still grows to the sizer's full-text
+       min-content width even though the container above is now capped. */
+    min-width: 0;
     padding: 0.15rem 0;
     font: inherit;
   }
