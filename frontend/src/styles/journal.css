@@ -150,6 +150,9 @@
   }
 
   .view-tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
     border: 0;
     border-bottom: 1px solid transparent;
     background: transparent;
@@ -160,6 +163,12 @@
     font-family: var(--font-display, Georgia, serif);
     font-size: var(--text-sm, 0.875rem);
     letter-spacing: 0.02em;
+  }
+
+  /* Icon rides along in the markup but only earns its keep once labels
+     get cut off on a very narrow screen — see the 480px override below. */
+  .view-tabs .view-tab .icon {
+    display: none;
   }
 
   .view-tab + .view-tab {
@@ -2412,6 +2421,26 @@
 
     .journal__body--sidebar-collapsed .detail {
       display: block;
+    }
+
+    /* Labels get cut off at this width regardless of centering — icons only,
+       tab-icons stay recognizable even though several tabs are functionally
+       similar (journal/toc/notes are all "a list of text"). */
+    .view-tab {
+      padding: 0.4rem 0.5rem;
+    }
+
+    .view-tabs .view-tab .icon {
+      display: inline-flex;
+    }
+
+    .view-tab__label {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
     }
   }
 
