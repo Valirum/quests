@@ -1,10 +1,13 @@
 package schedule
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
+	"encoding/json"
 	"math/rand"
 	"os"
+	"os/exec"
 	"strconv"
 	"strings"
 	"time"
@@ -14,6 +17,13 @@ import (
 	"github.com/valirum/quests/go/internal/store"
 	"github.com/valirum/quests/go/internal/timeutil"
 )
+
+// emitPoolTimeout bounds how long emit_pool_command may run per attempt.
+const emitPoolTimeout = 20 * time.Second
+
+// emitPoolMaxAttempts caps retries of a failing/invalid emit_pool_command
+// within one period before giving up (outcome=error) until the next period.
+const emitPoolMaxAttempts = 3
 
 func defaultTZ() string {
 	if v := strings.TrimSpace(os.Getenv("QUESTS_TZ")); v != "" {
@@ -39,6 +49,8 @@ type templateRow struct {
 	EmitChance      float64
 	EmitWindowStart sql.NullString
 	EmitWindowEnd   sql.NullString
+	EmitPoolCommand sql.NullString
+	EmitPoolPick    int
 	RewardAttrs     sql.NullString
 	CategoryID      sql.NullInt64
 	QuestlineID     sql.NullInt64
@@ -68,7 +80,8 @@ func MaterializeDue(ctx context.Context, st *store.Store, hub *events.Hub, now t
 	rows, err := st.DB.QueryContext(ctx, `
 		SELECT id, title, description, pinned, sort_order, duration_seconds, freq, weekdays,
 			enabled, timezone, deadline_time, significance, emit_mode, emit_chance,
-			emit_window_start, emit_window_end, reward_attrs, category_id, questline_id, automated
+			emit_window_start, emit_window_end, emit_pool_command, emit_pool_pick,
+			reward_attrs, category_id, questline_id, automated
 		FROM questtemplate WHERE enabled = 1 ORDER BY sort_order, id`)
 	if err != nil {
 		return nil, err
@@ -81,7 +94,8 @@ func MaterializeDue(ctx context.Context, st *store.Store, hub *events.Hub, now t
 		if err := rows.Scan(
 			&t.ID, &t.Title, &t.Description, &pinned, &t.SortOrder, &t.DurationSeconds, &t.Freq, &t.Weekdays,
 			&enabled, &t.Timezone, &t.DeadlineTime, &t.Significance, &t.EmitMode, &t.EmitChance,
-			&t.EmitWindowStart, &t.EmitWindowEnd, &t.RewardAttrs, &t.CategoryID, &t.QuestlineID, &automated,
+			&t.EmitWindowStart, &t.EmitWindowEnd, &t.EmitPoolCommand, &t.EmitPoolPick,
+			&t.RewardAttrs, &t.CategoryID, &t.QuestlineID, &automated,
 		); err != nil {
 			return nil, err
 		}
@@ -146,9 +160,25 @@ func MaterializeDue(ctx context.Context, st *store.Store, hub *events.Hub, now t
 			deadline, duration = fixedDeadline(tmpl, localNow, loc)
 		}
 
-		steps, err := loadTemplateSteps(ctx, st, tmpl, rng)
-		if err != nil {
-			return created, err
+		usePool := tmpl.EmitPoolCommand.Valid && strings.TrimSpace(tmpl.EmitPoolCommand.String) != ""
+		var poolRollID int64
+		var steps []domain.Step
+		if usePool {
+			items, rollID, perr := resolveEmitPool(ctx, st, tmpl, key, now, rng)
+			if perr != nil {
+				return created, perr
+			}
+			poolRollID = rollID
+			if len(items) == 0 {
+				// retry pending, empty/zero-weight pool (miss), or attempts exhausted (error)
+				continue
+			}
+			steps = stepsFromPoolItems(items)
+		} else {
+			steps, err = loadTemplateSteps(ctx, st, tmpl, rng)
+			if err != nil {
+				return created, err
+			}
 		}
 
 		q := domain.Quest{
@@ -194,6 +224,11 @@ func MaterializeDue(ctx context.Context, st *store.Store, hub *events.Hub, now t
 			_, _ = st.DB.ExecContext(ctx, `
 				UPDATE templateemitroll SET outcome = 'materialized', updated_at = ? WHERE id = ?`,
 				timeutil.ToDBUTC(now), surpriseRollID.Int64)
+		}
+		if usePool && poolRollID != 0 {
+			_, _ = st.DB.ExecContext(ctx, `
+				UPDATE templateemitroll SET outcome = 'materialized', updated_at = ? WHERE id = ?`,
+				timeutil.ToDBUTC(now), poolRollID)
 		}
 		qid := createdQ.ID
 		detail := "Период " + key
@@ -479,4 +514,252 @@ func loadTemplateSteps(ctx context.Context, st *store.Store, tmpl templateRow, r
 		out = append(out, st)
 	}
 	return out, nil
+}
+
+// poolItem is one entry of the JSON array printed by emit_pool_command.
+type poolItem struct {
+	Title       string   `json:"title"`
+	Description string   `json:"description"`
+	Weight      *float64 `json:"weight"`
+	Ref         string   `json:"ref"`
+}
+
+func (it poolItem) effectiveWeight() float64 {
+	if it.Weight == nil {
+		return 1
+	}
+	if *it.Weight < 0 {
+		return 0
+	}
+	return *it.Weight
+}
+
+func (it poolItem) key() string {
+	if strings.TrimSpace(it.Ref) != "" {
+		return it.Ref
+	}
+	return it.Title + "\x00" + it.Description
+}
+
+// resolveEmitPool drives one template's emit_pool_command for the current
+// period: executes it (with retry-on-failure up to emitPoolMaxAttempts),
+// weighted-picks emit_pool_pick items excluding recent picks, and persists
+// state in templateemitroll so repeated ticks don't re-roll or re-exec.
+// Returns an empty slice when there is nothing to materialize this tick
+// (pending retry, empty/zero-weight pool = miss, or attempts exhausted).
+func resolveEmitPool(ctx context.Context, st *store.Store, tmpl templateRow, periodKey string, now time.Time, rng *rand.Rand) ([]poolItem, int64, error) {
+	var id int64
+	var outcome string
+	var attempts int
+	var pickedRefs sql.NullString
+	isNew := false
+	err := st.DB.QueryRowContext(ctx, `
+		SELECT id, outcome, attempts, picked_refs FROM templateemitroll
+		WHERE template_id = ? AND period_key = ?`, tmpl.ID, periodKey).
+		Scan(&id, &outcome, &attempts, &pickedRefs)
+	if err == sql.ErrNoRows {
+		isNew = true
+	} else if err != nil {
+		return nil, 0, err
+	}
+	if !isNew && (outcome == "materialized" || outcome == "error" || outcome == "miss") {
+		return nil, id, nil
+	}
+
+	items, execErr := execEmitPoolCommand(ctx, tmpl.EmitPoolCommand.String)
+	if execErr != nil {
+		attempts++
+		newOutcome := "scheduled"
+		if attempts >= emitPoolMaxAttempts {
+			newOutcome = "error"
+		}
+		if isNew {
+			res, err := st.DB.ExecContext(ctx, `
+				INSERT INTO templateemitroll (template_id, period_key, outcome, attempts, created_at, updated_at)
+				VALUES (?, ?, ?, ?, ?, ?)`,
+				tmpl.ID, periodKey, newOutcome, attempts, timeutil.ToDBUTC(now), timeutil.ToDBUTC(now))
+			if err != nil {
+				return nil, 0, err
+			}
+			id, _ = res.LastInsertId()
+		} else {
+			if _, err := st.DB.ExecContext(ctx, `
+				UPDATE templateemitroll SET outcome = ?, attempts = ?, updated_at = ? WHERE id = ?`,
+				newOutcome, attempts, timeutil.ToDBUTC(now), id); err != nil {
+				return nil, 0, err
+			}
+		}
+		return nil, id, nil
+	}
+
+	positive := make([]poolItem, 0, len(items))
+	for _, it := range items {
+		if it.effectiveWeight() > 0 {
+			positive = append(positive, it)
+		}
+	}
+	if len(positive) == 0 {
+		if err := persistEmitPoolOutcome(ctx, st, id, isNew, tmpl.ID, periodKey, "miss", attempts, "", now); err != nil {
+			return nil, 0, err
+		}
+		return nil, id, nil
+	}
+
+	excludeDepth := len(positive) - 1
+	excluded := map[string]struct{}{}
+	if excludeDepth > 0 {
+		rows, err := st.DB.QueryContext(ctx, `
+			SELECT picked_refs FROM templateemitroll
+			WHERE template_id = ? AND period_key != ? AND picked_refs IS NOT NULL
+			ORDER BY period_key DESC LIMIT ?`, tmpl.ID, periodKey, excludeDepth)
+		if err != nil {
+			return nil, 0, err
+		}
+		for rows.Next() {
+			var raw string
+			if err := rows.Scan(&raw); err != nil {
+				rows.Close()
+				return nil, 0, err
+			}
+			var keys []string
+			if json.Unmarshal([]byte(raw), &keys) == nil {
+				for _, k := range keys {
+					excluded[k] = struct{}{}
+				}
+			}
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return nil, 0, err
+		}
+		rows.Close()
+	}
+
+	candidates := make([]poolItem, 0, len(positive))
+	for _, it := range positive {
+		if _, skip := excluded[it.key()]; !skip {
+			candidates = append(candidates, it)
+		}
+	}
+	m := tmpl.EmitPoolPick
+	if m < 1 {
+		m = 1
+	}
+	if len(candidates) < m {
+		candidates = positive // not enough non-recent variants — fall back to the full pool
+	}
+	picked := weightedPickWithoutReplacement(candidates, m, rng)
+
+	keys := make([]string, 0, len(picked))
+	for _, it := range picked {
+		keys = append(keys, it.key())
+	}
+	refsJSON, err := json.Marshal(keys)
+	if err != nil {
+		return nil, 0, err
+	}
+	if err := persistEmitPoolOutcome(ctx, st, id, isNew, tmpl.ID, periodKey, "scheduled", attempts, string(refsJSON), now); err != nil {
+		return nil, 0, err
+	}
+	return picked, id, nil
+}
+
+func persistEmitPoolOutcome(ctx context.Context, st *store.Store, id int64, isNew bool, templateID int64, periodKey, outcome string, attempts int, pickedRefsJSON string, now time.Time) error {
+	if isNew {
+		_, err := st.DB.ExecContext(ctx, `
+			INSERT INTO templateemitroll (template_id, period_key, outcome, attempts, picked_refs, created_at, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?)`,
+			templateID, periodKey, outcome, attempts, nullStrIfEmpty(pickedRefsJSON), timeutil.ToDBUTC(now), timeutil.ToDBUTC(now))
+		return err
+	}
+	_, err := st.DB.ExecContext(ctx, `
+		UPDATE templateemitroll SET outcome = ?, picked_refs = ?, updated_at = ? WHERE id = ?`,
+		outcome, nullStrIfEmpty(pickedRefsJSON), timeutil.ToDBUTC(now), id)
+	return err
+}
+
+func nullStrIfEmpty(s string) any {
+	if s == "" {
+		return nil
+	}
+	return s
+}
+
+// execEmitPoolCommand runs emit_pool_command and parses its stdout as a JSON
+// array of pool items. A non-zero exit code or invalid JSON is an error —
+// the caller treats it the same as a transient failure (counts an attempt).
+func execEmitPoolCommand(parent context.Context, command string) ([]poolItem, error) {
+	ctx, cancel := context.WithTimeout(parent, emitPoolTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "sh", "-c", command)
+	cmd.Env = os.Environ()
+	if home, err := os.UserHomeDir(); err == nil {
+		cmd.Dir = home
+	}
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return nil, err
+	}
+	var items []poolItem
+	if err := json.Unmarshal(stdout.Bytes(), &items); err != nil {
+		return nil, err
+	}
+	out := make([]poolItem, 0, len(items))
+	for _, it := range items {
+		if strings.TrimSpace(it.Title) == "" {
+			continue
+		}
+		out = append(out, it)
+	}
+	return out, nil
+}
+
+// weightedPickWithoutReplacement draws up to m items from candidates,
+// each draw weighted by effectiveWeight among what remains.
+func weightedPickWithoutReplacement(candidates []poolItem, m int, rng *rand.Rand) []poolItem {
+	pool := append([]poolItem(nil), candidates...)
+	picked := make([]poolItem, 0, m)
+	for len(picked) < m && len(pool) > 0 {
+		total := 0.0
+		for _, it := range pool {
+			total += it.effectiveWeight()
+		}
+		if total <= 0 {
+			break
+		}
+		r := rng.Float64() * total
+		idx := len(pool) - 1
+		acc := 0.0
+		for j, it := range pool {
+			acc += it.effectiveWeight()
+			if r < acc {
+				idx = j
+				break
+			}
+		}
+		picked = append(picked, pool[idx])
+		pool = append(pool[:idx], pool[idx+1:]...)
+	}
+	return picked
+}
+
+func stepsFromPoolItems(items []poolItem) []domain.Step {
+	out := make([]domain.Step, 0, len(items))
+	for i, it := range items {
+		desc := it.Description
+		if strings.TrimSpace(it.Ref) != "" {
+			if desc != "" {
+				desc += "\n\n" + it.Ref
+			} else {
+				desc = it.Ref
+			}
+		}
+		out = append(out, domain.Step{
+			Title: it.Title, Description: desc,
+			ProgressCurrent: 0, ProgressTotal: 1, SortOrder: i,
+		})
+	}
+	return out
 }

@@ -17,7 +17,8 @@ func (s *Store) ListTemplates(ctx context.Context, enabled *bool) ([]TemplateRea
 	q := `
 		SELECT t.id, t.title, t.description, t.pinned, t.sort_order, t.duration_seconds, t.freq, t.weekdays,
 			t.enabled, t.timezone, t.deadline_time, t.significance, t.emit_mode, t.emit_chance,
-			t.emit_window_start, t.emit_window_end, t.reward_attrs, t.category_id, t.questline_id,
+			t.emit_window_start, t.emit_window_end, t.emit_pool_command, t.emit_pool_pick,
+			t.reward_attrs, t.category_id, t.questline_id,
 			t.created_at, t.updated_at, t.automated,
 			c.slug, c.label, c.color, l.title, l.color, l.icon, l.custom_icon, l.updated_at, l.id
 		FROM questtemplate t
@@ -67,7 +68,8 @@ func (s *Store) GetTemplate(ctx context.Context, id int64) (TemplateRead, error)
 	row := s.DB.QueryRowContext(ctx, `
 		SELECT t.id, t.title, t.description, t.pinned, t.sort_order, t.duration_seconds, t.freq, t.weekdays,
 			t.enabled, t.timezone, t.deadline_time, t.significance, t.emit_mode, t.emit_chance,
-			t.emit_window_start, t.emit_window_end, t.reward_attrs, t.category_id, t.questline_id,
+			t.emit_window_start, t.emit_window_end, t.emit_pool_command, t.emit_pool_pick,
+			t.reward_attrs, t.category_id, t.questline_id,
 			t.created_at, t.updated_at, t.automated,
 			c.slug, c.label, c.color, l.title, l.color, l.icon, l.custom_icon, l.updated_at, l.id
 		FROM questtemplate t
@@ -106,6 +108,10 @@ func (s *Store) CreateTemplate(ctx context.Context, body map[string]any) (Templa
 	sig := asStringDef(body["significance"], "common")
 	emitMode := asStringDef(body["emit_mode"], "fixed")
 	emitChance := asFloat(body["emit_chance"], 1.0)
+	emitPoolPick := asInt(body["emit_pool_pick"], 1)
+	if emitPoolPick < 1 {
+		emitPoolPick = 1
+	}
 	colorCat := nullI64(asI64Ptr(body["category_id"]))
 	lineID := nullI64(asI64Ptr(body["questline_id"]))
 
@@ -113,11 +119,13 @@ func (s *Store) CreateTemplate(ctx context.Context, body map[string]any) (Templa
 		INSERT INTO questtemplate (
 			title, description, pinned, sort_order, duration_seconds, freq, weekdays, enabled, timezone,
 			deadline_time, significance, emit_mode, emit_chance, emit_window_start, emit_window_end,
+			emit_pool_command, emit_pool_pick,
 			reward_attrs, category_id, questline_id, created_at, updated_at, automated
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		title, desc, boolInt(pinned), sortOrder, nullInt(asIntPtr(body["duration_seconds"])), freq, weekdays, boolInt(enabled), tz,
 		nullStr(asStringPtr(body["deadline_time"])), sig, emitMode, emitChance,
 		nullStr(asStringPtr(body["emit_window_start"])), nullStr(asStringPtr(body["emit_window_end"])),
+		nullStr(asStringPtr(body["emit_pool_command"])), emitPoolPick,
 		nullStr(asStringPtr(body["reward_attrs"])), colorCat, lineID,
 		timeutil.ToDBUTC(now), timeutil.ToDBUTC(now), boolInt(asBool(body["automated"], false)),
 	)
@@ -144,11 +152,16 @@ func (s *Store) UpdateTemplate(ctx context.Context, id int64, body map[string]an
 		merged[k] = v
 	}
 	now := timeutil.NowUTC()
+	emitPoolPick := asInt(merged["emit_pool_pick"], 1)
+	if emitPoolPick < 1 {
+		emitPoolPick = 1
+	}
 	_, err = s.DB.ExecContext(ctx, `
 		UPDATE questtemplate SET
 			title=?, description=?, pinned=?, sort_order=?, duration_seconds=?, freq=?, weekdays=?,
 			enabled=?, timezone=?, deadline_time=?, significance=?, emit_mode=?, emit_chance=?,
-			emit_window_start=?, emit_window_end=?, reward_attrs=?, category_id=?, questline_id=?,
+			emit_window_start=?, emit_window_end=?, emit_pool_command=?, emit_pool_pick=?,
+			reward_attrs=?, category_id=?, questline_id=?,
 			updated_at=?, automated=?
 		WHERE id=?`,
 		asStringDef(merged["title"], ""), asStringDef(merged["description"], ""),
@@ -158,7 +171,8 @@ func (s *Store) UpdateTemplate(ctx context.Context, id int64, body map[string]an
 		asStringDef(merged["timezone"], "Europe/Moscow"), nullStr(asStringPtr(merged["deadline_time"])),
 		asStringDef(merged["significance"], "common"), asStringDef(merged["emit_mode"], "fixed"),
 		asFloat(merged["emit_chance"], 1.0), nullStr(asStringPtr(merged["emit_window_start"])),
-		nullStr(asStringPtr(merged["emit_window_end"])), nullStr(asStringPtr(merged["reward_attrs"])),
+		nullStr(asStringPtr(merged["emit_window_end"])), nullStr(asStringPtr(merged["emit_pool_command"])), emitPoolPick,
+		nullStr(asStringPtr(merged["reward_attrs"])),
 		nullI64(asI64Ptr(merged["category_id"])), nullI64(asI64Ptr(merged["questline_id"])),
 		timeutil.ToDBUTC(now), boolInt(asBool(merged["automated"], false)), id,
 	)
@@ -306,9 +320,9 @@ func (s *Store) loadTemplateStepsRead(ctx context.Context, tid int64) ([]map[str
 func scanTemplate(row rowScanner) (TemplateRead, error) {
 	var id int64
 	var title, desc, freq, weekdays, tz, sig, emitMode string
-	var pinned, enabled, sortOrder, automated int
+	var pinned, enabled, sortOrder, automated, emitPoolPick int
 	var dur sql.NullInt64
-	var deadline, ewStart, ewEnd, reward sql.NullString
+	var deadline, ewStart, ewEnd, emitPoolCommand, reward sql.NullString
 	var emitChance float64
 	var catID, lineID sql.NullInt64
 	var created, updated sql.NullString
@@ -318,7 +332,8 @@ func scanTemplate(row rowScanner) (TemplateRead, error) {
 	err := row.Scan(
 		&id, &title, &desc, &pinned, &sortOrder, &dur, &freq, &weekdays,
 		&enabled, &tz, &deadline, &sig, &emitMode, &emitChance,
-		&ewStart, &ewEnd, &reward, &catID, &lineID,
+		&ewStart, &ewEnd, &emitPoolCommand, &emitPoolPick,
+		&reward, &catID, &lineID,
 		&created, &updated, &automated,
 		&cSlug, &cLabel, &cColor, &lTitle, &lColor, &lIcon, &lCustom, &lUpdated, &lID,
 	)
@@ -329,8 +344,10 @@ func scanTemplate(row rowScanner) (TemplateRead, error) {
 		"id": id, "title": title, "description": desc, "pinned": pinned != 0, "sort_order": sortOrder,
 		"freq": freq, "weekdays": weekdays, "enabled": enabled != 0, "timezone": tz,
 		"significance": sig, "emit_mode": emitMode, "emit_chance": emitChance,
+		"emit_pool_pick":   emitPoolPick,
 		"duration_seconds": nil, "deadline_time": nil, "emit_window_start": nil, "emit_window_end": nil,
-		"reward_attrs": nil, "category_id": nil, "questline_id": nil,
+		"emit_pool_command": nil,
+		"reward_attrs":      nil, "category_id": nil, "questline_id": nil,
 		"category_slug": nil, "category_label": nil, "category_color": nil,
 		"questline_title": nil, "questline_color": nil, "questline_icon": nil, "questline_icon_url": nil,
 		"automated": automated != 0,
@@ -346,6 +363,9 @@ func scanTemplate(row rowScanner) (TemplateRead, error) {
 	}
 	if ewEnd.Valid {
 		tr["emit_window_end"] = ewEnd.String
+	}
+	if emitPoolCommand.Valid {
+		tr["emit_pool_command"] = emitPoolCommand.String
 	}
 	if reward.Valid {
 		tr["reward_attrs"] = reward.String
