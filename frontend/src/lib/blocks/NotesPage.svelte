@@ -1440,4 +1440,25 @@
       width: 100%;
     }
   }
+
+  @media (max-width: 480px) {
+    /* Too narrow for a side-by-side tree + note — go one pane at a time,
+       full screen, toggled by the same sidebar-collapse state/button.
+       selectNoteFromUi (App.svelte) flips it on pick/back. */
+    .notes {
+      grid-template-columns: 1fr;
+    }
+
+    .notes .notes__page {
+      display: none;
+    }
+
+    .notes--sidebar-collapsed .notes__tree {
+      display: none;
+    }
+
+    .notes--sidebar-collapsed .notes__page {
+      display: flex;
+    }
+  }
 </style>

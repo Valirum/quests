@@ -85,12 +85,38 @@
   }
 
   function toggleSidebar(key) {
-    sidebarCollapsed = { ...sidebarCollapsed, [key]: !sidebarCollapsed[key] }
+    setSidebarCollapsed(key, !sidebarCollapsed[key])
+  }
+
+  function setSidebarCollapsed(key, value) {
+    if (sidebarCollapsed[key] === value) return
+    sidebarCollapsed = { ...sidebarCollapsed, [key]: value }
     try {
       localStorage.setItem('quests.sidebarCollapsed', JSON.stringify(sidebarCollapsed))
     } catch {
       /* ignore */
     }
+  }
+
+  /** Below this, the sidebar/list takes the full screen instead of a side column. */
+  const NARROW_SIDEBAR_BREAKPOINT = '(max-width: 480px)'
+
+  function isNarrowViewport() {
+    try {
+      return window.matchMedia(NARROW_SIDEBAR_BREAKPOINT).matches
+    } catch {
+      return false
+    }
+  }
+
+  /** On a full-screen sidebar, picking an item should reveal it, not leave the list covering it. */
+  function revealDetailOnNarrow(key) {
+    if (isNarrowViewport()) setSidebarCollapsed(key, true)
+  }
+
+  /** …and going back to the list should bring it back, not leave an empty detail pane. */
+  function revealListOnNarrow(key) {
+    if (isNarrowViewport()) setSidebarCollapsed(key, false)
   }
   /** Bump to refresh hero silently after quest events. */
   let heroNonce = $state(0)
@@ -818,6 +844,7 @@
     selectedId = n
     if (view !== 'journal') view = 'journal'
     if (pushUrl) replaceSearch({ quest: n })
+    revealDetailOnNarrow('journal')
     try {
       window.focus()
     } catch {
@@ -830,11 +857,13 @@
     if (!Number.isFinite(n) || n <= 0) {
       selectedNoteId = null
       if (pushUrl) replaceSearch(searchForView(view))
+      revealListOnNarrow('notes')
       return
     }
     selectedNoteId = n
     if (view !== 'notes') view = 'notes'
     if (pushUrl) replaceSearch({ note: n })
+    revealDetailOnNarrow('notes')
   }
 
   function selectAttachmentFromUi(id, { pushUrl = true } = {}) {
@@ -882,6 +911,7 @@
     selectedId = null
     pendingSelectId = null
     if (pushUrl) replaceSearch(searchForView(view))
+    revealListOnNarrow('journal')
   }
 
   async function refreshHealth() {

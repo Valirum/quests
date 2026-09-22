@@ -2394,6 +2394,27 @@
     }
   }
 
+  @media (max-width: 480px) {
+    /* Too narrow for a side-by-side list + detail — go one pane at a time,
+       full screen, toggled by the same sidebar-collapse state/button.
+       selectQuestFromUi/clearSelectedQuest (App.svelte) flip it on pick/back. */
+    .journal__body {
+      grid-template-columns: 1fr;
+    }
+
+    .journal__body .detail {
+      display: none;
+    }
+
+    .journal__body--sidebar-collapsed .sidebar {
+      display: none;
+    }
+
+    .journal__body--sidebar-collapsed .detail {
+      display: block;
+    }
+  }
+
   @media (orientation: portrait) {
     .journal__header {
       flex-wrap: wrap;
