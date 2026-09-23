@@ -60,8 +60,35 @@ func (s *Store) ListTemplates(ctx context.Context, enabled *bool) ([]TemplateRea
 			return nil, err
 		}
 		out[i]["steps"] = steps
+		if out[i]["emit_pool_command"] != nil {
+			outcome, err := s.latestEmitRollOutcome(ctx, id)
+			if err != nil {
+				return nil, err
+			}
+			if outcome != "" {
+				out[i]["emit_pool_last_outcome"] = outcome
+			}
+		}
 	}
 	return out, nil
+}
+
+// latestEmitRollOutcome reports the outcome of the most recent emit_pool
+// roll attempt for a template — surfaced in the UI so a command that's
+// stably failing (outcome=error, retries exhausted for the period) doesn't
+// go unnoticed until someone stumbles on the resulting failed quest.
+func (s *Store) latestEmitRollOutcome(ctx context.Context, templateID int64) (string, error) {
+	var outcome string
+	err := s.DB.QueryRowContext(ctx, `
+		SELECT outcome FROM templateemitroll
+		WHERE template_id = ? ORDER BY id DESC LIMIT 1`, templateID).Scan(&outcome)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return outcome, nil
 }
 
 func (s *Store) GetTemplate(ctx context.Context, id int64) (TemplateRead, error) {
@@ -88,6 +115,15 @@ func (s *Store) GetTemplate(ctx context.Context, id int64) (TemplateRead, error)
 		return nil, err
 	}
 	tr["steps"] = steps
+	if tr["emit_pool_command"] != nil {
+		outcome, err := s.latestEmitRollOutcome(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		if outcome != "" {
+			tr["emit_pool_last_outcome"] = outcome
+		}
+	}
 	return tr, nil
 }
 
@@ -362,7 +398,8 @@ func scanTemplate(row rowScanner) (TemplateRead, error) {
 		"reward_attrs":      nil, "category_id": nil, "questline_id": nil,
 		"category_slug": nil, "category_label": nil, "category_color": nil,
 		"questline_title": nil, "questline_color": nil, "questline_icon": nil, "questline_icon_url": nil,
-		"automated": automated != 0,
+		"automated":              automated != 0,
+		"emit_pool_last_outcome": nil,
 	}
 	if dur.Valid {
 		tr["duration_seconds"] = int(dur.Int64)
