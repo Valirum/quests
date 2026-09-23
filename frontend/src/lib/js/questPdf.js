@@ -4,10 +4,9 @@ const PAGE_W = 210
 const PAGE_H = 297
 const MARGIN = 16
 const CONTENT_W = PAGE_W - MARGIN * 2
-const LINE_H = 6.2
-const TITLE_H = 9
-const META_H = 5.5
-const STEP_H = 6
+const FONT_PX = 14
+const HEAD_H = 8
+const STEP_H = 7
 
 /**
  * @param {any} quest
@@ -30,6 +29,7 @@ export function buildQuestPdfPayload(quest) {
   return {
     title: String(quest?.title || `quest=${quest?.id ?? ''}`),
     exportedAt,
+    progress: `${steps.filter((s) => s.done).length}/${steps.length || 0}`,
     steps,
   }
 }
@@ -71,10 +71,11 @@ function wrapLines(ctx, text, maxWidth, font) {
 }
 
 /**
- * Download a simple quest PDF (title, export time, step list with progress).
+ * Download a simple quest PDF: title with progress at the end of the same
+ * line, export date at the end of the next line, then the step list.
  * @param {any} quest
  */
-export async function downloadQuestPdf(quest) {
+export async function downloadQuestPdfSimple(quest) {
   if (!quest) return
   const payload = buildQuestPdfPayload(quest)
   const doc = new jsPDF({ unit: 'mm', format: 'a4' })
@@ -87,46 +88,25 @@ export async function downloadQuestPdf(quest) {
   const ctx = canvas.getContext('2d')
   if (!ctx) throw new Error('canvas unavailable')
 
-  const titleFont = `600 ${Math.round(18 * scale * 0.75)}px system-ui, "Segoe UI", sans-serif`
-  const metaFont = `400 ${Math.round(12 * scale * 0.75)}px system-ui, "Segoe UI", sans-serif`
-  const bodyFont = `400 ${Math.round(13 * scale * 0.75)}px system-ui, "Segoe UI", sans-serif`
+  const font = `400 ${Math.round(FONT_PX * scale * 0.75)}px system-ui, "Segoe UI", sans-serif`
+  const boldFont = `600 ${Math.round(FONT_PX * scale * 0.75)}px system-ui, "Segoe UI", sans-serif`
   const pxPerMm = scale * (96 / 25.4)
-  const titlePx = TITLE_H * pxPerMm
-  const metaPx = META_H * pxPerMm
+  const headPx = HEAD_H * pxPerMm
   const stepPx = STEP_H * pxPerMm
-  const gapPx = 2.5 * pxPerMm
 
-  /** @type {{ text: string, font: string, h: number, color: string }[]} */
+  /** @type {{ left?: string, right?: string, font: string, h: number, color: string }[]} */
   const blocks = []
-  for (const line of wrapLines(ctx, payload.title, cssW, titleFont)) {
-    blocks.push({ text: line, font: titleFont, h: titlePx, color: '#1a1a1a' })
-  }
-  blocks.push({
-    text: `Выгрузка: ${payload.exportedAt}`,
-    font: metaFont,
-    h: metaPx,
-    color: '#666666',
-  })
-  blocks.push({
-    text: `Прогресс: ${payload.steps.filter((s) => s.done).length} / ${payload.steps.length || 0}`,
-    font: metaFont,
-    h: metaPx + gapPx,
-    color: '#666666',
-  })
+  blocks.push({ left: payload.title, right: payload.progress, font: boldFont, h: headPx, color: '#1a1a1a' })
+  blocks.push({ right: `Выгрузка: ${payload.exportedAt}`, font, h: headPx, color: '#666666' })
 
   if (!payload.steps.length) {
-    blocks.push({ text: 'Шагов нет', font: bodyFont, h: stepPx, color: '#444444' })
+    blocks.push({ left: 'Шагов нет', font, h: stepPx, color: '#444444' })
   } else {
     payload.steps.forEach((s, i) => {
       const mark = s.done ? '✓' : '○'
       const line = `${mark}  ${i + 1}. ${s.title}  (${s.progress})`
-      for (const wrapped of wrapLines(ctx, line, cssW, bodyFont)) {
-        blocks.push({
-          text: wrapped,
-          font: bodyFont,
-          h: stepPx,
-          color: s.done ? '#2a6b3c' : '#1a1a1a',
-        })
+      for (const wrapped of wrapLines(ctx, line, cssW, font)) {
+        blocks.push({ left: wrapped, font, h: stepPx, color: s.done ? '#2a6b3c' : '#1a1a1a' })
       }
     })
   }
@@ -146,7 +126,14 @@ export async function downloadQuestPdf(quest) {
     for (const b of pageBlocks) {
       ctx.font = b.font
       ctx.fillStyle = b.color
-      ctx.fillText(b.text, 0, y)
+      if (b.left) {
+        ctx.textAlign = 'left'
+        ctx.fillText(b.left, 0, y)
+      }
+      if (b.right) {
+        ctx.textAlign = 'right'
+        ctx.fillText(b.right, canvas.width, y)
+      }
       y += b.h
     }
     if (!first) doc.addPage()
