@@ -475,6 +475,9 @@
       view = 'list'
       editing = null
     } catch (e) {
+      // Close the confirm dialog so the edit form behind it — where
+      // formError actually renders — is visible instead of a silent no-op.
+      deleteConfirmOpen = false
       formError = e.message || String(e)
     } finally {
       deleting = false
