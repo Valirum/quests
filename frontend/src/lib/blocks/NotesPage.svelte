@@ -53,6 +53,9 @@
   let search = $state('')
   /** @type {Record<string, boolean>} — false = свёрнуто; по умолчанию развёрнуто */
   let treeOpen = $state({})
+  /** Ссылки/Ссылаются — свёрнуты по умолчанию. */
+  let refsOpen = $state(false)
+  let backlinksOpen = $state(false)
   let detail = $state(/** @type {any | null} */ (null))
   let title = $state('')
   let description = $state('')
@@ -892,19 +895,54 @@
           </div>
         {/if}
       </div>
+      {#if detail?.refs?.length}
+        <div class="block notes__links">
+          <button
+            type="button"
+            class="block__label block__label--toggle"
+            onclick={() => (refsOpen = !refsOpen)}
+            aria-expanded={refsOpen}
+          >
+            Ссылки ({detail.refs.length})
+            <Icon name={refsOpen ? 'chevron-down' : 'chevron-right'} size={12} />
+          </button>
+          {#if refsOpen}
+            <ul>
+              {#each detail.refs as ref (`${ref.kind}-${ref.id}`)}
+                <li>
+                  <button type="button" class="notes__link" onclick={() => onRef?.(ref.kind, ref.id)}>
+                    {ref.title || `${ref.kind}=${ref.id}`}
+                    <span class="notes__kind">{ref.kind}={ref.id}</span>
+                  </button>
+                </li>
+              {/each}
+            </ul>
+          {/if}
+        </div>
+      {/if}
       {#if detail?.backlinks?.length}
         <div class="block notes__links">
-          <h3 class="block__label">Ссылаются</h3>
-          <ul>
-            {#each detail.backlinks as ref (`b-${ref.kind}-${ref.id}`)}
-              <li>
-                <button type="button" class="notes__link" onclick={() => onRef?.(ref.kind, ref.id)}>
-                  {ref.title || `${ref.kind}=${ref.id}`}
-                  <span class="notes__kind">{ref.kind}={ref.id}</span>
-                </button>
-              </li>
-            {/each}
-          </ul>
+          <button
+            type="button"
+            class="block__label block__label--toggle"
+            onclick={() => (backlinksOpen = !backlinksOpen)}
+            aria-expanded={backlinksOpen}
+          >
+            Ссылаются ({detail.backlinks.length})
+            <Icon name={backlinksOpen ? 'chevron-down' : 'chevron-right'} size={12} />
+          </button>
+          {#if backlinksOpen}
+            <ul>
+              {#each detail.backlinks as ref (`b-${ref.kind}-${ref.id}`)}
+                <li>
+                  <button type="button" class="notes__link" onclick={() => onRef?.(ref.kind, ref.id)}>
+                    {ref.title || `${ref.kind}=${ref.id}`}
+                    <span class="notes__kind">{ref.kind}={ref.id}</span>
+                  </button>
+                </li>
+              {/each}
+            </ul>
+          {/if}
         </div>
       {/if}
       {#if selectedId}
@@ -1375,9 +1413,23 @@
     padding-left: 0.1rem;
   }
 
+  .block__label--toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    border: 0;
+    background: transparent;
+    padding: 0;
+    cursor: pointer;
+  }
+
+  .block__label--toggle:hover {
+    color: var(--color-fg-muted, #9a9a9a);
+  }
+
   .notes__links ul {
     list-style: none;
-    margin: 0;
+    margin: var(--space-2, 0.5rem) 0 0;
     padding: 0;
     display: flex;
     flex-wrap: wrap;
