@@ -414,7 +414,10 @@
       return
     }
     const payload = buildPayload()
-    if (!payload.steps.length) {
+    // A pool roll replaces the template's own steps with its picks, so the
+    // "constant" steps below are just an unused fallback while a command is
+    // set — don't force filling one in.
+    if (!payload.steps.length && !emitPoolCommand.trim()) {
       formError = 'Нужен хотя бы один шаг'
       return
     }
