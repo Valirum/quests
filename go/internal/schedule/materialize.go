@@ -688,10 +688,43 @@ func nullStrIfEmpty(s string) any {
 // execEmitPoolCommand runs emit_pool_command and parses its stdout as a JSON
 // array of pool items. A non-zero exit code or invalid JSON is an error —
 // the caller treats it the same as a transient failure (counts an attempt).
+//
+// A value starting with a shebang is treated as an inline script body, not
+// a shell one-liner: written to a temp file and executed directly so its
+// own shebang picks the interpreter. This is deliberate — the script then
+// lives in the template row (DB) instead of a path on whatever disk the
+// server happens to run on, so nothing needs hand-deploying/scp'd when the
+// server moves hosts. Secrets it needs go in the server's own root .env
+// (already loaded into the process env by config.LoadDotenv, and passed
+// through via cmd.Env below) rather than a script-adjacent .env file.
 func execEmitPoolCommand(parent context.Context, command string) ([]poolItem, error) {
 	ctx, cancel := context.WithTimeout(parent, emitPoolTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "sh", "-c", command)
+
+	var cmd *exec.Cmd
+	if strings.HasPrefix(strings.TrimLeft(command, " \t\r\n"), "#!") {
+		f, err := os.CreateTemp("", "quests-emit-pool-*")
+		if err != nil {
+			return nil, err
+		}
+		scriptPath := f.Name()
+		defer os.Remove(scriptPath)
+		_, writeErr := f.WriteString(command)
+		closeErr := f.Close()
+		if writeErr != nil {
+			return nil, writeErr
+		}
+		if closeErr != nil {
+			return nil, closeErr
+		}
+		if err := os.Chmod(scriptPath, 0o700); err != nil {
+			return nil, err
+		}
+		cmd = exec.CommandContext(ctx, scriptPath)
+	} else {
+		cmd = exec.CommandContext(ctx, "sh", "-c", command)
+	}
+
 	cmd.Env = os.Environ()
 	if home, err := os.UserHomeDir(); err == nil {
 		cmd.Dir = home
