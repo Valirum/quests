@@ -1,6 +1,14 @@
 #!/usr/bin/env python3
 """emit_pool_command for the daily unread-mail quest template.
 
+Reference copy — the copy that actually RUNS lives inline in the
+template's emit_pool_command field (DB), pasted verbatim including this
+shebang. quests' scheduler detects the shebang, writes it to a temp file
+and executes it directly, so the script travels with the template row
+instead of needing a file hand-deployed to wherever the server happens to
+run (see execEmitPoolCommand in go/internal/schedule/materialize.go).
+Keep this file and the template in sync by hand when either changes.
+
 Logs into WorldClient (MDaemon webmail) the same way the web UI does —
 IMAP (993/143) is closed on this server, HTTP is the only option — lists
 unread messages in the inbox, and prints a JSON array on stdout in the
@@ -22,31 +30,25 @@ count on the actual mailbox honest; open the real message to read it.
 See note=6 in the quests journal for the endpoint reference this is
 built from (login/list/body-fetch quirks, non-strict-JSON parsing, etc).
 
-Requires a .env next to this file (see .env.example):
-  MAIL_HOST, MAIL_USER, MAIL_PASSWORD
+Credentials come from the *server's* environment (its root .env, loaded
+by config.LoadDotenv — same place QUESTS_TG_TOKEN etc. live), not a
+script-adjacent .env file: MAIL_HOST, MAIL_USER, MAIL_PASSWORD.
 """
 import http.cookiejar
 import json
+import os
 import re
 import sys
 import urllib.parse
 import urllib.request
-from pathlib import Path
 
 
-def load_env(path=".env"):
-    env = {}
-    p = Path(__file__).parent / path
-    if not p.exists():
-        print(f"missing {p} — copy .env.example to .env and fill it in", file=sys.stderr)
+def env_or_die(name):
+    v = os.environ.get(name, "").strip()
+    if not v:
+        print(f"missing {name} in the server's .env — see note=6", file=sys.stderr)
         sys.exit(1)
-    for line in p.read_text().splitlines():
-        line = line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        k, v = line.split("=", 1)
-        env[k.strip()] = v.strip()
-    return env
+    return v
 
 
 def make_opener():
@@ -99,10 +101,13 @@ def fetch_unread(opener, host, session_id):
 
 
 def main():
-    env = load_env()
+    host = env_or_die("MAIL_HOST")
+    user = env_or_die("MAIL_USER")
+    password = env_or_die("MAIL_PASSWORD")
+
     opener = make_opener()
-    session_id = login(opener, env["MAIL_HOST"], env["MAIL_USER"], env["MAIL_PASSWORD"])
-    unread = fetch_unread(opener, env["MAIL_HOST"], session_id)
+    session_id = login(opener, host, user, password)
+    unread = fetch_unread(opener, host, session_id)
 
     pool = [
         {

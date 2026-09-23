@@ -322,7 +322,7 @@ class QuestTemplateBase(SQLModel):
     # Shell command run on each roll; stdout must be a JSON array of
     # {title, description?, weight?, ref?}. Independent of emit_mode — a
     # fixed template can pool content too. Empty pool / zero total weight = miss.
-    emit_pool_command: Optional[str] = Field(default=None, max_length=2000)
+    emit_pool_command: Optional[str] = Field(default=None, max_length=20000)
     # How many items to draw from the pool per successful roll.
     emit_pool_pick: int = Field(default=1, ge=1)
     # JSON attribute weights copied onto instances, e.g. {"str":1,"int":2}.
@@ -411,7 +411,7 @@ class QuestTemplateUpdate(SQLModel):
     emit_chance: Optional[float] = Field(default=None, ge=0.0, le=1.0)
     emit_window_start: Optional[str] = Field(default=None, max_length=8)
     emit_window_end: Optional[str] = Field(default=None, max_length=8)
-    emit_pool_command: Optional[str] = Field(default=None, max_length=2000)
+    emit_pool_command: Optional[str] = Field(default=None, max_length=20000)
     emit_pool_pick: Optional[int] = Field(default=None, ge=1)
     steps: Optional[List[QuestTemplateStepCreate]] = None
     reward_attrs: Optional[str] = Field(default=None, max_length=500)
