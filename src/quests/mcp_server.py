@@ -333,6 +333,118 @@ def get_context(
 
 @server.tool(
     description=(
+        "Lightweight counterpart to get_context — only the object's own direct "
+        "fields, no siblings/linked_notes bloat. For a questline: description, "
+        "attachments, and its quests (id/title/status/significance/category/...). "
+        "For a quest: description, steps, attachments, and a brief questline "
+        "(if any). For a step: its description/progress and a brief owning "
+        "quest. Pass exactly one of ref / quest / step / questline (notes "
+        "aren't supported here — use get_context for those). Reach for this "
+        "when the full get_context payload would be more than you need."
+    )
+)
+def get_base_context(
+    ref: str | None = None,
+    quest: int | None = None,
+    step: int | None = None,
+    questline: int | None = None,
+) -> dict[str, Any]:
+    if ref:
+        kind, eid = _parse_ref(ref)
+        if kind == "note":
+            raise ValueError("get_base_context does not support notes; use get_context")
+    else:
+        chosen = [
+            (k, v)
+            for k, v in (("quest", quest), ("step", step), ("questline", questline))
+            if v is not None
+        ]
+        if len(chosen) != 1:
+            raise ValueError("provide exactly one of: ref, quest, step, questline")
+        kind, eid = chosen[0]
+
+    if kind == "questline":
+        resp = _api_get("/api/context", {"questline": eid})
+        line = resp.get("questline") or {}
+        return {
+            "id": line.get("id"),
+            "title": line.get("title"),
+            "description": line.get("description"),
+            "color": line.get("color"),
+            "icon": line.get("icon"),
+            "icon_url": line.get("icon_url"),
+            "category_id": line.get("category_id"),
+            "category_slug": line.get("category_slug"),
+            "category_label": line.get("category_label"),
+            "attachments": (resp.get("attachments") or {}).get("questline", []),
+            "quests": [_quest_summary(q) for q in resp.get("quests") or []],
+        }
+
+    if kind == "quest":
+        resp = _api_get("/api/context", {"quest": eid})
+        q = next((r for r in resp.get("quests") or [] if r.get("id") == eid), None)
+        if q is None:
+            raise ValueError(f"quest={eid} not found")
+        line = resp.get("questline")
+        out: dict[str, Any] = {
+            "id": q.get("id"),
+            "title": q.get("title"),
+            "description": q.get("description"),
+            "status": q.get("status"),
+            "significance": q.get("significance"),
+            "pinned": q.get("pinned"),
+            "category_id": q.get("category_id"),
+            "category_slug": q.get("category_slug"),
+            "category_label": q.get("category_label"),
+            "deadline_at": q.get("deadline_at"),
+            "created_at": q.get("created_at"),
+            "updated_at": q.get("updated_at"),
+            "steps": _steps_brief(q),
+            "attachments": ((resp.get("attachments") or {}).get("by_quest") or {}).get(
+                str(eid), []
+            ),
+            "questline": None,
+        }
+        if line:
+            out["questline"] = {
+                "id": line.get("id"),
+                "title": line.get("title"),
+                "color": line.get("color"),
+                "icon": line.get("icon"),
+                "category_id": line.get("category_id"),
+                "category_label": line.get("category_label"),
+            }
+        return out
+
+    # step
+    resp = _api_get("/api/context", {"step": eid})
+    owner = None
+    step_row = None
+    for q in resp.get("quests") or []:
+        for s in q.get("steps") or []:
+            if s.get("id") == eid:
+                owner, step_row = q, s
+                break
+        if owner:
+            break
+    if owner is None:
+        raise ValueError(f"step={eid} not found")
+    return {
+        "step": {
+            "id": step_row.get("id"),
+            "title": step_row.get("title"),
+            "description": step_row.get("description"),
+            "progress_current": step_row.get("progress_current"),
+            "progress_total": step_row.get("progress_total"),
+            "done": step_row.get("done"),
+            "sort_order": step_row.get("sort_order"),
+        },
+        "quest": _quest_summary(owner),
+    }
+
+
+@server.tool(
+    description=(
         "List quests (compact summaries, no step bodies). "
         "Optional filters: status, questline_id, pinned. "
         "Includes attachment metadata (not file bytes) so you can judge "
