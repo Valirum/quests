@@ -369,6 +369,215 @@ def list_questlines() -> list[dict[str, Any]]:
 
 @server.tool(
     description=(
+        "List quest templates — recurring definitions the scheduler materializes "
+        "into quest instances daily/weekly (GET /api/templates). enabled filters "
+        "on/off; omit for both."
+    )
+)
+def list_templates(enabled: bool | None = None) -> list[dict[str, Any]]:
+    query: dict[str, Any] = {}
+    if enabled is not None:
+        query["enabled"] = "1" if enabled else "0"
+    return _api_get("/api/templates", query or None) or []
+
+
+@server.tool(description="Get one quest template by id, including its steps (GET /api/templates/{id}).")
+def get_template(template_id: int) -> dict[str, Any]:
+    return _api_get(f"/api/templates/{template_id}")
+
+
+@server.tool(
+    description=(
+        "Create a recurring quest template (POST /api/templates). "
+        "freq: daily|weekly (weekdays only matters for weekly: comma-separated "
+        "0=Mon..6=Sun, default all days). "
+        "emit_mode: fixed (materializes unconditionally at the period's first "
+        "scheduler tick — deadline_time/duration_seconds only set the resulting "
+        "quest's own due time, they do NOT delay creation) or surprise (a cached "
+        "per-day chance roll landing at a random moment inside "
+        "emit_window_start..emit_window_end). "
+        "emit_pool_command is independent of emit_mode and optional: a shell "
+        "one-liner, OR — if it starts with a shebang line (#!/usr/bin/env python3 "
+        "etc.) — a full inline script. quests writes that text to a temp file and "
+        "executes it directly (its own shebang picks the interpreter), so the "
+        "script lives in this DB row, not a path on whichever host runs the "
+        "scheduler — nothing to hand-deploy. Either way stdout must be a JSON "
+        "array of {title, description?, weight?, ref?}; emit_pool_pick items are "
+        "drawn weighted-without-replacement each roll and become the created "
+        "quest's steps, replacing `steps` below for that roll. ref feeds "
+        "anti-repeat (recently-picked items are excluded from the next roll); "
+        "omit it and title+description is used as the identity instead. An empty "
+        "pool that roll means no quest that period — not an error. A script's own "
+        "secrets belong in the *server's* root .env (auto-loaded into its "
+        "environment), never hardcoded in the script — unless the user "
+        "explicitly asks for hardcoded placeholder/mock values for a one-off "
+        "manual test. "
+        "category/questline accept an id or a name/substring, resolved the same "
+        "way as create_quest's. "
+        "steps: same shape as create_quest's `steps` — the template's own "
+        "fallback whenever a roll isn't pool-driven (or the pool comes up empty "
+        "for surprise mode, though fixed+pool with an empty result skips the "
+        "period instead of falling back)."
+    )
+)
+def create_template(
+    title: str,
+    description: str | None = None,
+    freq: str = "daily",
+    weekdays: str | None = None,
+    timezone: str | None = None,
+    emit_mode: str = "fixed",
+    emit_chance: float | None = None,
+    emit_window_start: str | None = None,
+    emit_window_end: str | None = None,
+    emit_pool_command: str | None = None,
+    emit_pool_pick: int | None = None,
+    deadline_time: str | None = None,
+    duration_seconds: int | None = None,
+    category: str | int | None = None,
+    questline: str | int | None = None,
+    significance: str | None = None,
+    pinned: bool | None = None,
+    enabled: bool | None = None,
+    automated: bool | None = None,
+    steps: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    body: dict[str, Any] = {"title": title, "freq": freq, "emit_mode": emit_mode}
+    if description is not None:
+        body["description"] = description
+    if weekdays is not None:
+        body["weekdays"] = weekdays
+    if timezone is not None:
+        body["timezone"] = timezone
+    if emit_chance is not None:
+        body["emit_chance"] = float(emit_chance)
+    if emit_window_start is not None:
+        body["emit_window_start"] = emit_window_start
+    if emit_window_end is not None:
+        body["emit_window_end"] = emit_window_end
+    if emit_pool_command is not None:
+        body["emit_pool_command"] = emit_pool_command
+    if emit_pool_pick is not None:
+        body["emit_pool_pick"] = int(emit_pool_pick)
+    if deadline_time is not None:
+        body["deadline_time"] = deadline_time
+    if duration_seconds is not None:
+        body["duration_seconds"] = int(duration_seconds)
+    cat_id = _resolve_category_id(category)
+    if cat_id is not None:
+        body["category_id"] = cat_id
+    line_id = _resolve_questline_id(questline)
+    if line_id is not None:
+        body["questline_id"] = line_id
+    if significance is not None:
+        body["significance"] = significance
+    if pinned is not None:
+        body["pinned"] = bool(pinned)
+    if enabled is not None:
+        body["enabled"] = bool(enabled)
+    if automated is not None:
+        body["automated"] = bool(automated)
+    if steps is not None:
+        body["steps"] = [_step_body(s) for s in steps]
+    return _api("POST", "/api/templates", body=body)
+
+
+@server.tool(
+    description=(
+        "Update a quest template (PATCH /api/templates/{id}). Only pass fields "
+        "to change — same field semantics as create_template. "
+        "enabled=true (even re-saving an already-enabled template with some "
+        "other field changed) triggers an immediate materialize attempt for the "
+        "current period — this is how you fire a fixed-mode or pool template on "
+        "demand instead of waiting for the scheduler's own ~15s tick."
+    )
+)
+def update_template(
+    template_id: int,
+    title: str | None = None,
+    description: str | None = None,
+    freq: str | None = None,
+    weekdays: str | None = None,
+    timezone: str | None = None,
+    emit_mode: str | None = None,
+    emit_chance: float | None = None,
+    emit_window_start: str | None = None,
+    emit_window_end: str | None = None,
+    emit_pool_command: str | None = None,
+    emit_pool_pick: int | None = None,
+    deadline_time: str | None = None,
+    duration_seconds: int | None = None,
+    category: str | int | None = None,
+    questline: str | int | None = None,
+    significance: str | None = None,
+    pinned: bool | None = None,
+    enabled: bool | None = None,
+    automated: bool | None = None,
+    steps: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    body: dict[str, Any] = {}
+    if title is not None:
+        body["title"] = title
+    if description is not None:
+        body["description"] = description
+    if freq is not None:
+        body["freq"] = freq
+    if weekdays is not None:
+        body["weekdays"] = weekdays
+    if timezone is not None:
+        body["timezone"] = timezone
+    if emit_mode is not None:
+        body["emit_mode"] = emit_mode
+    if emit_chance is not None:
+        body["emit_chance"] = float(emit_chance)
+    if emit_window_start is not None:
+        body["emit_window_start"] = emit_window_start
+    if emit_window_end is not None:
+        body["emit_window_end"] = emit_window_end
+    if emit_pool_command is not None:
+        body["emit_pool_command"] = emit_pool_command
+    if emit_pool_pick is not None:
+        body["emit_pool_pick"] = int(emit_pool_pick)
+    if deadline_time is not None:
+        body["deadline_time"] = deadline_time
+    if duration_seconds is not None:
+        body["duration_seconds"] = int(duration_seconds)
+    if category is not None:
+        cat_id = _resolve_category_id(category)
+        if cat_id is not None:
+            body["category_id"] = cat_id
+    if questline is not None:
+        line_id = _resolve_questline_id(questline)
+        if line_id is not None:
+            body["questline_id"] = line_id
+    if significance is not None:
+        body["significance"] = significance
+    if pinned is not None:
+        body["pinned"] = bool(pinned)
+    if enabled is not None:
+        body["enabled"] = bool(enabled)
+    if automated is not None:
+        body["automated"] = bool(automated)
+    if steps is not None:
+        body["steps"] = [_step_body(s) for s in steps]
+    if not body:
+        raise ValueError("provide at least one field to update")
+    return _api("PATCH", f"/api/templates/{template_id}", body=body)
+
+
+@server.tool(
+    description=(
+        "Delete a quest template (DELETE /api/templates/{id}). Does not touch "
+        "quests it already materialized."
+    )
+)
+def delete_template(template_id: int) -> dict[str, Any]:
+    _api("DELETE", f"/api/templates/{template_id}")
+    return {"deleted": template_id}
+
+
+@server.tool(
+    description=(
         "List knowledge notes (markdown pages, not quests). Optional parent_id "
         "filters children of one note; omit for the whole vault. "
         "Link from quests with note=N in the description."
