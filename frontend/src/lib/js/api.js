@@ -1,3 +1,5 @@
+import { toast } from './toasts.svelte.js'
+
 const BASE = ''
 
 /** Set by App when a request comes back 401 — flips the UI to the login screen. */
@@ -33,17 +35,23 @@ async function request(path, options = {}) {
     try {
       data = JSON.parse(text)
     } catch {
-      throw new Error(
-        res.ok
-          ? `Ответ не JSON: ${text.slice(0, 120)}`
-          : `HTTP ${res.status}: ${text.slice(0, 200)}`,
-      )
+      const msg = res.ok
+        ? `Ответ не JSON: ${text.slice(0, 120)}`
+        : `HTTP ${res.status}: ${text.slice(0, 200)}`
+      toast(msg, { kind: 'error' })
+      throw new Error(msg)
     }
   }
 
   if (!res.ok) {
     const detail = data?.detail ?? res.statusText
-    throw new Error(typeof detail === 'string' ? detail : JSON.stringify(detail))
+    const msg = typeof detail === 'string' ? detail : JSON.stringify(detail)
+    // Belt-and-suspenders: whatever called this may or may not render `msg`
+    // itself (some spots do, some — like a modal confirm dialog closing
+    // over its own error — quietly don't). A toast means a failure is
+    // never *silent*, even where nothing else shows this specific message.
+    toast(msg, { kind: 'error' })
+    throw new Error(msg)
   }
   return data
 }

@@ -195,6 +195,16 @@ func (s *Store) DeleteTemplate(ctx context.Context, id int64) error {
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
+	// Detach, don't touch: quests this template already materialized are
+	// independent records once created — quest.template_id has no ON DELETE
+	// clause, so leaving it pointing at a row we're about to delete would
+	// trip the FK constraint and fail the whole delete (this only started
+	// showing up once emit_pool made a fresh template materialize a quest
+	// immediately on create, so a same-session delete-right-after-testing
+	// now always hits it).
+	if _, err := tx.ExecContext(ctx, `UPDATE quest SET template_id=NULL WHERE template_id=?`, id); err != nil {
+		return err
+	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM templateemitroll WHERE template_id=?`, id); err != nil {
 		return err
 	}
