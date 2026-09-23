@@ -628,7 +628,8 @@ func resolveEmitPool(ctx context.Context, st *store.Store, tmpl templateRow, per
 		}
 	}
 	if len(positive) == 0 {
-		if err := persistEmitPoolOutcome(ctx, st, id, isNew, tmpl.ID, periodKey, "miss", attempts, "", now); err != nil {
+		id, err := persistEmitPoolOutcome(ctx, st, id, isNew, tmpl.ID, periodKey, "miss", attempts, "", now)
+		if err != nil {
 			return nil, 0, "", err
 		}
 		return nil, id, "", nil
@@ -686,7 +687,8 @@ func resolveEmitPool(ctx context.Context, st *store.Store, tmpl templateRow, per
 		picked = weightedPickWithoutReplacement(candidates, tmpl.EmitPoolPick, rng)
 	}
 	if len(picked) == 0 {
-		if err := persistEmitPoolOutcome(ctx, st, id, isNew, tmpl.ID, periodKey, "miss", attempts, "", now); err != nil {
+		id, err := persistEmitPoolOutcome(ctx, st, id, isNew, tmpl.ID, periodKey, "miss", attempts, "", now)
+		if err != nil {
 			return nil, 0, "", err
 		}
 		return nil, id, "", nil
@@ -700,24 +702,32 @@ func resolveEmitPool(ctx context.Context, st *store.Store, tmpl templateRow, per
 	if err != nil {
 		return nil, 0, "", err
 	}
-	if err := persistEmitPoolOutcome(ctx, st, id, isNew, tmpl.ID, periodKey, "scheduled", attempts, string(refsJSON), now); err != nil {
+	id, err = persistEmitPoolOutcome(ctx, st, id, isNew, tmpl.ID, periodKey, "scheduled", attempts, string(refsJSON), now)
+	if err != nil {
 		return nil, 0, "", err
 	}
 	return picked, id, "", nil
 }
 
-func persistEmitPoolOutcome(ctx context.Context, st *store.Store, id int64, isNew bool, templateID int64, periodKey, outcome string, attempts int, pickedRefsJSON string, now time.Time) error {
+// persistEmitPoolOutcome returns the row's id — for a new row this is the
+// freshly inserted id, which callers need (e.g. to later mark it
+// materialized); returning it here means they don't have to duplicate the
+// isNew branching themselves.
+func persistEmitPoolOutcome(ctx context.Context, st *store.Store, id int64, isNew bool, templateID int64, periodKey, outcome string, attempts int, pickedRefsJSON string, now time.Time) (int64, error) {
 	if isNew {
-		_, err := st.DB.ExecContext(ctx, `
+		res, err := st.DB.ExecContext(ctx, `
 			INSERT INTO templateemitroll (template_id, period_key, outcome, attempts, picked_refs, created_at, updated_at)
 			VALUES (?, ?, ?, ?, ?, ?, ?)`,
 			templateID, periodKey, outcome, attempts, nullStrIfEmpty(pickedRefsJSON), timeutil.ToDBUTC(now), timeutil.ToDBUTC(now))
-		return err
+		if err != nil {
+			return 0, err
+		}
+		return res.LastInsertId()
 	}
 	_, err := st.DB.ExecContext(ctx, `
 		UPDATE templateemitroll SET outcome = ?, picked_refs = ?, updated_at = ? WHERE id = ?`,
 		outcome, nullStrIfEmpty(pickedRefsJSON), timeutil.ToDBUTC(now), id)
-	return err
+	return id, err
 }
 
 func nullStrIfEmpty(s string) any {

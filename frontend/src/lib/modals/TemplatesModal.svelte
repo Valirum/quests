@@ -550,7 +550,14 @@
               {#each templates as t (t.id)}
                 <li class="tpl-row" class:tpl-row--off={!t.enabled}>
                   <button type="button" class="tpl-row__main" onclick={() => openEdit(t)}>
-                    <span class="tpl-row__title">{t.title}</span>
+                    <span class="tpl-row__title">
+                      {t.title}
+                      {#if t.emit_pool_last_outcome === 'error'}
+                        <span class="tpl-row__err" title="Команда пула стабильно падает — все попытки за период исчерпаны">
+                          ⚠ пул падает
+                        </span>
+                      {/if}
+                    </span>
                     <span class="tpl-row__meta">
                       {freqLabel(t.freq)}
                       · {emitLabel(t.emit_mode)}
@@ -1186,6 +1193,16 @@
 
   .tpl-row__title {
     font-weight: 600;
+  }
+
+  .tpl-row__err {
+    margin-left: 0.4em;
+    padding: 0.05em 0.4em;
+    border-radius: var(--radius-md, 4px);
+    font-size: var(--text-xs, 0.75rem);
+    font-weight: 500;
+    color: var(--color-danger, #b54a3a);
+    background: color-mix(in srgb, var(--color-danger, #b54a3a) 12%, transparent);
   }
 
   .tpl-row__meta {
