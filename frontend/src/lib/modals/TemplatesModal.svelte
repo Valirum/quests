@@ -57,6 +57,10 @@
   /** Empty hour = no deadline (like empty date on quests). */
   let deadlineHour = $state('')
   let deadlineMinute = $state('00')
+  /** Shell command run per roll; stdout must be a JSON array of
+   * {title, description?, weight?, ref?}. Empty = no pool (normal template). */
+  let emitPoolCommand = $state('')
+  let emitPoolPick = $state(1)
   let durationHours = $state('')
   let durationMinutes = $state('')
   /** @type {{ key: string, title: string, progress_range: string, check_command: string, check_interval_seconds: string, wait_previous: boolean, run_mode: string, check_open: boolean }[]} */
@@ -178,6 +182,8 @@
       weekdays = new Set([0, 1, 2, 3, 4])
       timezone = localTimeZone() || 'Europe/Moscow'
       applyDefaultDeadlineTime()
+      emitPoolCommand = ''
+      emitPoolPick = 1
       durationHours = ''
       durationMinutes = ''
       steps = [blankStep()]
@@ -194,6 +200,8 @@
     categoryId = t.category_id != null ? String(t.category_id) : ''
     questlineId = t.questline_id != null ? String(t.questline_id) : ''
     emitChancePct = Math.round(Math.max(0, Math.min(1, Number(t.emit_chance) || 1)) * 100)
+    emitPoolCommand = t.emit_pool_command ?? ''
+    emitPoolPick = Math.max(1, Number(t.emit_pool_pick) || 1)
     const ws = parseClock(t.emit_window_start, '09', '00')
     const we = parseClock(t.emit_window_end, '18', '00')
     windowStartHour = ws.hour
@@ -364,6 +372,8 @@
         emit_chance: Math.max(0, Math.min(100, Number(emitChancePct) || 0)) / 100,
         emit_window_start: `${windowStartHour}:${windowStartMinute}`,
         emit_window_end: `${windowEndHour}:${windowEndMinute}`,
+        emit_pool_command: emitPoolCommand.trim() || null,
+        emit_pool_pick: Math.max(1, Number(emitPoolPick) || 1),
         deadline_time: null,
         duration_seconds,
         category_id: categoryId === '' ? null : Number(categoryId),
@@ -387,6 +397,8 @@
       emit_chance: 1,
       emit_window_start: null,
       emit_window_end: null,
+      emit_pool_command: emitPoolCommand.trim() || null,
+      emit_pool_pick: Math.max(1, Number(emitPoolPick) || 1),
       deadline_time,
       duration_seconds: deadline_time ? duration_seconds : null,
       category_id: categoryId === '' ? null : Number(categoryId),
@@ -536,6 +548,7 @@
                     <span class="tpl-row__meta">
                       {freqLabel(t.freq)}
                       · {emitLabel(t.emit_mode)}
+                      {#if t.emit_pool_command}· пул ({t.emit_pool_pick ?? 1}){/if}
                       {#if t.questline_title}· {t.questline_title}{/if}
                       {#if t.category_label}· {t.category_label}{/if}
                       · {sigLabel(t.significance)}
@@ -861,6 +874,31 @@
               </p>
             </div>
           {/if}
+
+          <div class="deadline-block">
+            <label class="field">
+              <span class="label">Команда пула контента (необязательно)</span>
+              <textarea
+                class="pool-command"
+                rows="2"
+                placeholder="напр.: python3 ~/scripts/pick_reading.py"
+                bind:value={emitPoolCommand}
+              ></textarea>
+            </label>
+            {#if emitPoolCommand.trim()}
+              <label class="field">
+                <span class="label">Штук за бросок</span>
+                <input type="number" min="1" step="1" bind:value={emitPoolPick} />
+              </label>
+            {/if}
+            <p class="hint">
+              Команда запускается на каждый бросок; stdout должен быть JSON-массивом
+              <code>{'{title, description?, weight?, ref?}'}</code>. Из него берётся
+              указанное число случайных пунктов (по весу, вес по умолчанию 1) — они
+              заменяют собой шаги шаблона ниже. Работает независимо от режима появления
+              выше. Пусто = обычный шаблон без пула.
+            </p>
+          </div>
 
           <label class="check">
             <input type="checkbox" bind:checked={pinned} />
@@ -1222,6 +1260,12 @@
   .deadline-block {
     display: grid;
     gap: 0.35rem;
+  }
+
+  .pool-command {
+    font-family: var(--font-mono, monospace);
+    font-size: var(--text-sm, 0.875rem);
+    resize: vertical;
   }
 
   .deadline-row {
