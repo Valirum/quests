@@ -201,7 +201,7 @@
     questlineId = t.questline_id != null ? String(t.questline_id) : ''
     emitChancePct = Math.round(Math.max(0, Math.min(1, Number(t.emit_chance) || 1)) * 100)
     emitPoolCommand = t.emit_pool_command ?? ''
-    emitPoolPick = Math.max(1, Number(t.emit_pool_pick) || 1)
+    emitPoolPick = Math.max(0, Number.isFinite(Number(t.emit_pool_pick)) ? Number(t.emit_pool_pick) : 1)
     const ws = parseClock(t.emit_window_start, '09', '00')
     const we = parseClock(t.emit_window_end, '18', '00')
     windowStartHour = ws.hour
@@ -373,7 +373,7 @@
         emit_window_start: `${windowStartHour}:${windowStartMinute}`,
         emit_window_end: `${windowEndHour}:${windowEndMinute}`,
         emit_pool_command: emitPoolCommand.trim() || null,
-        emit_pool_pick: Math.max(1, Number(emitPoolPick) || 1),
+        emit_pool_pick: Math.max(0, Number.isFinite(Number(emitPoolPick)) ? Number(emitPoolPick) : 1),
         deadline_time: null,
         duration_seconds,
         category_id: categoryId === '' ? null : Number(categoryId),
@@ -398,7 +398,7 @@
       emit_window_start: null,
       emit_window_end: null,
       emit_pool_command: emitPoolCommand.trim() || null,
-      emit_pool_pick: Math.max(1, Number(emitPoolPick) || 1),
+      emit_pool_pick: Math.max(0, Number.isFinite(Number(emitPoolPick)) ? Number(emitPoolPick) : 1),
       deadline_time,
       duration_seconds: deadline_time ? duration_seconds : null,
       category_id: categoryId === '' ? null : Number(categoryId),
@@ -890,16 +890,19 @@
             </label>
             {#if emitPoolCommand.trim()}
               <label class="field">
-                <span class="label">Штук за бросок</span>
-                <input type="number" min="1" step="1" bind:value={emitPoolPick} />
+                <span class="label">Штук за бросок (0 = все сразу)</span>
+                <input type="number" min="0" step="1" bind:value={emitPoolPick} />
               </label>
             {/if}
             <p class="hint">
               Запускается на каждый бросок; stdout должен быть JSON-массивом
               <code>{'{title, description?, weight?, ref?}'}</code>. Из него берётся
               указанное число случайных пунктов (по весу, вес по умолчанию 1) — они
-              заменяют собой шаги шаблона ниже. Работает независимо от режима появления
-              выше. Пусто = обычный шаблон без пула.
+              заменяют собой шаги шаблона ниже. 0 в «штук за бросок» — взять все
+              новые (после анти-повтора по <code>ref</code>), без взвешенной выборки —
+              для пулов вроде непрочитанной почты, где нужно не терять ничего, а не
+              N случайных. Работает независимо от режима появления выше. Пусто =
+              обычный шаблон без пула.
               <br />
               Если текст начинается с <code>#!</code> — это целый скрипт, а не команда:
               он пишется во временный файл и запускается своим шебангом, так что живёт
