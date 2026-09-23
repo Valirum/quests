@@ -892,21 +892,6 @@
           </div>
         {/if}
       </div>
-      {#if detail?.refs?.length}
-        <div class="block notes__links">
-          <h3 class="block__label">Ссылки</h3>
-          <ul>
-            {#each detail.refs as ref (`${ref.kind}-${ref.id}`)}
-              <li>
-                <button type="button" class="notes__link" onclick={() => onRef?.(ref.kind, ref.id)}>
-                  {ref.title || `${ref.kind}=${ref.id}`}
-                  <span class="notes__kind">{ref.kind}={ref.id}</span>
-                </button>
-              </li>
-            {/each}
-          </ul>
-        </div>
-      {/if}
       {#if detail?.backlinks?.length}
         <div class="block notes__links">
           <h3 class="block__label">Ссылаются</h3>
