@@ -1413,6 +1413,13 @@
     padding-left: 0.1rem;
   }
 
+  .notes__links {
+    margin-top: 0.25rem;
+    margin-bottom: 0;
+    padding-top: var(--space-3, 0.75rem);
+    border-top: 1px solid var(--color-border, #333);
+  }
+
   .block__label--toggle {
     display: inline-flex;
     align-items: center;
