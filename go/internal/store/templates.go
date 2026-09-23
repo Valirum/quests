@@ -108,9 +108,11 @@ func (s *Store) CreateTemplate(ctx context.Context, body map[string]any) (Templa
 	sig := asStringDef(body["significance"], "common")
 	emitMode := asStringDef(body["emit_mode"], "fixed")
 	emitChance := asFloat(body["emit_chance"], 1.0)
+	// <=0 is a real value ("take everything new" — see resolveEmitPool in
+	// go/internal/schedule/materialize.go), not an input error to round up.
 	emitPoolPick := asInt(body["emit_pool_pick"], 1)
-	if emitPoolPick < 1 {
-		emitPoolPick = 1
+	if emitPoolPick < 0 {
+		emitPoolPick = 0
 	}
 	colorCat := nullI64(asI64Ptr(body["category_id"]))
 	lineID := nullI64(asI64Ptr(body["questline_id"]))
@@ -153,8 +155,8 @@ func (s *Store) UpdateTemplate(ctx context.Context, id int64, body map[string]an
 	}
 	now := timeutil.NowUTC()
 	emitPoolPick := asInt(merged["emit_pool_pick"], 1)
-	if emitPoolPick < 1 {
-		emitPoolPick = 1
+	if emitPoolPick < 0 {
+		emitPoolPick = 0
 	}
 	_, err = s.DB.ExecContext(ctx, `
 		UPDATE questtemplate SET

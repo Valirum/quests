@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"math/rand"
 	"os"
 	"os/exec"
@@ -162,18 +163,32 @@ func MaterializeDue(ctx context.Context, st *store.Store, hub *events.Hub, now t
 
 		usePool := tmpl.EmitPoolCommand.Valid && strings.TrimSpace(tmpl.EmitPoolCommand.String) != ""
 		var poolRollID int64
+		var poolFailed bool
+		var poolFailMsg string
 		var steps []domain.Step
 		if usePool {
-			items, rollID, perr := resolveEmitPool(ctx, st, tmpl, key, now, rng)
+			items, rollID, failMsg, perr := resolveEmitPool(ctx, st, tmpl, key, now, rng)
 			if perr != nil {
 				return created, perr
 			}
 			poolRollID = rollID
-			if len(items) == 0 {
-				// retry pending, empty/zero-weight pool (miss), or attempts exhausted (error)
+			switch {
+			case failMsg != "":
+				// Attempts just ran out — nothing else surfaces this (no logging
+				// in execEmitPoolCommand), so materialize a failed quest with the
+				// last attempt's trace instead of silently doing nothing.
+				poolFailed = true
+				poolFailMsg = failMsg
+				steps = []domain.Step{{
+					Title:         "Почини команду пула шаблона «" + tmpl.Title + "»",
+					ProgressTotal: 1,
+				}}
+			case len(items) == 0:
+				// retry pending, or empty/zero-weight pool (miss)
 				continue
+			default:
+				steps = stepsFromPoolItems(items)
 			}
-			steps = stepsFromPoolItems(items)
 		} else {
 			steps, err = loadTemplateSteps(ctx, st, tmpl, rng)
 			if err != nil {
@@ -194,6 +209,13 @@ func MaterializeDue(ctx context.Context, st *store.Store, hub *events.Hub, now t
 			UpdatedAt:       now,
 			Automated:       tmpl.Automated,
 			Steps:           steps,
+		}
+		if poolFailed {
+			q.Status = domain.StatusFailed
+			q.Description = fmt.Sprintf(
+				"`emit_pool_command` провалилась %d раза подряд за этот период. Трейс последней попытки:\n\n```\n%s\n```",
+				emitPoolMaxAttempts, poolFailMsg,
+			)
 		}
 		if tmpl.Significance == "" {
 			q.Significance = domain.SigCommon
@@ -546,27 +568,30 @@ func (it poolItem) key() string {
 // weighted-picks emit_pool_pick items excluding recent picks, and persists
 // state in templateemitroll so repeated ticks don't re-roll or re-exec.
 // Returns an empty slice when there is nothing to materialize this tick
-// (pending retry, empty/zero-weight pool = miss, or attempts exhausted).
-func resolveEmitPool(ctx context.Context, st *store.Store, tmpl templateRow, periodKey string, now time.Time, rng *rand.Rand) ([]poolItem, int64, error) {
+// (pending retry, empty/zero-weight pool = miss). failMsg is non-empty
+// exactly when this call is the one that exhausted attempts (outcome just
+// became "error") — the caller uses it to materialize a failed quest
+// carrying the trace, since nothing else surfaces this to the user.
+func resolveEmitPool(ctx context.Context, st *store.Store, tmpl templateRow, periodKey string, now time.Time, rng *rand.Rand) (items []poolItem, rollID int64, failMsg string, err error) {
 	var id int64
 	var outcome string
 	var attempts int
 	var pickedRefs sql.NullString
 	isNew := false
-	err := st.DB.QueryRowContext(ctx, `
+	qerr := st.DB.QueryRowContext(ctx, `
 		SELECT id, outcome, attempts, picked_refs FROM templateemitroll
 		WHERE template_id = ? AND period_key = ?`, tmpl.ID, periodKey).
 		Scan(&id, &outcome, &attempts, &pickedRefs)
-	if err == sql.ErrNoRows {
+	if qerr == sql.ErrNoRows {
 		isNew = true
-	} else if err != nil {
-		return nil, 0, err
+	} else if qerr != nil {
+		return nil, 0, "", qerr
 	}
 	if !isNew && (outcome == "materialized" || outcome == "error" || outcome == "miss") {
-		return nil, id, nil
+		return nil, id, "", nil
 	}
 
-	items, execErr := execEmitPoolCommand(ctx, tmpl.EmitPoolCommand.String)
+	rawItems, execErr := execEmitPoolCommand(ctx, tmpl.EmitPoolCommand.String)
 	if execErr != nil {
 		attempts++
 		newOutcome := "scheduled"
@@ -579,18 +604,22 @@ func resolveEmitPool(ctx context.Context, st *store.Store, tmpl templateRow, per
 				VALUES (?, ?, ?, ?, ?, ?)`,
 				tmpl.ID, periodKey, newOutcome, attempts, timeutil.ToDBUTC(now), timeutil.ToDBUTC(now))
 			if err != nil {
-				return nil, 0, err
+				return nil, 0, "", err
 			}
 			id, _ = res.LastInsertId()
 		} else {
 			if _, err := st.DB.ExecContext(ctx, `
 				UPDATE templateemitroll SET outcome = ?, attempts = ?, updated_at = ? WHERE id = ?`,
 				newOutcome, attempts, timeutil.ToDBUTC(now), id); err != nil {
-				return nil, 0, err
+				return nil, 0, "", err
 			}
 		}
-		return nil, id, nil
+		if newOutcome == "error" {
+			return nil, id, execErr.Error(), nil
+		}
+		return nil, id, "", nil
 	}
+	items = rawItems
 
 	positive := make([]poolItem, 0, len(items))
 	for _, it := range items {
@@ -600,9 +629,9 @@ func resolveEmitPool(ctx context.Context, st *store.Store, tmpl templateRow, per
 	}
 	if len(positive) == 0 {
 		if err := persistEmitPoolOutcome(ctx, st, id, isNew, tmpl.ID, periodKey, "miss", attempts, "", now); err != nil {
-			return nil, 0, err
+			return nil, 0, "", err
 		}
-		return nil, id, nil
+		return nil, id, "", nil
 	}
 
 	excludeDepth := len(positive) - 1
@@ -613,13 +642,13 @@ func resolveEmitPool(ctx context.Context, st *store.Store, tmpl templateRow, per
 			WHERE template_id = ? AND period_key != ? AND picked_refs IS NOT NULL
 			ORDER BY period_key DESC LIMIT ?`, tmpl.ID, periodKey, excludeDepth)
 		if err != nil {
-			return nil, 0, err
+			return nil, 0, "", err
 		}
 		for rows.Next() {
 			var raw string
 			if err := rows.Scan(&raw); err != nil {
 				rows.Close()
-				return nil, 0, err
+				return nil, 0, "", err
 			}
 			var keys []string
 			if json.Unmarshal([]byte(raw), &keys) == nil {
@@ -630,7 +659,7 @@ func resolveEmitPool(ctx context.Context, st *store.Store, tmpl templateRow, per
 		}
 		if err := rows.Err(); err != nil {
 			rows.Close()
-			return nil, 0, err
+			return nil, 0, "", err
 		}
 		rows.Close()
 	}
@@ -641,14 +670,27 @@ func resolveEmitPool(ctx context.Context, st *store.Store, tmpl templateRow, per
 			candidates = append(candidates, it)
 		}
 	}
-	m := tmpl.EmitPoolPick
-	if m < 1 {
-		m = 1
+
+	// emit_pool_pick <= 0 means "take everything new" instead of a weighted
+	// sample of N — the anti-repeat filter above already excludes what was
+	// recently shown, so this is "whatever's left", not "the whole pool
+	// every time" (that would make an unread-mail-style pool re-list the
+	// same items forever since nothing here marks them consumed upstream).
+	var picked []poolItem
+	if tmpl.EmitPoolPick <= 0 {
+		picked = candidates
+	} else {
+		if len(candidates) < tmpl.EmitPoolPick {
+			candidates = positive // not enough non-recent variants — fall back to the full pool
+		}
+		picked = weightedPickWithoutReplacement(candidates, tmpl.EmitPoolPick, rng)
 	}
-	if len(candidates) < m {
-		candidates = positive // not enough non-recent variants — fall back to the full pool
+	if len(picked) == 0 {
+		if err := persistEmitPoolOutcome(ctx, st, id, isNew, tmpl.ID, periodKey, "miss", attempts, "", now); err != nil {
+			return nil, 0, "", err
+		}
+		return nil, id, "", nil
 	}
-	picked := weightedPickWithoutReplacement(candidates, m, rng)
 
 	keys := make([]string, 0, len(picked))
 	for _, it := range picked {
@@ -656,12 +698,12 @@ func resolveEmitPool(ctx context.Context, st *store.Store, tmpl templateRow, per
 	}
 	refsJSON, err := json.Marshal(keys)
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, "", err
 	}
 	if err := persistEmitPoolOutcome(ctx, st, id, isNew, tmpl.ID, periodKey, "scheduled", attempts, string(refsJSON), now); err != nil {
-		return nil, 0, err
+		return nil, 0, "", err
 	}
-	return picked, id, nil
+	return picked, id, "", nil
 }
 
 func persistEmitPoolOutcome(ctx context.Context, st *store.Store, id int64, isNew bool, templateID int64, periodKey, outcome string, attempts int, pickedRefsJSON string, now time.Time) error {
@@ -733,11 +775,13 @@ func execEmitPoolCommand(parent context.Context, command string) ([]poolItem, er
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
-		return nil, err
+		// stderr rides along in the error text — it's the only trace of what
+		// went wrong once attempts run out, since nothing else logs this.
+		return nil, fmt.Errorf("%w\nstderr:\n%s", err, truncate(stderr.String(), 4000))
 	}
 	var items []poolItem
 	if err := json.Unmarshal(stdout.Bytes(), &items); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("invalid JSON on stdout: %w\nstdout:\n%s", err, truncate(stdout.String(), 4000))
 	}
 	out := make([]poolItem, 0, len(items))
 	for _, it := range items {
@@ -747,6 +791,14 @@ func execEmitPoolCommand(parent context.Context, command string) ([]poolItem, er
 		out = append(out, it)
 	}
 	return out, nil
+}
+
+func truncate(s string, n int) string {
+	s = strings.TrimSpace(s)
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "…"
 }
 
 // weightedPickWithoutReplacement draws up to m items from candidates,
