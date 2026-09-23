@@ -896,7 +896,7 @@
         {/if}
       </div>
       {#if detail?.refs?.length}
-        <div class="block notes__links">
+        <div class="block notes__links notes__links--first">
           <button
             type="button"
             class="block__label block__label--toggle"
@@ -921,7 +921,7 @@
         </div>
       {/if}
       {#if detail?.backlinks?.length}
-        <div class="block notes__links">
+        <div class="block notes__links" class:notes__links--first={!detail?.refs?.length}>
           <button
             type="button"
             class="block__label block__label--toggle"
@@ -1350,8 +1350,13 @@
   .notes__split {
     display: grid;
     gap: 0;
+    /* Fixed to viewport, not flex:1 — a flex item can still shrink below its
+       basis when siblings need room (opening ссылки/ссылаются below it),
+       which visibly squashed the editor. Height pinned to the screen means
+       the page scrolls instead of the editor moving. */
+    height: 55vh;
     min-height: 18rem;
-    flex: 1 1 auto;
+    flex: 0 0 auto;
   }
 
   .notes__split--combined {
@@ -1414,19 +1419,31 @@
   }
 
   .notes__links {
-    margin-top: 0.25rem;
-    margin-bottom: 0;
-    padding-top: var(--space-3, 0.75rem);
+    margin: 0;
+    padding: 0;
+  }
+
+  .notes__links--first {
+    margin-top: 0.85rem;
+    padding-top: 0.85rem;
     border-top: 1px solid var(--color-border, #333);
   }
 
   .block__label--toggle {
-    display: inline-flex;
+    /* Block-level flex, not inline-flex: an inline box would sit on the
+       parent's text baseline and carry its line-height strut as dead space. */
+    display: flex;
+    width: fit-content;
     align-items: center;
     gap: 0.3rem;
     border: 0;
     background: transparent;
+    /* .block__label is written for an <h3> and carries margin-bottom 0.5rem —
+       8px of invisible space under the label that made it look glued to the
+       divider above. As a toggle row its box must be exactly the label. */
+    margin: 0;
     padding: 0;
+    line-height: 1;
     cursor: pointer;
   }
 
