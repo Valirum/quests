@@ -3,6 +3,7 @@
   import QuestlineIcon from '../ui/QuestlineIcon.svelte'
   import MarkdownBody from '../ui/MarkdownBody.svelte'
   import AttachmentsBlock from './AttachmentsBlock.svelte'
+  import ContextMenu from '../ui/ContextMenu.svelte'
   import { formatLocal, localTimeZone } from '../js/time.js'
   import { parseRefs } from '../js/refs.js'
   import {
@@ -13,7 +14,8 @@
     significanceLabel,
     statusColor,
   } from '../js/questFormat.js'
-  import { downloadQuestPdf } from '../js/questPdf.js'
+  import { downloadQuestPdfSimple } from '../js/questPdf.js'
+  import { downloadQuestPdf as downloadQuestPdfRich } from '../js/questExport.js'
   import { toastDone, toastProgress } from '../js/toasts.svelte.js'
 
   /** @type {{
@@ -73,14 +75,19 @@
 
   const tzLabel = localTimeZone()
   let pdfBusy = $state(false)
+  let pdfMenu = $state({ open: false, x: 0, y: 0, quest: /** @type {any} */ (null) })
 
-  async function exportPdf(q) {
+  async function exportPdf(q, mode = 'rich') {
     if (!q || pdfBusy) return
     pdfBusy = true
     const tid = 'pdf-quest'
     toastProgress(tid, 'Генерация PDF…')
     try {
-      await downloadQuestPdf(q)
+      if (mode === 'simple') {
+        await downloadQuestPdfSimple(q)
+      } else {
+        await downloadQuestPdfRich(q, { labels, tzLabel })
+      }
       toastDone(tid, 'PDF сохранён')
     } catch (e) {
       console.error(e)
@@ -88,6 +95,14 @@
     } finally {
       pdfBusy = false
     }
+  }
+
+  function openPdfMenu(event, q) {
+    pdfMenu = { open: true, x: event.clientX, y: event.clientY, quest: q }
+  }
+
+  function selectPdfMode(id) {
+    exportPdf(pdfMenu.quest, id)
   }
 
   let lineQuests = $derived.by(() => {
@@ -195,7 +210,7 @@
     <button
       type="button"
       class="btn btn--icon"
-      onclick={() => exportPdf(q)}
+      onclick={(e) => openPdfMenu(e, q)}
       disabled={pdfBusy}
       title={pdfBusy ? 'PDF…' : 'В PDF'}
       aria-label={pdfBusy ? 'Выгрузка PDF…' : 'Выгрузить в PDF'}
@@ -538,3 +553,15 @@
     </article>
   {/if}
 </section>
+
+<ContextMenu
+  open={pdfMenu.open}
+  x={pdfMenu.x}
+  y={pdfMenu.y}
+  items={[
+    { id: 'rich', label: 'PDF' },
+    { id: 'simple', label: 'PDF (просто)' },
+  ]}
+  onSelect={selectPdfMode}
+  onClose={() => (pdfMenu = { ...pdfMenu, open: false })}
+/>
