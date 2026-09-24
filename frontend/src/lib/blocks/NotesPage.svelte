@@ -366,6 +366,60 @@
     if (viewMode !== 'formatted') titleEditing = false
   })
 
+  // Grow the editor to fit its text so Текст/Оба flow like Просмотр: no inner
+  // scrollbar, the whole note visible, the page the only thing that scrolls.
+  // CSS min-height still floors it for short notes.
+  function autoGrow() {
+    const ta = editEl
+    if (!ta) return
+    ta.style.height = 'auto'
+    let h = ta.scrollHeight
+    ta.style.height = `${h}px`
+    // Pinning an explicit height can nudge a textarea's own scrollHeight up
+    // (trailing-line rendering quirk), which would leave the last line or two
+    // clipped under overflow:hidden — settle it in a couple of passes.
+    for (let i = 0; i < 3 && ta.scrollHeight > h; i++) {
+      h = ta.scrollHeight
+      ta.style.height = `${h}px`
+    }
+  }
+
+  $effect(() => {
+    // Re-measure whenever the text or the mode changes (mode switch remounts
+    // the textarea, so editEl is a dependency too). A second pass next frame
+    // catches the reflow when the mono webfont finishes loading.
+    void description
+    void viewMode
+    if (!editEl) return
+    tick().then(() => {
+      autoGrow()
+      requestAnimationFrame(autoGrow)
+    })
+  })
+
+  $effect(() => {
+    // The mono webfont can land after the first measure and shift line height;
+    // recompute once it's ready so nothing is left clipped.
+    document.fonts?.ready?.then(autoGrow)
+  })
+
+  $effect(() => {
+    const ta = editEl
+    if (!ta) return
+    // Width changes (window/split resize) reflow the text and change its
+    // height; recompute on those, but ignore our own height writes to avoid a
+    // feedback loop.
+    let lastW = ta.clientWidth
+    const ro = new ResizeObserver((entries) => {
+      const w = entries[0].contentRect.width
+      if (Math.abs(w - lastW) < 0.5) return
+      lastW = w
+      autoGrow()
+    })
+    ro.observe(ta)
+    return () => ro.disconnect()
+  })
+
   function previewMdRoot() {
     return previewEl?.querySelector?.('.md') ?? previewEl
   }
@@ -1186,7 +1240,10 @@
   }
 
   .notes__head {
-    margin: 0 0 var(--space-2, 0.5rem);
+    /* No bottom margin: the page's flex gap alone sets the distance from the
+       header divider to the note body, matching the gap below the body so the
+       body sits evenly between its two dividers. */
+    margin: 0;
     padding: 0 0 var(--space-3, 0.75rem);
     border-bottom: 1px solid var(--color-border, #333);
   }
@@ -1350,12 +1407,11 @@
   .notes__split {
     display: grid;
     gap: 0;
-    /* Fixed to viewport, not flex:1 — a flex item can still shrink below its
-       basis when siblings need room (opening ссылки/ссылаются below it),
-       which visibly squashed the editor. Height pinned to the screen means
-       the page scrolls instead of the editor moving. */
-    height: 55vh;
-    min-height: 18rem;
+    /* Content-driven in every mode: the body flows full-length and the page
+       scrolls, nothing is boxed to the viewport. The editor is kept from
+       being squashed not by a fixed height but by auto-growing to its text
+       (autoGrow below), so opening ссылки/ссылаются can't eat into it. */
+    min-height: 0;
     flex: 0 0 auto;
   }
 
@@ -1385,12 +1441,21 @@
     grid-template-columns: 1fr;
   }
 
+  /* Reading mode: preview flows with its content instead of scrolling inside
+     its own box, so the body ends where the text ends. */
+  .notes__split--formatted .notes__preview {
+    min-height: 0;
+    overflow: visible;
+  }
+
   .notes__split :global(textarea.notes__edit) {
     width: 100%;
     min-height: 18rem;
-    height: 100%;
-    resize: vertical;
-    padding: 0.15rem 0.1rem 0.75rem;
+    /* Height is set from content by autoGrow so the editor flows like the
+       reading view — no inner scroll, the page scrolls instead. */
+    resize: none;
+    overflow: hidden;
+    padding: 0.15rem 0.1rem;
     border: 0;
     border-radius: 0;
     background: transparent;
@@ -1401,7 +1466,11 @@
   }
 
   .notes__preview {
-    padding: 0.15rem 0.25rem 0.75rem 0.85rem;
+    /* block--prose carries margin-bottom: 2rem for typography; here the flex
+       gap already spaces the body, so drop it — otherwise it re-opens the
+       bottom gap once the box grows with content in reading mode. */
+    margin: 0;
+    padding: 0.15rem 0.25rem 0.15rem 0.85rem;
     overflow: auto;
     min-height: 18rem;
   }
@@ -1424,8 +1493,11 @@
   }
 
   .notes__links--first {
-    margin-top: 0.85rem;
-    padding-top: 0.85rem;
+    /* Sit the divider a flex-gap below the body (no extra margin), then pad
+       the label the same flex-gap below the divider. Both the body above and
+       the links group below then clear each divider by the same amount. */
+    margin-top: 0;
+    padding-top: var(--space-4, 1rem);
     border-top: 1px solid var(--color-border, #333);
   }
 
@@ -1483,7 +1555,10 @@
   }
 
   .notes__attach {
-    margin-top: 0.25rem;
+    /* Same rhythm as the links divider: one flex-gap above the divider, one
+       flex-gap of padding below it, so «Вложения» clears its divider by the
+       same amount the links label clears the divider above. */
+    margin-top: 0;
     padding-top: var(--space-4, 1rem);
     border-top: 1px solid var(--color-border, #333);
   }

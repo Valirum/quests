@@ -2063,19 +2063,42 @@
     font-size: var(--text-sm, 0.875rem);
   }
 
-  .attach__dl {
-    font-size: var(--text-sm, 0.875rem);
-    color: var(--color-accent, #c9a227);
+  /* Download + delete share one look: a bare icon, no border or fill.
+     Transparent box, muted resting color, a soft tint on hover — matching
+     the note-header icon actions rather than a boxed button. */
+  .attach__act {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.9rem;
+    height: 1.9rem;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--color-fg-muted, #9a9a9a);
+    cursor: pointer;
+    border-radius: var(--radius-md, 4px);
     text-decoration: none;
   }
 
-  .attach__dl:hover {
-    text-decoration: underline;
+  .attach__act:hover {
+    color: var(--color-fg, #e8e8e8);
+    background: color-mix(in srgb, var(--color-fg, #e8e8e8) 8%, transparent);
   }
 
-  .attach__dl--off {
-    color: var(--color-fg-muted, #9a9a9a);
+  .attach__act--danger:hover {
+    color: var(--color-danger, #b54a3a);
+    background: color-mix(in srgb, var(--color-danger, #b54a3a) 14%, transparent);
+  }
+
+  .attach__act--off {
+    color: var(--color-fg-subtle, #6e6e6e);
     cursor: default;
+  }
+
+  .attach__act--off:hover {
+    color: var(--color-fg-subtle, #6e6e6e);
+    background: transparent;
   }
 
   .attach__drop {
