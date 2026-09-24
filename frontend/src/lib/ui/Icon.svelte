@@ -10,6 +10,7 @@
   import copy from '../../assets/icons/copy.svg?raw'
   import deleteIcon from '../../assets/icons/delete.svg?raw'
   import document from '../../assets/icons/document.svg?raw'
+  import download from '../../assets/icons/download.svg?raw'
   import edit from '../../assets/icons/edit.svg?raw'
   import flag from '../../assets/icons/flag.svg?raw'
   import layers from '../../assets/icons/layers.svg?raw'
@@ -38,6 +39,7 @@
     copy,
     delete: deleteIcon,
     document,
+    download,
     edit,
     flag,
     layers,

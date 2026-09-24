@@ -211,24 +211,28 @@
             }}
           />
           {#if unavailable}
-            <span class="attach__dl attach__dl--off" title="WebDAV недоступен">скачать</span>
+            <span class="attach__act attach__act--off" title="WebDAV недоступен" aria-label="Скачать (недоступно)">
+              <Icon name="download" size={16} />
+            </span>
           {:else}
             <a
-              class="attach__dl"
+              class="attach__act"
               href={attachmentDownloadUrl(ownerType, ownerId, a.id)}
               download={a.filename}
+              title="Скачать"
+              aria-label="Скачать вложение"
             >
-              скачать
+              <Icon name="download" size={16} />
             </a>
           {/if}
           <button
             type="button"
-            class="btn btn--icon btn--danger"
+            class="attach__act attach__act--danger"
             title="Удалить"
             aria-label="Удалить вложение"
             onclick={() => remove(a)}
           >
-            <Icon name="delete" size={14} />
+            <Icon name="delete" size={16} />
           </button>
         </li>
       {/each}
