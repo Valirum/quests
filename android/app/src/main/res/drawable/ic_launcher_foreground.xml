@@ -1,10 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Same lozenge mark as frontend/public/favicon.svg, scaled to the 108dp adaptive-icon canvas. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
     <path
-        android:fillColor="#C47A20"
-        android:pathData="M54,20L24,38l30,18 30,-18 -30,-18zM24,74l30,18 30,-18M24,56l30,18 30,-18" />
+        android:pathData="M54,15.2 L91.1,54 L54,92.8 L16.9,54 Z"
+        android:strokeColor="#C9A227"
+        android:strokeWidth="6.75"
+        android:strokeLineJoin="round"
+        android:fillColor="#00000000" />
+    <path
+        android:pathData="M54,33.75 L74.25,54 L54,74.25 L33.75,54 Z"
+        android:fillColor="#C9A227"
+        android:fillAlpha="0.92" />
 </vector>
