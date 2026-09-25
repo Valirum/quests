@@ -232,4 +232,12 @@ func TestEmitPoolOpenAt(t *testing.T) {
 	if before.Before(openAt) == after.Before(openAt) {
 		t.Fatalf("openAt should separate before (%v) from after (%v)", before, after)
 	}
+
+	// deadline_time set but no duration_seconds: the gate must default the
+	// missing duration to 0 (check right at deadline_time), not fall back to
+	// fixedDeadline's own midnight-to-deadline placeholder — that placeholder
+	// is for the resulting quest's own duration field, unrelated to the gate.
+	if got := emitPoolOpenAt(deadline, 0); !got.Equal(deadline) {
+		t.Fatalf("want openAt=deadline (%v) when duration=0, got %v", deadline, got)
+	}
 }
