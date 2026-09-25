@@ -23,6 +23,10 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".QuestsWebActivity"
+            android:exported="false" />
+
         <service
             android:name=".service.QuestsService"
             android:exported="false"
