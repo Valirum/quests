@@ -1,6 +1,7 @@
 <script>
   // Quests web UI — orchestrator (state, load, overlays)
   import { onMount } from 'svelte'
+  import { cubicOut } from 'svelte/easing'
   import {
     deleteQuest,
     deleteQuestline,
@@ -832,7 +833,24 @@
     return { tab: nextView }
   }
 
+  // Header tab order; drives which way a tab switch slides.
+  const TAB_ORDER = ['journal', 'toc', 'notes', 'attachments', 'calendar', 'hero', 'stats']
+  let navDir = $state(1)
+
+  /** Horizontal slide for tab switches: forward enters from the right, back from the left. */
+  function slideTab(node, { dir, out = false }) {
+    const sign = out ? -dir : dir
+    return {
+      duration: 220,
+      easing: cubicOut,
+      css: (t) => `transform: translateX(${(1 - t) * sign * 100}%)`,
+    }
+  }
+
   function setView(next) {
+    const from = TAB_ORDER.indexOf(view)
+    const to = TAB_ORDER.indexOf(next)
+    if (from !== -1 && to !== -1 && from !== to) navDir = to > from ? 1 : -1
     view = next
     replaceSearch(searchForView(next))
   }
@@ -1019,6 +1037,14 @@
   }
 
   onMount(() => {
+    // Native swipe hosts (Android HubActivity, quest=192) drive tab switches
+    // through this instead of a full page reload — keeps the header mounted
+    // and lets setView()'s own transition animate the change.
+    window.questsNav = {
+      setTab: (name) => setView(name),
+      currentTab: () => view,
+    }
+
     applyTheme(loadSavedTheme())
     // A 401 from any later call means the session lapsed — fall back to login.
     setUnauthorizedHandler(() => {
@@ -1113,6 +1139,13 @@
 
   <ToastHost />
 
+  <div class="journal__stage">
+  {#key view}
+  <div
+    class="journal__viewport"
+    in:slideTab={{ dir: navDir }}
+    out:slideTab={{ dir: navDir, out: true }}
+  >
   {#if view === 'hero'}
     <div class="journal__hero">
       <HeroPanel active={view === 'hero'} nonce={heroNonce} />
@@ -1218,6 +1251,9 @@
       />
     </div>
   {/if}
+  </div>
+  {/key}
+  </div>
 </div>
 
 <QuestModal

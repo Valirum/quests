@@ -9,6 +9,26 @@
     background: var(--color-bg, #121212);
   }
 
+  /* Tab switches slide (see {#key view} in App.svelte). During the
+     transition the outgoing and incoming views coexist; stacking both in
+     one grid cell keeps them overlapping instead of the new one sitting
+     below the old and jumping up when it's removed. */
+  .journal__stage {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: grid;
+    grid-template: minmax(0, 1fr) / minmax(0, 1fr);
+    overflow: hidden;
+  }
+
+  .journal__viewport {
+    grid-area: 1 / 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
   .journal__header {
     position: relative;
     flex-shrink: 0;

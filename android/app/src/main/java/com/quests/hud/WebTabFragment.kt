@@ -1,21 +1,18 @@
 package com.quests.hud
 
-import android.annotation.SuppressLint
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import android.webkit.WebView
-import android.webkit.WebViewClient
 import androidx.fragment.app.Fragment
 import com.quests.hud.data.PrefsStore
 import com.quests.hud.databinding.FragmentWebTabBinding
 
 /**
- * One SPA tab (journal/toc/notes/...), each its own WebView instance so
- * ViewPager2 can slide between them natively — see HubPagerAdapter and
- * quest=192. Same origin as the other tabs, so cookies (session auth,
- * docs/auth.md) are shared automatically via WebView's CookieManager.
+ * One SPA tab (journal/toc/notes/...). Reparents the single SharedWebView
+ * into this fragment's container and asks it to switch tab — no reload, so
+ * ViewPager2 swipes between tabs feel instant instead of re-flashing the
+ * whole page (quest=192).
  */
 class WebTabFragment : Fragment() {
 
@@ -31,19 +28,16 @@ class WebTabFragment : Fragment() {
         return binding.root
     }
 
-    @SuppressLint("SetJavaScriptEnabled")
-    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
-        super.onViewCreated(view, savedInstanceState)
-
+    override fun onResume() {
+        super.onResume()
         val tab = requireArguments().getString(ARG_TAB)!!
-        val base = PrefsStore(requireContext()).apiBase
-        if (base.isNullOrBlank()) return
+        val base = PrefsStore(requireContext()).apiBase ?: return
+        SharedWebView.attach(requireContext(), binding.tabWebContainer, base, tab)
+    }
 
-        val webView = binding.tabWebView
-        webView.settings.javaScriptEnabled = true
-        webView.settings.domStorageEnabled = true
-        webView.webViewClient = WebViewClient()
-        webView.loadUrl(if (tab == "journal") base else "$base?tab=$tab")
+    override fun onPause() {
+        SharedWebView.detachFrom(binding.tabWebContainer)
+        super.onPause()
     }
 
     override fun onDestroyView() {
