@@ -20,4 +20,10 @@
 
     <string name="notification_channel_name">Quests HUD</string>
     <string name="notification_placeholder_text">Ожидание данных…</string>
+    <string name="notification_not_configured">Не настроено — открой приложение</string>
+    <string name="notification_error">Ошибка API: %1$s</string>
+    <string name="notification_no_active_quests">Активных квестов нет</string>
+    <string name="notification_active_count">Активных квестов: %1$d</string>
+    <string name="notification_nearest_deadline">Ближайший дедлайн: %1$s</string>
+    <string name="notification_current_step">%1$s: %2$s (%3$d/%4$d)</string>
 </resources>
