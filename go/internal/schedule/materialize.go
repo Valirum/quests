@@ -162,6 +162,23 @@ func MaterializeDue(ctx context.Context, st *store.Store, hub *events.Hub, now t
 		}
 
 		usePool := tmpl.EmitPoolCommand.Valid && strings.TrimSpace(tmpl.EmitPoolCommand.String) != ""
+
+		// A fixed-mode pool template with both deadline_time and duration_seconds
+		// set describes its own "check window": duration_seconds before
+		// deadline_time. Without this gate, a freshness-sensitive command (unread
+		// mail etc.) ran at the period's very first tick — right after local
+		// midnight — and its outcome (miss included; see resolveEmitPool) locked
+		// in for the rest of the day, so anything that showed up later had no
+		// chance to be seen until the next period. Only fixed mode needs this:
+		// surprise mode already has its own wait-for-scheduledAt gate above, and
+		// a template with no duration_seconds has no window to speak of, so it
+		// keeps firing at first tick as before.
+		if usePool && emitMode != "surprise" && emitMode != "random" && emitMode != "chance" &&
+			deadline != nil && duration != nil && tmpl.DurationSeconds.Valid {
+			if now.Before(emitPoolOpenAt(*deadline, *duration)) {
+				continue
+			}
+		}
 		var poolRollID int64
 		var poolFailed bool
 		var poolFailMsg string
@@ -358,6 +375,14 @@ func fixedDeadline(tmpl templateRow, localNow time.Time, loc *time.Location) (*t
 		}
 	}
 	return &deadlineUTC, &duration
+}
+
+// emitPoolOpenAt is the moment a fixed-mode pool template's own check window
+// opens: duration_seconds before its deadline. Before this moment,
+// MaterializeDue skips the template entirely for the tick instead of running
+// emit_pool_command — see the call site's comment for why.
+func emitPoolOpenAt(deadline time.Time, durationSeconds int) time.Time {
+	return deadline.Add(-time.Duration(durationSeconds) * time.Second)
 }
 
 func surpriseDeadline(tmpl templateRow, nowUTC time.Time) (*time.Time, *int) {

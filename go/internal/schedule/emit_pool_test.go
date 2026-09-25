@@ -213,3 +213,23 @@ func TestResolveEmitPoolRetryThenError(t *testing.T) {
 		t.Fatalf("post-error call should report the same roll id, got %d want %d", rollID, lastRollID)
 	}
 }
+
+// emitPoolOpenAt: the check window opens duration_seconds before the
+// deadline, not at the deadline itself and not before that offset.
+func TestEmitPoolOpenAt(t *testing.T) {
+	deadline := time.Date(2026, 9, 25, 13, 0, 0, 0, time.UTC)
+	openAt := emitPoolOpenAt(deadline, 3600)
+	want := time.Date(2026, 9, 25, 12, 0, 0, 0, time.UTC)
+	if !openAt.Equal(want) {
+		t.Fatalf("want openAt=%v, got %v", want, openAt)
+	}
+
+	before := deadline.Add(-2 * time.Hour)
+	after := deadline.Add(-30 * time.Minute)
+	if !before.Before(openAt) {
+		t.Fatalf("sanity: %v should be before openAt %v", before, openAt)
+	}
+	if before.Before(openAt) == after.Before(openAt) {
+		t.Fatalf("openAt should separate before (%v) from after (%v)", before, after)
+	}
+}
