@@ -2482,24 +2482,17 @@
       flex-wrap: wrap;
     }
 
-    /* header-left otherwise shrink-wraps to the toggle+brand row's width,
-       so a centered health row inside it reads as left-aligned under that
-       row rather than centered on the header. Stretch header-left to the
-       header's available width (matching header-actions' row) — but that
-       still centers only within header-left's own box, which stops short
-       of the header's true center by whatever header-actions claims on
-       that row; --health-shift (JournalHeader's recomputeHealthShift)
-       nudges it the rest of the way. Absolute positioning was tried and
-       rejected — it sits at the same height as .view-tabs' own row
-       (order: 3), which also lands right under row 1. */
-    .header-left {
-      flex: 1 1 auto;
-    }
-
+    /* Centered on row 1 itself — level with the sidebar toggle and the
+       header-actions buttons, not dropped onto its own line below them.
+       top is row 1's vertical *center* (half its height), not its bottom
+       edge — that earlier attempt put health at the same top as
+       .view-tabs' own row (order: 3, which starts right at the full
+       row-1 height), one row too low. */
     .health {
-      flex: 1 1 100%;
-      justify-content: center;
-      transform: translateX(var(--health-shift, 0px));
+      position: absolute;
+      left: 50%;
+      top: calc(var(--header-height, 3.25rem) / 2);
+      transform: translate(-50%, -50%);
     }
 
     /* No room to float the tabs centered over one line — drop them onto
