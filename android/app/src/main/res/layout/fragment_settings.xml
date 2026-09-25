@@ -56,11 +56,12 @@
         android:layout_marginTop="24dp"
         android:text="@string/action_start_service" />
 
-    <Button
-        android:id="@+id/openWebButton"
+    <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginTop="16dp"
-        android:text="@string/action_open_web" />
+        android:layout_marginTop="24dp"
+        android:alpha="0.6"
+        android:text="@string/hint_swipe_to_journal"
+        android:textSize="12sp" />
 
 </LinearLayout>

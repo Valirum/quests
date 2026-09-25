@@ -9,7 +9,7 @@ import android.content.Intent
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
-import com.quests.hud.QuestsWebActivity
+import com.quests.hud.HubActivity
 import com.quests.hud.R
 import com.quests.hud.data.PrefsStore
 import com.quests.hud.net.ApiClient
@@ -24,8 +24,8 @@ import org.json.JSONObject
  * Foreground service holding the ongoing notification. Polls the same REST
  * API the desktop overlay talks to (note=3) and renders active quests as an
  * InboxStyle list — a single BigTextStyle line can't fit more than one quest
- * (quest=192, steps 716/717). The full list with all details lives in
- * QuestsWebActivity (the existing SPA), reachable by tapping the notification.
+ * (quest=192, steps 716/717). Tapping the notification opens HubActivity,
+ * the swipeable settings+SPA hub, landing on the journal tab.
  */
 class QuestsService : Service() {
 
@@ -100,7 +100,7 @@ class QuestsService : Service() {
     private fun openWebIntent(): PendingIntent = PendingIntent.getActivity(
         this,
         0,
-        Intent(this, QuestsWebActivity::class.java),
+        Intent(this, HubActivity::class.java),
         PendingIntent.FLAG_IMMUTABLE,
     )
 
