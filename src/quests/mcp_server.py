@@ -29,8 +29,12 @@ from __future__ import annotations
 import argparse
 import base64
 import json
+import mimetypes
 import os
+import subprocess
 import sys
+import tempfile
+import uuid
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -50,11 +54,13 @@ ALLOWED_STATUS = {"active", "delayed", "completed", "failed", "archived"}
 server = MCPServer(
     "quests",
     instructions=(
-        "Quests journal tools. Prefer get_context with a pasted ref like "
-        "quest=23 / step=252 / questline=3 / note=12. Use list_questlines then "
-        "list_quests to browse missions; list_notes for the knowledge vault. "
-        "get_context for full related detail (a quest includes linked_notes "
-        "parsed from note= tokens; a note includes refs and backlinks). "
+        "Quests journal tools. Use list_questlines then list_quests to browse "
+        "missions; list_notes for the knowledge vault. get_base_context for one "
+        "entity's own fields (quest/step/questline — accepts a pasted ref like "
+        "quest=23 / step=252 / questline=3); get_note_context for a note's own "
+        "fields plus refs/backlinks/children (note=12). get_active_context for "
+        "live/pending work; get_inactive_context for completed/failed/archived "
+        "history with full steps — together they cover every quest, full detail. "
         "Notes are markdown knowledge pages (toolkits, facts) — not quests. "
         "They are not owned by a questline. Link them from a quest/step/"
         "questline description with note=N; notes link back with quest=N / "
@@ -78,7 +84,7 @@ server = MCPServer(
         "To change quest lifecycle or metadata use update_quest "
         "(status: active|delayed|completed|failed|archived; pin; title; …) — "
         "do not curl the Quests API or dig into the Quests repo for that. "
-        "Attachments: get_context and list_quests return metadata only "
+        "Attachments: list_quests and the get_*_context tools return metadata only "
         "(filename, size, type, scan_status, comment, available, "
         "source_updated) — never file bytes. Use get_attachment when you "
         "actually need the contents of one file. "
@@ -166,6 +172,48 @@ def _api_raw(
 
 def _api_get(path: str, query: dict[str, Any] | None = None) -> Any:
     return _api("GET", path, query=query)
+
+
+def _api_upload_file(path: str, file_path: str, *, field: str = "file") -> Any:
+    """POST a local file as multipart/form-data (icon uploads etc.)."""
+    try:
+        with open(file_path, "rb") as fh:
+            raw = fh.read()
+    except OSError as e:
+        raise ValueError(f"cannot read {file_path}: {e}") from e
+    filename = os.path.basename(file_path)
+    content_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
+    boundary = uuid.uuid4().hex
+    body = (
+        f"--{boundary}\r\n"
+        f'Content-Disposition: form-data; name="{field}"; filename="{filename}"\r\n'
+        f"Content-Type: {content_type}\r\n\r\n"
+    ).encode("utf-8") + raw + f"\r\n--{boundary}--\r\n".encode("utf-8")
+    url = f"{API_BASE}{path}"
+    headers = {
+        "Accept": "application/json",
+        "Content-Type": f"multipart/form-data; boundary={boundary}",
+    }
+    token = (os.environ.get("QUESTS_API_TOKEN") or "").strip()
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    req = urllib.request.Request(url, data=body, headers=headers, method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            raw_resp = resp.read()
+            return json.loads(raw_resp.decode("utf-8")) if raw_resp else None
+    except urllib.error.HTTPError as e:
+        detail = e.read().decode("utf-8", errors="replace")
+        try:
+            parsed = json.loads(detail)
+            detail = parsed.get("detail", detail)
+        except json.JSONDecodeError:
+            pass
+        raise RuntimeError(f"API {e.code}: {detail}") from e
+    except urllib.error.URLError as e:
+        raise RuntimeError(
+            f"cannot reach Quests API ({API_BASE}): {e.reason}"
+        ) from e
 
 
 def _attachments_brief(owner_type: str, owner_id: int) -> list[dict[str, Any]]:
@@ -294,53 +342,26 @@ def _step_body(s: dict[str, Any]) -> dict[str, Any]:
 
 @server.tool(
     description=(
-        "Full related context for a quest, step, questline, or note: "
-        "questline (if any), sibling quests, linked_notes (note= tokens), "
-        "or the note itself with refs/backlinks/children. Attachment metadata "
-        "without file bytes. Pass exactly one of ref / quest / step / questline / note. "
-        "ref accepts clipboard form: quest=23 or note=12. Use get_attachment to read a file."
+        "Full context for one note: its own description plus refs (quest=N/"
+        "note=N tokens it cites) and backlinks (other quests/notes that cite "
+        "it) and children (nested notes). This is the only tool that resolves "
+        "note refs/backlinks — quests/steps/questlines don't need it, use "
+        "get_base_context or get_active_context/get_inactive_context for those."
     )
 )
-def get_context(
-    ref: str | None = None,
-    quest: int | None = None,
-    step: int | None = None,
-    questline: int | None = None,
-    note: int | None = None,
-) -> dict[str, Any]:
-    if ref:
-        kind, eid = _parse_ref(ref)
-        query = {kind: eid}
-    else:
-        chosen = [
-            (k, v)
-            for k, v in (
-                ("quest", quest),
-                ("step", step),
-                ("questline", questline),
-                ("note", note),
-            )
-            if v is not None
-        ]
-        if len(chosen) != 1:
-            raise ValueError(
-                "provide exactly one of: ref, quest, step, questline, note"
-            )
-        kind, eid = chosen[0]
-        query = {kind: eid}
-    return _api_get("/api/context", query)
+def get_note_context(note_id: int) -> dict[str, Any]:
+    return _api_get("/api/context", {"note": note_id})
 
 
 @server.tool(
     description=(
-        "Lightweight counterpart to get_context — only the object's own direct "
-        "fields, no siblings/linked_notes bloat. For a questline: description, "
-        "attachments, and its quests (id/title/status/significance/category/...). "
-        "For a quest: description, steps, attachments, and a brief questline "
-        "(if any). For a step: its description/progress and a brief owning "
-        "quest. Pass exactly one of ref / quest / step / questline (notes "
-        "aren't supported here — use get_context for those). Reach for this "
-        "when the full get_context payload would be more than you need."
+        "The object's own direct fields, no siblings/linked_notes bloat. "
+        "For a questline: description, attachments, and its quests (id/title/"
+        "status/significance/category/...) across every status. For a quest: "
+        "description, steps, attachments, and a brief questline (if any). For "
+        "a step: its description/progress and a brief owning quest. Pass "
+        "exactly one of ref / quest / step / questline (notes aren't "
+        "supported here — use get_note_context for those)."
     )
 )
 def get_base_context(
@@ -352,7 +373,7 @@ def get_base_context(
     if ref:
         kind, eid = _parse_ref(ref)
         if kind == "note":
-            raise ValueError("get_base_context does not support notes; use get_context")
+            raise ValueError("get_base_context does not support notes; use get_note_context")
     else:
         chosen = [
             (k, v)
@@ -443,6 +464,58 @@ def get_base_context(
     }
 
 
+def _quests_by_status_context(
+    statuses: tuple[str, ...],
+    questline: str | int | None,
+    *,
+    all_steps: bool,
+) -> dict[str, Any]:
+    qline_id = _resolve_questline_id(questline) if questline is not None else None
+    rows: list[dict[str, Any]] = []
+    for st in statuses:
+        rows.extend(_api_get("/api/quests", {"status": st}) or [])
+    if qline_id is not None:
+        rows = [q for q in rows if q.get("questline_id") == qline_id]
+
+    quests_out = []
+    for row in rows:
+        qid = row.get("id")
+        if qid is None:
+            continue
+        resp = _api_get("/api/context", {"quest": qid})
+        q = next((r for r in resp.get("quests") or [] if r.get("id") == qid), None)
+        if q is None:
+            continue
+        steps = [
+            {
+                "id": s.get("id"),
+                "title": s.get("title"),
+                "description": s.get("description"),
+                "progress_current": s.get("progress_current"),
+                "progress_total": s.get("progress_total"),
+                **({"done": s.get("done")} if all_steps else {}),
+            }
+            for s in q.get("steps") or []
+            if all_steps or not s.get("done")
+        ]
+        quests_out.append(
+            {
+                "id": q.get("id"),
+                "title": q.get("title"),
+                "description": q.get("description"),
+                "status": q.get("status"),
+                "significance": q.get("significance"),
+                "pinned": q.get("pinned"),
+                "deadline_at": q.get("deadline_at"),
+                "questline_id": q.get("questline_id"),
+                "questline_title": q.get("questline_title"),
+                "steps": steps,
+                "attachments": _attachments_brief("quest", int(qid)),
+            }
+        )
+    return {"quests": quests_out, "count": len(quests_out)}
+
+
 @server.tool(
     description=(
         "List quests (compact summaries, no step bodies). "
@@ -472,6 +545,39 @@ def list_quests(
             row["attachments"] = _attachments_brief("quest", int(qid))
         out.append(row)
     return out
+
+
+@server.tool(
+    description=(
+        "Only the live work: quests with status active/delayed, each with just "
+        "its undone steps (done ones dropped). No completed/failed/archived "
+        "quests, no finished steps — use this instead of list_quests when you "
+        "just need 'what's actually pending', without wading through history. "
+        "Optional questline filter (id or name, e.g. questline='Сайт Рефкул'); "
+        "omit for everything pending across all questlines. Complements "
+        "get_inactive_context — together they cover every quest, every step."
+    )
+)
+def get_active_context(questline: str | int | None = None) -> dict[str, Any]:
+    return _quests_by_status_context(("active", "delayed"), questline, all_steps=False)
+
+
+@server.tool(
+    description=(
+        "The history: quests with status completed/failed/archived, each with "
+        "all of its steps (done and not, each flagged `done`) — the complement "
+        "of get_active_context. Use it for 'what did we already do' or 'what's "
+        "in this questline besides the live stuff', instead of list_quests when "
+        "you also want step bodies. Optional questline filter (id or name). "
+        "get_active_context ∪ get_inactive_context ≈ every quest in scope, full "
+        "steps — the same ground get_context used to cover before it was split "
+        "into these two status-scoped tools plus get_note_context for notes."
+    )
+)
+def get_inactive_context(questline: str | int | None = None) -> dict[str, Any]:
+    return _quests_by_status_context(
+        ("completed", "failed", "archived"), questline, all_steps=True
+    )
 
 
 @server.tool(description="List all questlines (id, title, category, color, …).")
@@ -697,6 +803,165 @@ def delete_template(template_id: int) -> dict[str, Any]:
     return {"deleted": template_id}
 
 
+# Mirrors go/internal/schedule/materialize.go: emitPoolTimeout (20s) and the
+# shebang-body-vs-sh-one-liner dispatch of execEmitPoolCommand. Kept in sync by
+# hand — this is a dry-run, not the scheduler's own execution path.
+_EMIT_POOL_TIMEOUT_SECONDS = 20
+_EMIT_POOL_MAX_ATTEMPTS = 3
+
+
+def _run_emit_pool_command(command: str) -> dict[str, Any]:
+    """Execute an emit_pool_command exactly as the Go scheduler would and parse
+    its stdout. Returns a structured trace instead of raising — a failing script
+    is the normal thing you're debugging here.
+    """
+    stripped = command.lstrip(" \t\r\n")
+    home = os.path.expanduser("~")
+    env = os.environ  # main() already loaded ROOT/.env, same source the server uses
+    script_path: str | None = None
+    try:
+        if stripped.startswith("#!"):
+            exec_mode = "script"  # shebang body → temp file, its own interpreter
+            fd, script_path = tempfile.mkstemp(prefix="quests-emit-pool-")
+            with os.fdopen(fd, "w") as fh:
+                fh.write(command)
+            os.chmod(script_path, 0o700)
+            argv = [script_path]
+        else:
+            exec_mode = "sh -c"
+            argv = ["sh", "-c", command]
+        try:
+            proc = subprocess.run(
+                argv,
+                cwd=home,
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=_EMIT_POOL_TIMEOUT_SECONDS,
+            )
+        except subprocess.TimeoutExpired as e:
+            return {
+                "ok": False,
+                "exec_mode": exec_mode,
+                "error": f"timed out after {_EMIT_POOL_TIMEOUT_SECONDS}s",
+                "stdout": _clip(e.stdout or ""),
+                "stderr": _clip(e.stderr or ""),
+            }
+    finally:
+        if script_path:
+            try:
+                os.remove(script_path)
+            except OSError:
+                pass
+
+    trace = {
+        "exec_mode": exec_mode,
+        "exit_code": proc.returncode,
+        "stdout": _clip(proc.stdout),
+        "stderr": _clip(proc.stderr),
+    }
+    if proc.returncode != 0:
+        # Same as the scheduler: a non-zero exit is a failure regardless of
+        # stdout — after _EMIT_POOL_MAX_ATTEMPTS it materializes a failed quest.
+        trace["ok"] = False
+        trace["error"] = f"non-zero exit ({proc.returncode})"
+        return trace
+    try:
+        raw = json.loads(proc.stdout) if proc.stdout.strip() else []
+    except json.JSONDecodeError as e:
+        trace["ok"] = False
+        trace["error"] = f"invalid JSON on stdout: {e}"
+        return trace
+    if not isinstance(raw, list):
+        trace["ok"] = False
+        trace["error"] = "stdout JSON must be an array of pool items"
+        return trace
+
+    items: list[dict[str, Any]] = []
+    dropped_empty_title = 0
+    for entry in raw:
+        if not isinstance(entry, dict):
+            trace["ok"] = False
+            trace["error"] = "each pool item must be a JSON object {title, description?, weight?, ref?}"
+            return trace
+        title = str(entry.get("title") or "").strip()
+        if not title:
+            dropped_empty_title += 1  # scheduler silently drops empty-title items
+            continue
+        weight = entry.get("weight")
+        eff = 1.0 if weight is None else (float(weight) if float(weight) >= 0 else 0.0)
+        ref = str(entry.get("ref") or "").strip()
+        items.append(
+            {
+                "title": title,
+                "description": entry.get("description") or "",
+                "weight": weight,
+                "effective_weight": eff,
+                "ref": ref or None,
+                "dedup_key": ref or f"{title}\x00{entry.get('description') or ''}",
+            }
+        )
+
+    positive = [it for it in items if it["effective_weight"] > 0]
+    trace["ok"] = True
+    trace["items"] = items
+    trace["kept_count"] = len(items)
+    trace["dropped_empty_title"] = dropped_empty_title
+    trace["positive_count"] = len(positive)
+    if len(positive) < len(items):
+        trace["zero_weight_count"] = len(items) - len(positive)
+    return trace
+
+
+def _clip(s: str, n: int = 4000) -> str:
+    s = (s or "").strip()
+    return s if len(s) <= n else s[:n] + "…"
+
+
+@server.tool(
+    description=(
+        "Dry-run an emit_pool_command and show the pool it would produce — the "
+        "missing half of authoring a pool template through MCP (create_template/"
+        "update_template can already store the command). Runs it exactly as the "
+        "scheduler does: a value starting with '#!' is written to a temp file "
+        "and executed by its own shebang, anything else runs via `sh -c`; cwd is "
+        "$HOME, env is the server process env (root .env already loaded), 20s "
+        "timeout. Pass either `command` (the script/one-liner text you're "
+        "drafting) or `template_id` (dry-run its stored emit_pool_command). "
+        "Returns ok plus the parsed items (title/description/weight/"
+        "effective_weight/ref/dedup_key), how many empty-title items were "
+        "dropped and how many have zero weight, or on failure the exit code and "
+        "stdout/stderr trace — the same signal the scheduler would act on. Does "
+        "NOT persist a roll, apply the anti-repeat filter across periods, or "
+        "materialize a quest; it just shows what the command emits right now. "
+        "Note pick semantics for context: emit_pool_pick<=0 takes every new "
+        "item, >0 weighted-samples that many (excluding recently picked refs)."
+    )
+)
+def dry_run_emit_pool(
+    command: str | None = None,
+    template_id: int | None = None,
+) -> dict[str, Any]:
+    chosen = [v for v in (command, template_id) if v is not None]
+    if len(chosen) != 1:
+        raise ValueError("provide exactly one of: command, template_id")
+    if template_id is not None:
+        tmpl = _api_get(f"/api/templates/{template_id}")
+        cmd = (tmpl or {}).get("emit_pool_command")
+        if not cmd or not str(cmd).strip():
+            raise ValueError(f"template {template_id} has no emit_pool_command set")
+        source: dict[str, Any] = {
+            "source": f"template={template_id}",
+            "emit_pool_pick": (tmpl or {}).get("emit_pool_pick"),
+        }
+        cmd = str(cmd)
+    else:
+        cmd = command
+        source = {"source": "inline"}
+    result = _run_emit_pool_command(cmd)
+    return {**source, **result}
+
+
 @server.tool(
     description=(
         "List knowledge notes (markdown pages, not quests). Optional parent_id "
@@ -769,6 +1034,18 @@ def update_note(
     if not body:
         raise ValueError("provide at least one field to update")
     return _api("PATCH", f"/api/notes/{note_id}", body=body)
+
+
+@server.tool(
+    description=(
+        "Permanently delete a note (DELETE /api/notes/{id}). Also drops its "
+        "refs/backlinks. Children are not cascaded — detach or re-parent them "
+        "first, or the API will reject the delete if it enforces that."
+    )
+)
+def delete_note(note_id: int) -> dict[str, Any]:
+    _api("DELETE", f"/api/notes/{note_id}")
+    return {"deleted": note_id}
 
 
 @server.tool(
@@ -886,6 +1163,52 @@ def create_questline(
     if cat_id is not None:
         body["category_id"] = cat_id
     return _api("POST", "/api/questlines", body=body)
+
+
+@server.tool(
+    description=(
+        "Update a questline (PATCH /api/questlines/{id}). Only pass fields to "
+        "change. description is markdown. category accepts an id or a "
+        "name/substring. icon is the string code (e.g. 'target'), not a custom "
+        "uploaded image — see set_icon for that."
+    )
+)
+def update_questline(
+    questline_id: int,
+    title: str | None = None,
+    description: str | None = None,
+    category: str | None = None,
+    color: str | None = None,
+    icon: str | None = None,
+) -> dict[str, Any]:
+    body: dict[str, Any] = {}
+    if title is not None:
+        body["title"] = title
+    if description is not None:
+        body["description"] = description
+    if color is not None:
+        body["color"] = color
+    if icon is not None:
+        body["icon"] = icon
+    cat_id = _resolve_category_id(category)
+    if cat_id is not None:
+        body["category_id"] = cat_id
+    if not body:
+        raise ValueError("provide at least one field to update")
+    return _api("PATCH", f"/api/questlines/{questline_id}", body=body)
+
+
+@server.tool(
+    description=(
+        "Permanently delete a questline (DELETE /api/questlines/{id}). Quests "
+        "that belonged to it are not deleted — detach them first with "
+        "update_quest(clear_questline=True) if you want them to survive as "
+        "standalone quests, or the API will reject/cascade per its own rules."
+    )
+)
+def delete_questline(questline_id: int) -> dict[str, Any]:
+    _api("DELETE", f"/api/questlines/{questline_id}")
+    return {"deleted": questline_id}
 
 
 @server.tool(
@@ -1104,7 +1427,7 @@ def _looks_text(content_type: str, raw: bytes) -> bool:
 @server.tool(
     description=(
         "Fetch the contents of one attachment. Metadata is already on "
-        "list_quests / get_context — only call this when you decided the file "
+        "list_quests / the get_*_context tools — only call this when you decided the file "
         "is relevant. Pass attachment_id plus exactly one of quest / questline / note. "
         "Text is returned as utf-8; anything else as base64. Files over 512 KiB "
         "come back truncated (metadata only plus a note)."
@@ -1155,6 +1478,78 @@ def get_attachment(
         out["base64"] = base64.standard_b64encode(raw).decode("ascii")
         out["encoding"] = "base64"
     return out
+
+
+@server.tool(
+    description=(
+        "Upload a custom icon image (POST /api/{questlines|notes}/{id}/icon) "
+        "for a questline or note, replacing its string icon code with an "
+        "uploaded picture. Pass exactly one of questline / note plus a local "
+        "file_path (png/jpg, max 512 KiB). This reads the file from the local "
+        "filesystem where the MCP server runs, not from the conversation."
+    )
+)
+def set_icon(
+    file_path: str,
+    questline: int | None = None,
+    note: int | None = None,
+) -> dict[str, Any]:
+    chosen = [(k, v) for k, v in (("questline", questline), ("note", note)) if v is not None]
+    if len(chosen) != 1:
+        raise ValueError("provide exactly one of: questline, note")
+    kind, owner_id = chosen[0]
+    seg = {"questline": "questlines", "note": "notes"}[kind]
+    return _api_upload_file(f"/api/{seg}/{owner_id}/icon", file_path)
+
+
+@server.tool(
+    description=(
+        "Remove a questline's or note's uploaded custom icon (DELETE "
+        "/api/{questlines|notes}/{id}/icon), reverting to its plain string "
+        "icon code. Pass exactly one of questline / note."
+    )
+)
+def delete_icon(
+    questline: int | None = None,
+    note: int | None = None,
+) -> dict[str, Any]:
+    chosen = [(k, v) for k, v in (("questline", questline), ("note", note)) if v is not None]
+    if len(chosen) != 1:
+        raise ValueError("provide exactly one of: questline, note")
+    kind, owner_id = chosen[0]
+    seg = {"questline": "questlines", "note": "notes"}[kind]
+    _api("DELETE", f"/api/{seg}/{owner_id}/icon")
+    return {"cleared_icon": {kind: owner_id}}
+
+
+@server.tool(
+    description=(
+        "Set the accent/line color of a questline or note (PATCH `color` on "
+        "/api/{questlines|notes}/{id}) — the swatch shown behind its icon in "
+        "the tree/HUD. Pass a hex string (e.g. '#c47a20'; a leading '#' is "
+        "added if missing) plus exactly one of questline / note. This is the "
+        "string `color` field, separate from an uploaded custom icon image "
+        "(see set_icon). For a questline it's the same field "
+        "update_questline(color=...) sets; set_icon_color also covers notes, "
+        "whose update_note takes no color."
+    )
+)
+def set_icon_color(
+    color: str,
+    questline: int | None = None,
+    note: int | None = None,
+) -> dict[str, Any]:
+    chosen = [(k, v) for k, v in (("questline", questline), ("note", note)) if v is not None]
+    if len(chosen) != 1:
+        raise ValueError("provide exactly one of: questline, note")
+    hexval = (color or "").strip()
+    if not hexval:
+        raise ValueError("color must be a non-empty hex string like '#c47a20'")
+    if not hexval.startswith("#"):
+        hexval = f"#{hexval}"
+    kind, owner_id = chosen[0]
+    seg = {"questline": "questlines", "note": "notes"}[kind]
+    return _api("PATCH", f"/api/{seg}/{owner_id}", body={"color": hexval})
 
 
 def main(argv: list[str] | None = None) -> None:
