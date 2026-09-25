@@ -9,6 +9,7 @@
 
     <string name="action_save_and_check">Сохранить и проверить</string>
     <string name="action_start_service">Запустить фоновый сервис</string>
+    <string name="action_open_web">Открыть список квестов</string>
 
     <string name="status_checking">Проверяем…</string>
     <string name="status_ok">Подключение ок, настройки сохранены</string>

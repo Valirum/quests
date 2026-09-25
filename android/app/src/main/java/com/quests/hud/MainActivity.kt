@@ -40,6 +40,9 @@ class MainActivity : AppCompatActivity() {
 
         binding.saveButton.setOnClickListener { onSave() }
         binding.startServiceButton.setOnClickListener { startQuestsService() }
+        binding.openWebButton.setOnClickListener {
+            startActivity(Intent(this, QuestsWebActivity::class.java))
+        }
 
         if (prefs.isConfigured()) {
             binding.statusText.text = getString(R.string.status_configured)

@@ -9,12 +9,11 @@ import android.content.Intent
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
-import com.quests.hud.MainActivity
+import com.quests.hud.QuestsWebActivity
 import com.quests.hud.R
 import com.quests.hud.data.PrefsStore
 import com.quests.hud.net.ApiClient
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -23,8 +22,10 @@ import org.json.JSONObject
 
 /**
  * Foreground service holding the ongoing notification. Polls the same REST
- * API the desktop overlay talks to (note=3) and renders a summary of active
- * quests/steps (quest=192, steps 716/717).
+ * API the desktop overlay talks to (note=3) and renders active quests as an
+ * InboxStyle list — a single BigTextStyle line can't fit more than one quest
+ * (quest=192, steps 716/717). The full list with all details lives in
+ * QuestsWebActivity (the existing SPA), reachable by tapping the notification.
  */
 class QuestsService : Service() {
 
@@ -36,7 +37,7 @@ class QuestsService : Service() {
         super.onCreate()
         prefs = PrefsStore(this)
         createChannel()
-        startForeground(NOTIFICATION_ID, buildNotification(getString(R.string.notification_placeholder_text)))
+        startForeground(NOTIFICATION_ID, buildMessageNotification(getString(R.string.notification_placeholder_text)))
         startPollingLoop()
     }
 
@@ -63,59 +64,26 @@ class QuestsService : Service() {
     private suspend fun pollOnce() {
         val base = prefs.apiBase
         if (base.isNullOrBlank()) {
-            updateNotification(getString(R.string.notification_not_configured))
+            notify(buildMessageNotification(getString(R.string.notification_not_configured)))
             return
         }
         try {
             val client = ApiClient(base, prefs.apiToken)
             val quests = client.activeQuests()
-            updateNotification(summarize(quests))
+            notify(buildQuestListNotification(quests))
         } catch (e: Exception) {
-            updateNotification(getString(R.string.notification_error, e.message))
+            notify(buildMessageNotification(getString(R.string.notification_error, e.message)))
         }
     }
 
-    private fun summarize(quests: List<JSONObject>): String {
-        if (quests.isEmpty()) return getString(R.string.notification_no_active_quests)
-
-        val lines = mutableListOf<String>()
-        lines += getString(R.string.notification_active_count, quests.size)
-
-        nearestDeadline(quests)?.let { lines += getString(R.string.notification_nearest_deadline, it) }
-
-        currentStepLine(quests)?.let { lines += it }
-
-        return lines.joinToString("\n")
+    private fun notify(notification: Notification) {
+        getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, notification)
     }
 
-    private fun nearestDeadline(quests: List<JSONObject>): String? {
-        return quests
-            .mapNotNull { if (it.isNull("deadline_at")) null else it.optString("deadline_at") }
-            .minOrNull()
-    }
-
-    private fun currentStepLine(quests: List<JSONObject>): String? {
-        for (quest in quests) {
-            val steps = quest.optJSONArray("steps") ?: continue
-            for (i in 0 until steps.length()) {
-                val step = steps.getJSONObject(i)
-                if (!step.optBoolean("done", false)) {
-                    return getString(
-                        R.string.notification_current_step,
-                        quest.optString("title"),
-                        step.optString("title"),
-                        step.optInt("progress_current"),
-                        step.optInt("progress_total"),
-                    )
-                }
-            }
-        }
-        return null
-    }
-
-    private fun updateNotification(text: String) {
-        val manager = getSystemService(NotificationManager::class.java)
-        manager.notify(NOTIFICATION_ID, buildNotification(text))
+    private fun questLine(quest: JSONObject): String {
+        val title = quest.optString("title")
+        val progress = quest.optString("progress_label").ifBlank { null }
+        return if (progress != null) "$title — $progress" else title
     }
 
     private fun createChannel() {
@@ -129,22 +97,34 @@ class QuestsService : Service() {
         manager.createNotificationChannel(channel)
     }
 
-    private fun buildNotification(text: String): Notification {
-        val openApp = PendingIntent.getActivity(
-            this,
-            0,
-            Intent(this, MainActivity::class.java),
-            PendingIntent.FLAG_IMMUTABLE,
-        )
-        val firstLine = text.lineSequence().first()
-        return NotificationCompat.Builder(this, CHANNEL_ID)
+    private fun openWebIntent(): PendingIntent = PendingIntent.getActivity(
+        this,
+        0,
+        Intent(this, QuestsWebActivity::class.java),
+        PendingIntent.FLAG_IMMUTABLE,
+    )
+
+    private fun baseNotification(contentText: String): NotificationCompat.Builder =
+        NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(getString(R.string.app_name))
-            .setContentText(firstLine)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+            .setContentText(contentText)
             .setOngoing(true)
-            .setContentIntent(openApp)
-            .build()
+            .setContentIntent(openWebIntent())
+
+    private fun buildMessageNotification(text: String): Notification =
+        baseNotification(text).build()
+
+    private fun buildQuestListNotification(quests: List<JSONObject>): Notification {
+        if (quests.isEmpty()) {
+            return buildMessageNotification(getString(R.string.notification_no_active_quests))
+        }
+
+        val summary = getString(R.string.notification_active_count, quests.size)
+        val style = NotificationCompat.InboxStyle().setSummaryText(summary)
+        quests.forEach { style.addLine(questLine(it)) }
+
+        return baseNotification(summary).setStyle(style).build()
     }
 
     companion object {
