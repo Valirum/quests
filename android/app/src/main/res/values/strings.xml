@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Quests HUD</string>
+
+    <string name="label_api_base">API URL</string>
+    <string name="hint_api_base">http://100.x.x.x:8765</string>
+    <string name="label_api_token">QUESTS_API_TOKEN</string>
+    <string name="hint_api_token">bearer token (optional if auth disabled)</string>
+
+    <string name="action_save_and_check">Сохранить и проверить</string>
+    <string name="action_start_service">Запустить фоновый сервис</string>
+
+    <string name="status_checking">Проверяем…</string>
+    <string name="status_ok">Подключение ок, настройки сохранены</string>
+    <string name="status_configured">Уже настроено</string>
+    <string name="status_error_empty_url">Укажи API URL</string>
+    <string name="status_error_token_required">Серверу нужен токен (auth_required=true)</string>
+    <string name="status_error_api">Ошибка API: %1$s</string>
+    <string name="status_error_generic">Ошибка: %1$s</string>
+
+    <string name="notification_channel_name">Quests HUD</string>
+    <string name="notification_placeholder_text">Ожидание данных…</string>
+</resources>
