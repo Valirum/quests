@@ -5,32 +5,19 @@ import androidx.fragment.app.FragmentActivity
 import androidx.viewpager2.adapter.FragmentStateAdapter
 
 /**
- * settings ↔ journal ↔ toc ↔ notes ↔ attachments ↔ calendar ↔ hero ↔ stats,
- * cyclic in both directions (quest=192: swipe left = next, right = previous).
- * ViewPager2 has no built-in infinite mode, so this uses the standard trick:
- * a virtually unbounded item count, real page = position % PAGES.size.
+ * Just 2 real ViewPager2 pages: settings and the SPA hub. The 7 SPA tabs
+ * live *inside* page 1 (WebHubFragment), switched via JS, not via
+ * ViewPager2 — see quest=192 and WebHubFragment's doc comment for why.
  */
 class HubPagerAdapter(activity: FragmentActivity) : FragmentStateAdapter(activity) {
 
-    override fun getItemCount(): Int = Int.MAX_VALUE
+    override fun getItemCount(): Int = 2
 
-    override fun createFragment(position: Int): Fragment {
-        val page = PAGES[position % PAGES.size]
-        return if (page == "settings") SettingsFragment() else WebTabFragment.newInstance(page)
-    }
-
-    override fun getItemId(position: Int): Long = (position % PAGES.size).toLong()
-
-    override fun containsItem(itemId: Long): Boolean = itemId in PAGES.indices.map { it.toLong() }
+    override fun createFragment(position: Int): Fragment =
+        if (position == 0) SettingsFragment() else WebHubFragment()
 
     companion object {
-        // Order matches the SPA's own tab order (App.svelte); "settings" is
-        // an Android-only page, not part of the SPA.
-        val PAGES = listOf("settings", "journal", "toc", "notes", "attachments", "calendar", "hero", "stats")
-
-        fun startPosition(startOnJournal: Boolean): Int {
-            val anchor = (Int.MAX_VALUE / 2) - (Int.MAX_VALUE / 2) % PAGES.size
-            return anchor + PAGES.indexOf(if (startOnJournal) "journal" else "settings")
-        }
+        const val PAGE_SETTINGS = 0
+        const val PAGE_SPA = 1
     }
 }

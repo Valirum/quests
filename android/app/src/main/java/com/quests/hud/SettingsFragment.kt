@@ -52,6 +52,10 @@ class SettingsFragment : Fragment() {
         binding.saveButton.setOnClickListener { onSave() }
         binding.startServiceButton.setOnClickListener { startQuestsService() }
 
+        // ViewPager2's native dragging is off (see HubActivity) — settings is
+        // the start of a linear strip (no wrap), so only left→journal exists.
+        binding.root.onSwipeLeft = { (activity as? HubActivity)?.goToJournal() }
+
         if (prefs.isConfigured()) {
             binding.statusText.text = getString(R.string.status_configured)
         }

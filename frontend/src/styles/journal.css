@@ -2482,6 +2482,15 @@
       flex-wrap: wrap;
     }
 
+    /* Health chips onto their own centered row within header-left, instead
+       of wrapping in place right after the sidebar-toggle button — at some
+       widths (mid-transition between view tabs, e.g.) that put the toggle
+       button directly over the first chip. */
+    .health {
+      flex: 1 1 100%;
+      justify-content: center;
+    }
+
     /* No room to float the tabs centered over one line — drop them onto
        their own full-width row below brand/actions instead. */
     .view-tabs {
