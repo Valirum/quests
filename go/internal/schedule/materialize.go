@@ -163,19 +163,25 @@ func MaterializeDue(ctx context.Context, st *store.Store, hub *events.Hub, now t
 
 		usePool := tmpl.EmitPoolCommand.Valid && strings.TrimSpace(tmpl.EmitPoolCommand.String) != ""
 
-		// A fixed-mode pool template with both deadline_time and duration_seconds
-		// set describes its own "check window": duration_seconds before
-		// deadline_time. Without this gate, a freshness-sensitive command (unread
-		// mail etc.) ran at the period's very first tick — right after local
-		// midnight — and its outcome (miss included; see resolveEmitPool) locked
-		// in for the rest of the day, so anything that showed up later had no
-		// chance to be seen until the next period. Only fixed mode needs this:
-		// surprise mode already has its own wait-for-scheduledAt gate above, and
-		// a template with no duration_seconds has no window to speak of, so it
-		// keeps firing at first tick as before.
-		if usePool && emitMode != "surprise" && emitMode != "random" && emitMode != "chance" &&
-			deadline != nil && duration != nil && tmpl.DurationSeconds.Valid {
-			if now.Before(emitPoolOpenAt(*deadline, *duration)) {
+		// A fixed-mode pool template with deadline_time set describes its own
+		// "check window": duration_seconds before deadline_time, defaulting to
+		// 0 (check right at deadline_time) when duration_seconds isn't set —
+		// NOT fixedDeadline's own fallback duration (deadline minus midnight),
+		// which is a placeholder for the resulting quest's own duration field,
+		// unrelated to when the check itself should run. Without this gate, a
+		// freshness-sensitive command (unread mail etc.) ran at the period's
+		// very first tick — right after local midnight — and its outcome (miss
+		// included; see resolveEmitPool) locked in for the rest of the day, so
+		// anything that showed up later had no chance to be seen until the next
+		// period. Only fixed mode needs this: surprise mode already has its own
+		// wait-for-scheduledAt gate above, and a template with no deadline_time
+		// at all has no window to speak of, so it keeps firing at first tick.
+		if usePool && emitMode != "surprise" && emitMode != "random" && emitMode != "chance" && deadline != nil {
+			gateDuration := 0
+			if tmpl.DurationSeconds.Valid {
+				gateDuration = int(tmpl.DurationSeconds.Int64)
+			}
+			if now.Before(emitPoolOpenAt(*deadline, gateDuration)) {
 				continue
 			}
 		}
