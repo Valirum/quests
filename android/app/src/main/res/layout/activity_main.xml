@@ -17,6 +17,7 @@
         android:layout_height="wrap_content"
         android:hint="@string/hint_api_base"
         android:inputType="textUri"
+        android:imeOptions="actionNext"
         android:autofillHints="url" />
 
     <TextView
@@ -32,6 +33,7 @@
         android:layout_height="wrap_content"
         android:hint="@string/hint_api_token"
         android:inputType="textPassword"
+        android:imeOptions="actionDone"
         android:autofillHints="password" />
 
     <Button
