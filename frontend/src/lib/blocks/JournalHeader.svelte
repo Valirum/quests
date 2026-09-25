@@ -135,19 +135,6 @@
     collapsed = measureEl.scrollWidth > headerSlots().right
   }
 
-  /** Portrait only: .health sits inside header-left, which is stretched
-   * (flex: 1 1 auto) to fill the row but still stops short of the header's
-   * true center by however much header-actions claims on that same row —
-   * centering *within* header-left's own box lands short of center by half
-   * that amount. Nudge it back the rest of the way via transform so it
-   * reads as centered on the header, not on header-left. */
-  function recomputeHealthShift() {
-    if (!headerEl || !actionsEl) return
-    const cs = getComputedStyle(headerEl)
-    const gap = parseFloat(cs.columnGap) || 12
-    headerEl.style.setProperty('--health-shift', `${(actionsEl.offsetWidth + gap) / 2}px`)
-  }
-
   function recomputeHealthCollapse() {
     if (!headerEl || !leftEl || !tabsEl || !brandEl || !healthMeasureEl) return
     const forHealth = headerSlots().left - brandEl.offsetWidth - 12 /* header-left gap */
@@ -157,7 +144,6 @@
   function recomputeAll() {
     recomputeCollapse()
     recomputeHealthCollapse()
-    recomputeHealthShift()
   }
 
   $effect(() => {
