@@ -3,8 +3,11 @@ package com.quests.hud
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.PowerManager
+import android.provider.Settings
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
@@ -94,5 +97,18 @@ class MainActivity : AppCompatActivity() {
     private fun startQuestsServiceNow() {
         val intent = Intent(this, QuestsService::class.java)
         ContextCompat.startForegroundService(this, intent)
+        requestBatteryOptimizationExemption()
+    }
+
+    // Without this, custom-firmware task killers (and stock Doze on some
+    // OEMs) can still kill the foreground service between polls even though
+    // it's marked ongoing — see quest=192 step 719.
+    private fun requestBatteryOptimizationExemption() {
+        val powerManager = getSystemService(PowerManager::class.java)
+        if (powerManager.isIgnoringBatteryOptimizations(packageName)) return
+        val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+            data = Uri.parse("package:$packageName")
+        }
+        startActivity(intent)
     }
 }
