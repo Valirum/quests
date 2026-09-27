@@ -195,7 +195,7 @@
       {#if statusBusy}
         …
       {:else}
-        <Icon name={q.status === 'completed' ? 'renew' : 'checkmark'} />
+        <Icon name={q.status === 'completed' ? 'undo' : 'checkmark'} />
       {/if}
     </button>
     <button
@@ -218,7 +218,7 @@
       {#if pdfBusy}
         …
       {:else}
-        <Icon name="document" />
+        <Icon name="file-download" />
       {/if}
     </button>
     <button

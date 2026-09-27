@@ -500,7 +500,7 @@
 >
       <header class="modal__head">
         <h2 id="templates-modal-title" class="modal__title">
-          <Icon name="renew" size={18} />
+          <Icon name="repeat" size={18} />
           <span>
             {#if view === 'list'}
               Шаблоны

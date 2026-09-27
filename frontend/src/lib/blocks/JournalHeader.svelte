@@ -288,7 +288,7 @@
       title="Оглавление"
       onclick={() => onViewChange('toc')}
     >
-      <Icon name="layers" size={15} />
+      <Icon name="list" size={15} />
       <span class="view-tab__label">Оглавление</span>
     </button>
     <button
@@ -339,11 +339,11 @@
     </button>
     {#if view === 'journal' || view === 'toc' || view === 'notes'}
       <button type="button" class="btn" onclick={onOpenTemplates} aria-label="Шаблоны периодики">
-        <Icon name="renew" />
+        <Icon name="repeat" />
         <span class="btn__text">Шаблоны</span>
       </button>
       <button type="button" class="btn" onclick={onOpenSecrets} aria-label="Секреты">
-        <Icon name="terminal" />
+        <Icon name="key" />
         <span class="btn__text">Секреты</span>
       </button>
       <button type="button" class="btn" onclick={onOpenCreateQuestline} aria-label="Новый квестлайн">

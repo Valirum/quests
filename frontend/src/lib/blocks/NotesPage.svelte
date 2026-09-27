@@ -846,7 +846,7 @@
                 title="Отменить правки"
                 aria-label="Отменить правки"
               >
-                <Icon name="renew" />
+                <Icon name="undo" />
               </button>
             {/if}
             <button
@@ -868,7 +868,7 @@
               aria-label={exportBusy ? 'Выгрузка…' : 'Скачать заметку'}
               aria-haspopup="menu"
             >
-              {#if exportBusy}…{:else}<Icon name="document" />{/if}
+              {#if exportBusy}…{:else}<Icon name="file-download" />{/if}
             </button>
             <button
               type="button"
