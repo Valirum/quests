@@ -1259,6 +1259,23 @@
     flex-shrink: 0;
   }
 
+  /* On a phone the four action buttons leave the title ~40% of the row;
+     give the title the full line and drop the actions under it. */
+  @media (max-width: 480px) {
+    .notes__head-row {
+      flex-wrap: wrap;
+      row-gap: var(--space-2, 0.5rem);
+    }
+
+    .notes__title-cluster {
+      flex-basis: 100%;
+    }
+
+    .notes__actions {
+      margin-left: auto;
+    }
+  }
+
   .notes__pin--on {
     color: var(--color-accent, #c9a227);
   }
@@ -1416,7 +1433,7 @@
   }
 
   .notes__split--combined {
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     gap: 0 1.1rem;
     background: linear-gradient(
       to right,
@@ -1436,9 +1453,12 @@
     padding-left: 0.25rem;
   }
 
+  /* minmax(0, …), not a bare 1fr: 1fr's floor is the content's min-content
+     width, so one unbreakable line (a path, a URL, a long inline code) grew
+     the track — and the whole note — to thousands of px on a phone. */
   .notes__split--raw,
   .notes__split--formatted {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   /* Reading mode: preview flows with its content instead of scrolling inside
@@ -1473,6 +1493,8 @@
     padding: 0.15rem 0.25rem 0.15rem 0.85rem;
     overflow: auto;
     min-height: 18rem;
+    min-width: 0;
+    overflow-wrap: break-word;
   }
 
   .notes__split--formatted .notes__preview {

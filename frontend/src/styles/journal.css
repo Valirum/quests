@@ -55,17 +55,13 @@
     display: flex;
     align-items: center;
     gap: var(--space-2, 0.5rem);
-    min-height: 2.25rem;
+    min-height: var(--nav-control-h, 2rem);
   }
 
-  .brand__title {
-    margin: 0;
-    font-family: var(--font-display, Georgia, serif);
-    font-size: var(--text-lg, 1.25rem);
-    font-weight: 600;
-    letter-spacing: 0.01em;
-    line-height: 1;
-    color: var(--color-fg, #e8e8e8);
+  .journal__header .sidebar-toggle {
+    width: var(--nav-control-h, 2rem);
+    height: var(--nav-control-h, 2rem);
+    padding: 0;
   }
 
   .header-actions {
@@ -80,9 +76,9 @@
   }
 
   .header-actions .btn {
-    height: auto;
-    min-height: 1.7rem;
-    padding: 0.2rem 0.5rem;
+    height: var(--nav-control-h, 2rem);
+    min-height: 0;
+    padding: 0 0.5rem;
     gap: 0.35rem;
     border: 0;
     border-radius: 0;
@@ -118,9 +114,9 @@
   }
 
   .header-actions .btn--icon-only {
-    width: 1.7rem;
-    min-width: 1.7rem;
-    padding: 0.2rem;
+    width: var(--nav-control-h, 2rem);
+    min-width: var(--nav-control-h, 2rem);
+    padding: 0;
   }
 
   /* Off-screen twin used only to measure whether the full labeled row
@@ -162,12 +158,14 @@
   .view-tab {
     display: inline-flex;
     align-items: center;
+    box-sizing: border-box;
+    height: var(--nav-control-h, 2rem);
     gap: 0.35rem;
     border: 0;
     border-bottom: 1px solid transparent;
     background: transparent;
     color: var(--color-fg-muted, #9a9a9a);
-    padding: 0.35rem 0.7rem 0.4rem;
+    padding: 0 0.7rem;
     cursor: pointer;
     font: inherit;
     font-family: var(--font-display, Georgia, serif);
@@ -256,9 +254,10 @@
   .health__chip {
     display: inline-flex;
     align-items: center;
+    box-sizing: border-box;
     gap: 0.3rem;
-    height: 1.65rem;
-    padding: 0 0.45rem;
+    height: var(--nav-control-h, 2rem);
+    padding: 0 0.6rem;
     border: 1px solid var(--color-border, #333);
     border-radius: 999px;
     font-family: var(--font-mono, monospace);
@@ -270,12 +269,20 @@
 
   /* Dot-only (collapsed): shrink the pill to a circle so the status
      reads as a LED, not a leftover square chip. */
+  /* Whole-pixel sizes on purpose: a 17.6px ring around a 7.2px dot put
+     the dot on a half-pixel, and it rendered visibly off-center. 18 − 2
+     (border) − 8 leaves an even 4px on every side. */
   .health__chip:not(:has(.health__label)) {
-    width: 1.1rem;
-    height: 1.1rem;
+    width: 18px;
+    height: 18px;
     padding: 0;
     justify-content: center;
     border-radius: 50%;
+  }
+
+  .health__chip:not(:has(.health__label)) .health__dot {
+    width: 8px;
+    height: 8px;
   }
 
   .health__label {
@@ -1368,6 +1375,122 @@
     opacity: 0.72;
   }
 
+  /* Phone width: seven ~48px columns can't hold a readable title + time, so
+     each quest shrinks to a significance-colored dot and the cell to a
+     compact square. Dots don't take taps (pointer-events: none) — a tap
+     lands on the cell, which opens the day panel with the full list. */
+  @media (max-width: 600px) {
+    .activity-cal__period {
+      flex-wrap: nowrap;
+      gap: var(--space-2, 0.5rem);
+    }
+
+    .activity-cal__period-field {
+      flex: 1 1 0;
+      min-width: 0;
+    }
+
+    .activity-cal__period-field input[type='date'] {
+      flex: 1 1 auto;
+      min-width: 0;
+      width: 100%;
+      padding: 0 0.35rem;
+    }
+
+    .activity-cal__grid {
+      gap: 3px;
+      grid-auto-rows: auto;
+    }
+
+    .activity-cal__cell {
+      height: auto;
+      min-height: 3.1rem;
+      padding: 0.25rem;
+    }
+
+    .activity-cal__count {
+      display: none;
+    }
+
+    .activity-cal__cards {
+      flex-direction: row;
+      flex-wrap: wrap;
+      align-content: flex-start;
+      gap: 3px;
+      overflow: hidden;
+      padding: 0.1rem;
+    }
+
+    .cal-card {
+      display: block;
+      width: 6px;
+      height: 6px;
+      min-height: 0;
+      padding: 0;
+      border: 0;
+      border-radius: 50%;
+      background: var(--color-sig-common, #a89984);
+      pointer-events: none;
+    }
+
+    .cal-card[data-sig='uncommon'] {
+      background: var(--color-sig-uncommon, #8ec07c);
+    }
+    .cal-card[data-sig='epic'] {
+      background: var(--color-sig-epic, #d3869b);
+    }
+    .cal-card[data-sig='legendary'] {
+      background: var(--color-sig-legendary, #fe8019);
+    }
+
+    /* Done quests read as a small × in the same significance color —
+       telling a dimmed dot from a lit one was a guessing game. */
+    .cal-card {
+      --dot: var(--color-sig-common, #a89984);
+    }
+    .cal-card[data-sig='uncommon'] {
+      --dot: var(--color-sig-uncommon, #8ec07c);
+    }
+    .cal-card[data-sig='epic'] {
+      --dot: var(--color-sig-epic, #d3869b);
+    }
+    .cal-card[data-sig='legendary'] {
+      --dot: var(--color-sig-legendary, #fe8019);
+    }
+
+    .cal-card.cal-card--done {
+      position: relative;
+      width: 7px;
+      height: 7px;
+      border-radius: 0;
+      background: transparent;
+      opacity: 1;
+    }
+
+    .cal-card--done::before,
+    .cal-card--done::after {
+      content: '';
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      width: 7.5px;
+      height: 1.5px;
+      border-radius: 1px;
+      background: var(--dot);
+      transform: translate(-50%, -50%) rotate(45deg);
+    }
+
+    .cal-card--done::after {
+      transform: translate(-50%, -50%) rotate(-45deg);
+    }
+
+    .cal-card__status,
+    .cal-card__title,
+    .cal-card__time {
+      display: none;
+    }
+  }
+
   .detail {
     /* Block, not flex: flex+overflow children used to clip long step lists. */
     display: block;
@@ -2456,11 +2579,42 @@
       display: block;
     }
 
+    /* The desktop 2rem gutters and roomy step grid left step titles ~45%
+       of a phone's width, wrapping a word per line. */
+    .detail {
+      padding: var(--space-4, 1rem);
+    }
+
+    /* Title gets the whole line; icon actions drop under it, right-aligned —
+       four of them beside a two-line title pushed Delete off-screen. */
+    .detail__head-row {
+      flex-wrap: wrap;
+      row-gap: var(--space-2, 0.5rem);
+    }
+
+    .detail__head-row > .detail__actions {
+      margin-left: auto;
+    }
+
+    .step {
+      gap: var(--space-1, 0.25rem) var(--space-2, 0.5rem);
+      padding: var(--space-2, 0.5rem) 0.25rem;
+    }
+
+    .step__btn,
+    .step__btn-slot {
+      width: 1.35rem;
+    }
+
+    .step__progress {
+      min-width: 2.25rem;
+    }
+
     /* Labels get cut off at this width regardless of centering — icons only,
        tab-icons stay recognizable even though several tabs are functionally
        similar (journal/toc/notes are all "a list of text"). */
     .view-tab {
-      padding: 0.4rem 0.5rem;
+      padding: 0 0.5rem;
     }
 
     .view-tabs .view-tab .icon {
@@ -2491,7 +2645,9 @@
     .health {
       position: absolute;
       left: 50%;
-      top: calc(var(--header-height, 3.25rem) / 2);
+      /* Row 1's actual center: header top padding + half a control. The old
+         header-height/2 assumed a single-row header and sat 4px high. */
+      top: calc(var(--space-3, 0.75rem) + var(--nav-control-h, 2rem) / 2);
       transform: translate(-50%, -50%);
     }
 

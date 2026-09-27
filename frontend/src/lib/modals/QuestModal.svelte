@@ -1162,15 +1162,15 @@
   }
 
   @media (orientation: portrait) {
+    /* Wrap into rows rather than stacking one option per line — a column
+       per group stretched the form to several screens on a phone. */
     .opt-slider {
-      flex-direction: column;
+      flex-wrap: wrap;
       overflow-x: visible;
     }
 
     .opt-slider__opt {
-      flex: 0 0 auto;
-      width: 100%;
-      text-align: left;
+      flex: 1 1 auto;
     }
 
     .btn__text {

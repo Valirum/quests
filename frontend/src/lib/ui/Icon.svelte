@@ -14,6 +14,7 @@
   import download from '../../assets/icons/download.svg?raw'
   import edit from '../../assets/icons/edit.svg?raw'
   import fileDownload from '../../assets/icons/file-download.svg?raw'
+  import filter from '../../assets/icons/filter.svg?raw'
   import flag from '../../assets/icons/flag.svg?raw'
   import key from '../../assets/icons/key.svg?raw'
   import layers from '../../assets/icons/layers.svg?raw'
@@ -49,6 +50,7 @@
     download,
     edit,
     'file-download': fileDownload,
+    filter,
     flag,
     key,
     layers,

@@ -1,5 +1,6 @@
 <script>
   import FilterSlider from '../ui/FilterSlider.svelte'
+  import Icon from '../ui/Icon.svelte'
   import QuestlineIcon from '../ui/QuestlineIcon.svelte'
   import {
     QUEST_SIGNIFICANCES,
@@ -41,6 +42,8 @@
   let statusFilter = $state(new Set(['active', 'delayed']))
   let sigFilter = $state(new Set(QUEST_SIGNIFICANCES.map((s) => s.id)))
   let catTouched = $state(false)
+  /** Phone only: the three filter rows sit behind a toggle (CSS keeps them always shown on wider screens). */
+  let filtersOpen = $state(false)
   let catFilter = $state(new Set(['none']))
 
   let catSelected = $derived(
@@ -96,7 +99,7 @@
 
 <div class="toc">
   <div class="toc__tools">
-    <div class="toc__filters">
+    <div class="toc__filters" class:toc__filters--open={filtersOpen} id="toc-filters">
       <FilterSlider
         label="Раздел"
         wrap
@@ -109,6 +112,7 @@
       />
       <FilterSlider
         label="Статус"
+        wrap
         options={statusOptions}
         selected={statusFilter}
         onToggle={(id) => {
@@ -117,6 +121,7 @@
       />
       <FilterSlider
         label="Значимость"
+        wrap
         options={sigOptions}
         selected={sigFilter}
         onToggle={(id) => {
@@ -124,13 +129,27 @@
         }}
       />
     </div>
-    <input
-      class="toc__search"
-      type="search"
-      placeholder="Поиск…"
-      bind:value={searchQuery}
-      aria-label="Поиск по названию, разделу, квестлайну, описанию, шагам"
-    />
+    <div class="toc__search-row">
+      <input
+        class="toc__search"
+        type="search"
+        placeholder="Поиск…"
+        bind:value={searchQuery}
+        aria-label="Поиск по названию, разделу, квестлайну, описанию, шагам"
+      />
+      <button
+        type="button"
+        class="btn btn--icon toc__filters-toggle"
+        class:toc__filters-toggle--on={filtersOpen}
+        aria-expanded={filtersOpen}
+        aria-controls="toc-filters"
+        aria-label="Фильтры"
+        title="Фильтры"
+        onclick={() => (filtersOpen = !filtersOpen)}
+      >
+        <Icon name="filter" />
+      </button>
+    </div>
   </div>
 
   <div class="toc__scroll">
@@ -241,6 +260,18 @@
     text-align: center;
   }
 
+  .toc__search-row {
+    display: flex;
+    justify-content: center;
+    gap: var(--space-2, 0.5rem);
+  }
+  .toc__filters-toggle {
+    display: none;
+  }
+  .toc__filters-toggle--on {
+    color: var(--color-accent);
+    border-color: var(--color-accent);
+  }
   .toc__search:focus {
     outline: 1px solid var(--color-accent);
     outline-offset: 1px;
@@ -490,6 +521,59 @@
     97% { transform: translate(0, 0); }
   }
 
+  /* Phone: the three filter rows ate ~40% of the screen before the first
+     quest — fold them behind a toggle beside the search, trim the desktop
+     gutters, and keep each row's meta (status, progress) on one line so
+     the title is what wraps. */
+  @media (max-width: 600px) {
+    .toc__tools {
+      padding: var(--space-2, 0.5rem) var(--space-4, 1rem);
+    }
+    .toc__search {
+      flex: 1 1 auto;
+      width: auto;
+      min-width: 0;
+    }
+    .toc__filters-toggle {
+      display: inline-flex;
+      flex-shrink: 0;
+    }
+    /* Search + toggle stay on top so the toggle doesn't jump down when
+       the filters open above it. */
+    .toc__search-row {
+      order: -1;
+    }
+    .toc__filters {
+      display: none;
+    }
+    .toc__filters--open {
+      display: flex;
+    }
+    .toc__filters > :global(.opt-group) {
+      flex-basis: 100%;
+      min-width: 0;
+    }
+    .toc__content {
+      padding: var(--space-4, 1rem);
+    }
+    .toc-quests {
+      padding-left: var(--space-3, 0.75rem);
+    }
+    .toc-quest__title {
+      flex: 1 1 auto;
+      min-width: 0;
+    }
+    .toc-quest__leader {
+      display: none;
+    }
+    .toc-quest__sig,
+    .toc-quest__status,
+    .toc-quest__progress,
+    .toc-quest__timer {
+      flex-shrink: 0;
+      white-space: nowrap;
+    }
+  }
   @media (prefers-reduced-motion: reduce) {
     .toc-quest__timer[data-tone="red"],
     .toc-quest[data-timer-tone="red"] .toc-quest__title {

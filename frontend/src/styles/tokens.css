@@ -76,6 +76,9 @@
   --radius-lg: 12px;
   --sidebar-width: 16.5rem;
   --header-height: 3.25rem;
+  /* One height for every control on the navbar's rows (toggle, actions,
+     labeled health chips, view tabs) so nothing floats against its neighbors. */
+  --nav-control-h: 2rem;
 
   --shadow-soft: 0 1px 0 color-mix(in srgb, var(--color-fg) 6%, transparent);
 
