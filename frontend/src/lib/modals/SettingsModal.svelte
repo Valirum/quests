@@ -1,6 +1,7 @@
 <script>
   import { THEMES, applyTheme, currentThemeId } from '../js/theme.js'
   import Icon from '../ui/Icon.svelte'
+  import ModalShell from './ModalShell.svelte'
 
   /** @type {{ open?: boolean, onClose: () => void, health?: { api: string, overlay: string, telegram: string, webdav?: string, detail?: any }, liveStatus?: string, username?: string, onLogout?: (() => void) | null }} */
   let {
@@ -17,23 +18,6 @@
   $effect(() => {
     if (open) themeId = currentThemeId()
   })
-
-  $effect(() => {
-    if (!open) return
-    const onKey = (event) => {
-      if (event.key === 'Escape') {
-        event.preventDefault()
-        event.stopPropagation()
-        onClose()
-      }
-    }
-    window.addEventListener('keydown', onKey, true)
-    return () => window.removeEventListener('keydown', onKey, true)
-  })
-
-  function onBackdrop(event) {
-    if (event.target === event.currentTarget) onClose()
-  }
 
   function selectTheme(id) {
     themeId = applyTheme(id)
@@ -68,17 +52,7 @@
   }
 </script>
 
-{#if open}
-  <div class="backdrop" role="presentation" onclick={onBackdrop}>
-    <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-    <div
-      class="modal"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="settings-modal-title"
-      tabindex="-1"
-      onclick={(e) => e.stopPropagation()}
-    >
+<ModalShell {open} {onClose} labelledby="settings-modal-title" zIndex={55} maxWidth="26rem" dialogClass="settings-modal">
       <header class="modal__head">
         <h2 id="settings-modal-title" class="modal__title">
           <Icon name="settings" size={18} />
@@ -171,9 +145,7 @@
           </section>
         {/if}
       </div>
-    </div>
-  </div>
-{/if}
+</ModalShell>
 
 <style>
   .account {
@@ -204,26 +176,10 @@
     border-color: var(--color-danger);
   }
 
-  .backdrop {
-    position: fixed;
-    inset: 0;
-    z-index: 55;
-    display: grid;
-    place-items: center;
-    padding: var(--space-4, 1rem);
-    background: color-mix(in srgb, var(--color-bg, #121212) 55%, transparent);
-    backdrop-filter: blur(2px);
-  }
-
-  .modal {
-    width: min(26rem, 100%);
+  :global(.settings-modal) {
     max-height: min(90vh, 40rem);
     overflow: auto;
-    border: 1px solid var(--color-border-strong, #4a4a4a);
-    border-radius: var(--radius-lg, 12px);
     background: color-mix(in srgb, var(--color-bg, #121212) 88%, var(--color-bg-raised, #1a1a1a));
-    box-shadow: 0 16px 48px color-mix(in srgb, #000 45%, transparent);
-    font-family: var(--font-ui, sans-serif);
   }
 
   .modal__head {

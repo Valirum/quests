@@ -3,6 +3,7 @@
   import { buildPreviewTree } from '../js/actionsPreview.js'
   import Icon from '../ui/Icon.svelte'
   import MentionTextarea from '../ui/MentionTextarea.svelte'
+  import ModalShell from './ModalShell.svelte'
 
   /** @type {{
    *   open: boolean,
@@ -39,18 +40,6 @@
     preview = []
     errorMsg = ''
     queueMicrotask(() => textareaEl?.focus())
-  })
-
-  $effect(() => {
-    if (!open) return
-    const onKey = (event) => {
-      if (event.key === 'Escape') {
-        event.preventDefault()
-        onClose()
-      }
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
   })
 
   async function generate() {
@@ -102,10 +91,6 @@
     }
   }
 
-  function onBackdrop(event) {
-    if (event.target === event.currentTarget) onClose()
-  }
-
   function fmtVal(v) {
     if (v === null || v === undefined || v === '') return '—'
     if (typeof v === 'boolean') return v ? 'да' : 'нет'
@@ -113,16 +98,7 @@
   }
 </script>
 
-{#if open}
-  <div class="backdrop" role="presentation" onclick={onBackdrop}>
-    <div
-      class="modal"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="aa-modal-title"
-      tabindex="-1"
-      onclick={(e) => e.stopPropagation()}
-    >
+<ModalShell {open} {onClose} labelledby="aa-modal-title" zIndex={50} maxWidth="34rem" dialogClass="aa-modal">
       <header class="modal__head">
         <h2 id="aa-modal-title">
           <Icon name="terminal" size={16} />
@@ -272,29 +248,13 @@
           </footer>
         </div>
       {/if}
-    </div>
-  </div>
-{/if}
+</ModalShell>
 
 <style>
-  .backdrop {
-    position: fixed;
-    inset: 0;
-    z-index: 50;
-    display: grid;
-    place-items: center;
-    padding: 1rem;
-    background: color-mix(in srgb, var(--color-bg, #121212) 55%, transparent);
-  }
-
-  .modal {
-    width: min(34rem, 100%);
+  :global(.aa-modal) {
     max-height: min(90vh, 42rem);
     overflow: auto;
-    border: 1px solid var(--color-border-strong, #4a4a4a);
-    border-radius: var(--radius-lg, 12px);
     background: var(--color-bg-raised, #1a1a1a);
-    box-shadow: 0 16px 48px color-mix(in srgb, #000 45%, transparent);
   }
 
   .modal__head {
