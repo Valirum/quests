@@ -33,6 +33,9 @@ func (s *Server) registerParity(mux *http.ServeMux) {
 	mux.HandleFunc("PATCH /api/templates/{id}", s.patchTemplate)
 	mux.HandleFunc("DELETE /api/templates/{id}", s.deleteTemplate)
 	mux.HandleFunc("POST /api/templates/{id}/copy", s.copyTemplate)
+	mux.HandleFunc("GET /api/templates/{id}/secrets", s.listTemplateSecrets)
+	mux.HandleFunc("PUT /api/templates/{id}/secrets/{key}", s.putTemplateSecret)
+	mux.HandleFunc("DELETE /api/templates/{id}/secrets/{key}", s.deleteTemplateSecret)
 
 	mux.HandleFunc("GET /api/hero", s.getHero)
 	mux.HandleFunc("GET /api/stats", s.getStats)

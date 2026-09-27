@@ -622,7 +622,7 @@ func resolveEmitPool(ctx context.Context, st *store.Store, tmpl templateRow, per
 		return nil, id, "", nil
 	}
 
-	rawItems, execErr := execEmitPoolCommand(ctx, tmpl.EmitPoolCommand.String)
+	rawItems, execErr := execEmitPoolCommand(ctx, st, tmpl.ID, tmpl.EmitPoolCommand.String)
 	if execErr != nil {
 		attempts++
 		newOutcome := "scheduled"
@@ -777,10 +777,13 @@ func nullStrIfEmpty(s string) any {
 // own shebang picks the interpreter. This is deliberate — the script then
 // lives in the template row (DB) instead of a path on whatever disk the
 // server happens to run on, so nothing needs hand-deploying/scp'd when the
-// server moves hosts. Secrets it needs go in the server's own root .env
-// (already loaded into the process env by config.LoadDotenv, and passed
-// through via cmd.Env below) rather than a script-adjacent .env file.
-func execEmitPoolCommand(parent context.Context, command string) ([]poolItem, error) {
+// server moves hosts. Secrets shared by every script go in the server's own
+// root .env (already loaded into the process env by config.LoadDotenv, and
+// passed through via cmd.Env below); secrets specific to one template come
+// from templatesecret instead (see store.ResolveTemplateSecrets) — set via
+// PUT /api/templates/{id}/secrets/{key}, injected only here, never returned
+// by any read endpoint or MCP tool.
+func execEmitPoolCommand(parent context.Context, st *store.Store, templateID int64, command string) ([]poolItem, error) {
 	ctx, cancel := context.WithTimeout(parent, emitPoolTimeout)
 	defer cancel()
 
@@ -809,6 +812,11 @@ func execEmitPoolCommand(parent context.Context, command string) ([]poolItem, er
 	}
 
 	cmd.Env = os.Environ()
+	if secrets, err := st.ResolveTemplateSecrets(ctx, templateID); err == nil {
+		for name, value := range secrets {
+			cmd.Env = append(cmd.Env, name+"="+value)
+		}
+	}
 	if home, err := os.UserHomeDir(); err == nil {
 		cmd.Dir = home
 	}
