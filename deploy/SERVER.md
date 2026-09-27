@@ -217,6 +217,39 @@ systemctl --user restart quests-telegram.service   # если включён
 
 ---
 
+## 7. Бэкапы БД и восстановление
+
+Сервер сам раз в `QUESTS_BACKUP_INTERVAL_HOURS` часов (по умолчанию 24) снимает
+консистентный снепшот `quests.db` (`VACUUM INTO`, WAL-safe) в `<data>/backups/`
+и, если настроен WebDAV (см. `QUESTS_WEBDAV_URL` выше), заливает его туда же
+в `/backups/`. Ротация — `QUESTS_BACKUP_KEEP` последних (по умолчанию 14),
+список ведётся в таблице `backuplog` самой БД, а не листингом WebDAV.
+Статус последнего бэкапа — чип **backup** в `GET /api/health`.
+
+Восстановление — руками, через WebDAV напрямую (без бэкенда, ему для этого
+не нужно быть живым):
+
+```bash
+# посмотреть, какие бэкапы есть на WebDAV
+curl -s -u "$QUESTS_WEBDAV_USER:$QUESTS_WEBDAV_PASS" \
+  -X PROPFIND -H "Depth: 1" "$QUESTS_WEBDAV_URL/backups/" | grep -o '<D:href>[^<]*' 
+
+# скачать конкретный снепшот
+curl -s -u "$QUESTS_WEBDAV_USER:$QUESTS_WEBDAV_PASS" \
+  -o quests-restore.db "$QUESTS_WEBDAV_URL/backups/quests-20260927-030000-123456789.db"
+
+# остановить сервер, подменить файл, поднять обратно
+systemctl --user stop quests-server.service    # или: docker compose stop quests-api
+cp quests-restore.db ~/Quests/data/quests.db   # путь — см. QUESTS_DATA_DIR / docker volume
+systemctl --user start quests-server.service   # или: docker compose start quests-api
+```
+
+Локальная копия последнего бэкапа лежит и на самом сервере в `data/backups/`
+(её же берёт `VACUUM INTO`) — если WebDAV недоступен, можно скопировать
+оттуда напрямую без curl.
+
+---
+
 ## Порядок (кратко)
 
 | # | Где | Действие |

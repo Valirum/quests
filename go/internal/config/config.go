@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type Config struct {
@@ -29,6 +30,12 @@ type Config struct {
 	ClamAVAddr string
 	// MaxUploadBytes caps a single attachment.
 	MaxUploadBytes int64
+
+	// BackupInterval is how often a DB snapshot is taken. <=0 disables it.
+	BackupInterval time.Duration
+	// BackupKeep is how many snapshots to retain (oldest pruned first),
+	// both on disk and on WebDAV (when configured).
+	BackupKeep int
 }
 
 func Load() Config {
@@ -81,6 +88,18 @@ func Load() Config {
 			maxUpload = int64(n) << 20
 		}
 	}
+	backupInterval := 24 * time.Hour
+	if raw := strings.TrimSpace(os.Getenv("QUESTS_BACKUP_INTERVAL_HOURS")); raw != "" {
+		if n, err := strconv.Atoi(raw); err == nil && n >= 0 {
+			backupInterval = time.Duration(n) * time.Hour
+		}
+	}
+	backupKeep := 14
+	if raw := strings.TrimSpace(os.Getenv("QUESTS_BACKUP_KEEP")); raw != "" {
+		if n, err := strconv.Atoi(raw); err == nil && n > 0 {
+			backupKeep = n
+		}
+	}
 	return Config{
 		AuthMode:       authMode,
 		SecureCookies:  secure,
@@ -95,6 +114,8 @@ func Load() Config {
 		WebDAVPass:     os.Getenv("QUESTS_WEBDAV_PASS"),
 		ClamAVAddr:     strings.TrimSpace(os.Getenv("QUESTS_CLAMAV_ADDR")),
 		MaxUploadBytes: maxUpload,
+		BackupInterval: backupInterval,
+		BackupKeep:     backupKeep,
 	}
 }
 
