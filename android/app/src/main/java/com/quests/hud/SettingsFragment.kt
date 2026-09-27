@@ -51,6 +51,10 @@ class SettingsFragment : Fragment() {
 
         binding.saveButton.setOnClickListener { onSave() }
         binding.startServiceButton.setOnClickListener { startQuestsService() }
+        binding.reloadSiteButton.setOnClickListener {
+            HubNav.reloadRequested = true
+            (activity as? HubActivity)?.goToJournal()
+        }
 
         // ViewPager2's native dragging is off (see HubActivity) — settings is
         // the start of a linear strip (no wrap), so only left→journal exists.
@@ -92,8 +96,10 @@ class SettingsFragment : Fragment() {
                 // as a token validity check.
                 client.health()
 
-                prefs.apiBase = base
+                prefs.apiBase = base.trimEnd('/')
                 prefs.apiToken = token.ifBlank { null }
+                // Same address or not, reload the site with what was just saved.
+                HubNav.reloadRequested = true
                 binding.statusText.text = getString(R.string.status_ok)
             } catch (e: ApiError) {
                 binding.statusText.text = getString(R.string.status_error_api, e.message)

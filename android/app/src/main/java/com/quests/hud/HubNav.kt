@@ -13,4 +13,9 @@ object HubNav {
     val TAB_ORDER = listOf("journal", "toc", "notes", "attachments", "calendar")
 
     var pendingTab: String? = null
+
+    /** Set by the settings page (after saving, or its reload button): the
+     * SPA hub reloads the page on its next onResume even if the base URL is
+     * unchanged. Read once and cleared. */
+    var reloadRequested = false
 }
