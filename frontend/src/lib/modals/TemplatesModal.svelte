@@ -22,6 +22,8 @@
   import TimeSelect from '../ui/TimeSelect.svelte'
   import DurationInput from '../ui/DurationInput.svelte'
   import StepsEditor from '../ui/StepsEditor.svelte'
+  import SuggestChip from '../ui/SuggestChip.svelte'
+  import { buildSuggestIndex } from '../js/suggest.js'
   import ConfirmModal from './ConfirmModal.svelte'
   import ModalShell from './ModalShell.svelte'
   import ModalHead from './ModalHead.svelte'
@@ -85,6 +87,13 @@
   let secProps = $state(false)
   let secPool = $state(false)
   let secSteps = $state(true)
+
+  let suggestOn = $derived(view === 'create')
+  // Questline/section suggestion (quest=205): only while creating, and only
+  // until the user (or the context the dialog was opened from) has chosen.
+  let lineTouched = $state(false)
+  let catTouched = $state(false)
+  let suggestIndex = $derived(open && suggestOn ? buildSuggestIndex(quests) : null)
 
   const FREQ_OPTIONS = [
     { id: 'daily', label: 'каждый день' },
@@ -204,6 +213,8 @@
     emitMode = t?.emit_mode === 'surprise' ? 'surprise' : 'fixed'
     categoryId = t?.category_id != null ? String(t.category_id) : ''
     questlineId = t?.questline_id != null ? String(t.questline_id) : ''
+    lineTouched = false
+    catTouched = false
     emitChancePct = t ? Math.round(Math.max(0, Math.min(1, Number(t.emit_chance) || 1)) * 100) : 100
     emitPoolCommand = t?.emit_pool_command ?? ''
     emitPoolPick = t ? Math.max(0, Number.isFinite(Number(t.emit_pool_pick)) ? Number(t.emit_pool_pick) : 1) : 1
@@ -517,7 +528,27 @@
       <div class="field-row">
         <div class="field">
           <span class="label">Квестлайн</span>
-          <Picker options={lineOptions} bind:value={questlineId} label="Квестлайн" onChange={applyQuestline} />
+          <Picker
+            options={lineOptions}
+            bind:value={questlineId}
+            label="Квестлайн"
+            onChange={(id) => {
+              lineTouched = true
+              applyQuestline(id)
+            }}
+          />
+          <SuggestChip
+            index={suggestIndex}
+            {title}
+            {description}
+            target="questline"
+            options={lineOptions}
+            enabled={suggestOn && questlineId === '' && !lineTouched}
+            onAccept={(id) => {
+              lineTouched = true
+              applyQuestline(id)
+            }}
+          />
           {#if questlineId !== '' && lineCategory}
             <span class="hint">раздел «{lineCategory.label}» — от квестлайна</span>
           {/if}
@@ -525,7 +556,19 @@
         {#if questlineId === ''}
           <div class="field">
             <span class="label">Раздел</span>
-            <Picker options={categoryOptions} bind:value={categoryId} label="Раздел" />
+            <Picker options={categoryOptions} bind:value={categoryId} label="Раздел" onChange={() => (catTouched = true)} />
+            <SuggestChip
+              index={suggestIndex}
+              {title}
+              {description}
+              target="category"
+              options={categoryOptions}
+              enabled={suggestOn && categoryId === '' && !catTouched}
+              onAccept={(id) => {
+                catTouched = true
+                categoryId = id
+              }}
+            />
           </div>
         {/if}
       </div>

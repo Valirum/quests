@@ -113,6 +113,7 @@
 
 .modal .field {
   display: grid;
+  align-content: start;
   gap: var(--space-1, 0.25rem);
   min-width: 0;
 }
