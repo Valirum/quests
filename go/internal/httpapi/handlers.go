@@ -379,10 +379,13 @@ func (s *Server) patchQuest(w http.ResponseWriter, r *http.Request) {
 		var lid *int64
 		_ = json.Unmarshal(v, &lid)
 		q.QuestlineID = lid
-		if lid != nil {
-			if c, err := s.Store.QuestlineCategory(r.Context(), *lid); err == nil && c != nil {
-				q.CategoryID = c
-			}
+	}
+	// A quest's category always follows its questline's category when one is
+	// assigned — ignore a manually supplied category_id in that case, so the
+	// two can never drift apart (regardless of which field this request touched).
+	if q.QuestlineID != nil {
+		if c, err := s.Store.QuestlineCategory(r.Context(), *q.QuestlineID); err == nil && c != nil {
+			q.CategoryID = c
 		}
 	}
 	if v, ok := raw["automated"]; ok {
