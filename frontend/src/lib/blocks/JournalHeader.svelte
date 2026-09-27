@@ -214,17 +214,11 @@
         <Icon name="sidebar" size={16} />
       </button>
     {/if}
-    <div class="brand" bind:this={brandEl}>
-      {#if view === 'hero' || view === 'stats'}
-        <!-- Only views without their own tab in view-tabs need a label here —
-             journal/toc/notes/attachments/calendar already show which one is
-             active via the tab's own highlight, so a second label was just
-             repeating it. -->
-        <h1 class="brand__title">
-          {view === 'hero' ? 'Лист' : 'Статистика'}
-        </h1>
-      {/if}
-    </div>
+    <!-- No section label here: tabbed views show theirs via the tab
+         highlight, and hero/stats open with their own page heading right
+         below — a header copy just repeated it and, on a phone, collided
+         with the health chips. -->
+    <div class="brand" bind:this={brandEl}></div>
 
     {#snippet healthChips()}
       <span

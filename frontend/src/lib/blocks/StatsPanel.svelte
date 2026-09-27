@@ -70,14 +70,19 @@
     return `${Math.round((Number(rate) || 0) * 100)}%`
   }
 
-  /** @param {any[]} daily */
-  function buildLineChart(daily) {
+  /** Rendered width of the chart box; the viewBox follows it (capped at the
+   * old fixed 640) so 9-unit labels stay ~9px instead of being scaled down
+   * to ~4px on a phone. */
+  let chartW = $state(640)
+
+  /** @param {any[]} daily @param {number} width */
+  function buildLineChart(daily, width) {
     const rows = daily || []
     const n = rows.length
-    const W = 640
-    const H = 220
+    const W = Math.round(Math.min(640, Math.max(280, width || 640)))
+    const H = W < 480 ? 180 : 220
     const padL = 28
-    const padR = 12
+    const padR = 22
     const padT = 16
     const padB = 28
     const innerW = W - padL - padR
@@ -102,19 +107,21 @@
       }
     }
 
-    const labelStep = Math.max(1, Math.ceil(n / 8))
+    // ~44 units per "MM-DD" label; the last day is always labelled, so drop
+    // any regular label that would sit within one step of it.
+    const maxLabels = Math.max(2, Math.floor(innerW / 44))
+    const labelStep = Math.max(1, Math.ceil(n / maxLabels))
     const xLabels = rows.map((row, i) => {
       const x = padL + (n === 1 ? innerW / 2 : (i / (n - 1)) * innerW)
-      return {
-        x,
-        text: i % labelStep === 0 || i === n - 1 ? shortDate(row.date) : '',
-      }
+      const shown = i === n - 1 || (i % labelStep === 0 && n - 1 - i >= labelStep)
+      return { x, text: shown ? shortDate(row.date) : '' }
     })
 
     return {
       W,
       H,
       padL,
+      padR,
       padT,
       innerH,
       max,
@@ -126,7 +133,7 @@
     }
   }
 
-  let line = $derived(buildLineChart(stats?.daily || []))
+  let line = $derived(buildLineChart(stats?.daily || [], chartW))
   let tmpl = $derived(stats?.template || null)
 </script>
 
@@ -164,14 +171,14 @@
         <h3 id="stats-daily-h" class="panel__title">По дням</h3>
         <p class="panel__legend" aria-hidden="true">
           {#each SERIES as s}
-            <span class="swatch" style:background={s.color}></span>{s.label}
+            <span class="legend__item"><span class="swatch" style:background={s.color}></span>{s.label}</span>
           {/each}
         </p>
       </div>
       {#if !(stats.daily || []).length}
         <p class="stats__empty">Нет данных за период</p>
       {:else}
-        <div class="panel__chart">
+        <div class="panel__chart" bind:clientWidth={chartW}>
           <svg
             class="linechart"
             viewBox="0 0 {line.W} {line.H}"
@@ -182,7 +189,7 @@
               class="linechart__axis"
               x1={line.padL}
               y1={line.zeroY}
-              x2={line.W - 12}
+              x2={line.W - line.padR}
               y2={line.zeroY}
             />
             {#each SERIES as s}
@@ -389,6 +396,12 @@
     margin: 0;
     font-size: var(--text-xs, 0.75rem);
     color: var(--color-fg-muted, #9a9a9a);
+  }
+
+  /* Swatch + label as one unit — as separate flex items a wrap could strand
+     a swatch at the end of the previous line, reading as the wrong label's. */
+  .legend__item {
+    white-space: nowrap;
   }
 
   .swatch {
