@@ -82,6 +82,10 @@
   let exportBusy = $state(false)
   let iconModalOpen = $state(false)
   let iconModalNoteId = $state(/** @type {number | null} */ (null))
+  /** Inline rename in the tree — id of the row being renamed, or null. */
+  let renamingId = $state(/** @type {number | null} */ (null))
+  let renamingValue = $state('')
+  let renameInputEl = $state(/** @type {HTMLInputElement | null} */ (null))
 
   let dirty = $derived(
     title !== saved.title ||
@@ -216,7 +220,66 @@
   }
 
   function rowTitle(n) {
+    if (n.id === renamingId) return renamingValue
     return noteDrafts[String(n.id)]?.title || n.title
+  }
+
+  function startRename(id) {
+    const n = noteById(id)
+    if (!n) return
+    renamingId = id
+    renamingValue = rowTitleRaw(n)
+    tick().then(() => {
+      renameInputEl?.focus()
+      renameInputEl?.select()
+    })
+  }
+
+  function rowTitleRaw(n) {
+    return noteDrafts[String(n.id)]?.title || n.title
+  }
+
+  function cancelRename() {
+    renamingId = null
+    renamingValue = ''
+  }
+
+  async function commitRename() {
+    const id = renamingId
+    if (id == null) return
+    const t = renamingValue.trim()
+    const n = noteById(id)
+    cancelRename()
+    if (!t || !n || t === n.title) return
+    try {
+      const savedRow = await updateNote(id, { title: t })
+      if (id === selectedId) {
+        // Only overwrite the open editor's own title field if it wasn't
+        // independently mid-edit — otherwise a rename from the tree would
+        // clobber text the user is still typing in the detail pane.
+        const titleWasUntouched = title === saved.title
+        detail = savedRow
+        saved = { ...saved, title: t }
+        if (titleWasUntouched) title = t
+        const draft = getNoteDraft(id)
+        if (draft) putNoteDraft(id, { ...draft, title: t })
+      }
+      onChanged()
+    } catch (e) {
+      error = e.message || String(e)
+      toast(error, { kind: 'error' })
+    }
+  }
+
+  function onRenameKeydown(event) {
+    if (event.key === 'Enter') {
+      event.preventDefault()
+      renameInputEl?.blur()
+    } else if (event.key === 'Escape') {
+      event.preventDefault()
+      cancelRename()
+    }
+    event.stopPropagation()
   }
 
   function rowDirty(n) {
@@ -619,6 +682,7 @@
     const items = [
       { id: 'copy-id', label: `Копировать note=${ctxNoteId}` },
       { id: 'sep-copy', sep: true },
+      { id: 'rename', label: 'Переименовать' },
       { id: 'add-child', label: 'Добавить дочернюю' },
     ]
     if (ctxNote?.parent_id != null) {
@@ -689,6 +753,10 @@
     const id = ctxNoteId
     if (action === 'copy-id') {
       await copyNoteRef(id)
+      return
+    }
+    if (action === 'rename') {
+      startRename(id)
       return
     }
     if (action === 'add-child') {
@@ -779,9 +847,21 @@
                   />
                 </span>
                 <span class="notes__row-label">
-                  <span class="notes__row-title">{rowTitle(n)}</span>{#if rowDirty(n)}<span
-                      class="notes__unsaved"
-                      title="Несохранено">*</span>{/if}
+                  {#if n.id === renamingId}
+                    <input
+                      bind:this={renameInputEl}
+                      class="notes__row-rename"
+                      type="text"
+                      bind:value={renamingValue}
+                      onclick={(e) => e.stopPropagation()}
+                      onkeydown={onRenameKeydown}
+                      onblur={commitRename}
+                    />
+                  {:else}
+                    <span class="notes__row-title">{rowTitle(n)}</span>{#if rowDirty(n)}<span
+                        class="notes__unsaved"
+                        title="Несохранено">*</span>{/if}
+                  {/if}
                 </span>
               </button>
             </div>
@@ -1188,6 +1268,17 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  .notes__row-rename {
+    width: 100%;
+    min-width: 0;
+    padding: 0.1rem 0.3rem;
+    border: 1px solid var(--color-accent, #c9a227);
+    border-radius: var(--radius-sm, 2px);
+    background: var(--color-bg, #121212);
+    color: var(--color-fg, #e8e8e8);
+    font: inherit;
   }
 
   .notes__unsaved {
