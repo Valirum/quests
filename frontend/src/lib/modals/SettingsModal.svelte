@@ -135,7 +135,7 @@
                     <span class="theme-row__scheme">{t.scheme === 'dark' ? 'тёмная' : 'светлая'}</span>
                   </span>
                   {#if themeId === t.id}
-                    <Icon name="checkmark" size={14} />
+                    <Icon name="check" size={14} />
                   {/if}
                 </button>
               </li>

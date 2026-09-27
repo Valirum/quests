@@ -3,6 +3,7 @@
   import arrowUp from '../../assets/icons/arrow-up.svg?raw'
   import attachment from '../../assets/icons/attachment.svg?raw'
   import calendar from '../../assets/icons/calendar.svg?raw'
+  import check from '../../assets/icons/check.svg?raw'
   import checkmark from '../../assets/icons/checkmark.svg?raw'
   import chevronDown from '../../assets/icons/chevron-down.svg?raw'
   import chevronRight from '../../assets/icons/chevron-right.svg?raw'
@@ -12,13 +13,17 @@
   import document from '../../assets/icons/document.svg?raw'
   import download from '../../assets/icons/download.svg?raw'
   import edit from '../../assets/icons/edit.svg?raw'
+  import fileDownload from '../../assets/icons/file-download.svg?raw'
   import flag from '../../assets/icons/flag.svg?raw'
+  import key from '../../assets/icons/key.svg?raw'
   import layers from '../../assets/icons/layers.svg?raw'
+  import list from '../../assets/icons/list.svg?raw'
   import map from '../../assets/icons/map.svg?raw'
   import more from '../../assets/icons/more.svg?raw'
   import pin from '../../assets/icons/pin.svg?raw'
   import pinFilled from '../../assets/icons/pin-filled.svg?raw'
   import renew from '../../assets/icons/renew.svg?raw'
+  import repeat from '../../assets/icons/repeat.svg?raw'
   import save from '../../assets/icons/save.svg?raw'
   import scroll from '../../assets/icons/scroll.svg?raw'
   import settings from '../../assets/icons/settings.svg?raw'
@@ -26,12 +31,14 @@
   import subtract from '../../assets/icons/subtract.svg?raw'
   import target from '../../assets/icons/target.svg?raw'
   import terminal from '../../assets/icons/terminal.svg?raw'
+  import undo from '../../assets/icons/undo.svg?raw'
 
   const ICONS = {
     add,
     'arrow-up': arrowUp,
     attachment,
     calendar,
+    check,
     checkmark,
     'chevron-down': chevronDown,
     'chevron-right': chevronRight,
@@ -41,13 +48,17 @@
     document,
     download,
     edit,
+    'file-download': fileDownload,
     flag,
+    key,
     layers,
+    list,
     map,
     more,
     pin,
     'pin-filled': pinFilled,
     renew,
+    repeat,
     save,
     scroll,
     settings,
@@ -55,6 +66,7 @@
     subtract,
     target,
     terminal,
+    undo,
   }
 
   /** @type {{ name: string, size?: number, label?: string }} */

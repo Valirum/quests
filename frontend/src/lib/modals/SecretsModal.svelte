@@ -176,7 +176,7 @@
 <ModalShell {open} {onClose} labelledby="secrets-modal-title" zIndex={40} maxWidth="30rem" dialogClass="secrets-modal">
   <header class="modal__head">
     <h2 id="secrets-modal-title" class="modal__title">
-      <Icon name="terminal" size={18} />
+      <Icon name="key" size={18} />
       <span>Секреты</span>
     </h2>
     <button type="button" class="btn btn--ghost btn--icon" aria-label="Закрыть" onclick={onClose}>
