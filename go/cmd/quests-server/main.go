@@ -91,6 +91,7 @@ func main() {
 	checks := schedule.NewCheckRunner(st, hub)
 	go schedule.RunMaintenanceLoop(ctx, st, hub, windows, checks)
 	go srv.RunProbes(ctx)
+	go schedule.RunBackupLoop(ctx, st, srv.WebDAV, cfg.DataDir, cfg.BackupInterval, cfg.BackupKeep, srv.Health)
 
 	hub.Publish("startup", events.PublishOpts{
 		Title:  "Quests",

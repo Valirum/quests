@@ -47,7 +47,7 @@ func (r *Registry) Snapshot() map[string]any {
 	for _, name := range []string{"overlay", "telegram"} {
 		out[name] = heartbeatView(r.seen[name], now, true)
 	}
-	for _, name := range []string{"webdav", "clamav"} {
+	for _, name := range []string{"webdav", "clamav", "backup"} {
 		hb, ok := r.seen[name]
 		if !ok {
 			out[name] = map[string]any{

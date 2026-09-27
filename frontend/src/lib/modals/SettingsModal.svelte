@@ -34,10 +34,14 @@
   function ageLabel(comp) {
     const row = health?.detail?.components?.[comp]
     if (row?.status === 'disabled') {
-      return comp === 'clamav' ? 'нет адреса' : 'нет URL'
+      if (comp === 'clamav') return 'нет адреса'
+      if (comp === 'backup') return 'выключен или ещё не было'
+      return 'нет URL'
     }
     const age = row?.age_seconds
-    if (age == null) return comp === 'webdav' || comp === 'clamav' ? 'нет опроса' : 'нет heartbeat'
+    if (age == null) {
+      return comp === 'webdav' || comp === 'clamav' || comp === 'backup' ? 'нет опроса' : 'нет heartbeat'
+    }
     if (age < 2) return 'только что'
     return `${age} с назад`
   }
@@ -97,6 +101,12 @@
               <span class="svc__name">ClamAV</span>
               <span class="svc__status">{statusLabel(probeStatus('clamav'))}</span>
               <span class="svc__meta">{ageLabel('clamav')}</span>
+            </li>
+            <li class="svc" data-status={chipOf(probeStatus('backup'))}>
+              <span class="svc__dot" aria-hidden="true"></span>
+              <span class="svc__name">Бэкап</span>
+              <span class="svc__status">{statusLabel(probeStatus('backup'))}</span>
+              <span class="svc__meta">{ageLabel('backup')}</span>
             </li>
           </ul>
         </section>
