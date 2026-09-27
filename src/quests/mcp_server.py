@@ -634,11 +634,12 @@ def get_template(template_id: int) -> dict[str, Any]:
         "JSON — nothing about this is logged anywhere else), the *next* "
         "materialize still creates a quest: status=failed, description holds the "
         "last attempt's stderr/parse-error trace, so the failure is visible in "
-        "the journal instead of only queryable in templateemitroll. A script's own "
-        "secrets belong in the *server's* root .env (auto-loaded into its "
-        "environment), never hardcoded in the script — unless the user "
-        "explicitly asks for hardcoded placeholder/mock values for a one-off "
-        "manual test. "
+        "the journal instead of only queryable in templateemitroll. Secrets shared "
+        "by every script belong in the *server's* root .env (auto-loaded into "
+        "its environment); a secret specific to just this template — use "
+        "set_template_secret instead, never hardcode either kind in the script "
+        "— unless the user explicitly asks for hardcoded placeholder/mock "
+        "values for a one-off manual test. "
         "category/questline accept an id or a name/substring, resolved the same "
         "way as create_quest's. "
         "steps: same shape as create_quest's `steps` — the template's own "
@@ -803,6 +804,54 @@ def delete_template(template_id: int) -> dict[str, Any]:
     return {"deleted": template_id}
 
 
+@server.tool(
+    description=(
+        "List the secret *names* set for a template's emit_pool_command "
+        "(GET /api/templates/{id}/secrets) — never the values. Use this "
+        "instead of secrets shared by every script via the server's root "
+        ".env (see create_template's note on that) when a script needs a "
+        "credential specific to just this one template — e.g. "
+        "template id=5 'Почта' needing MAIL_HOST/MAIL_USER/MAIL_PASSWORD "
+        "without also handing that mailbox's password to every other "
+        "script that reads the process env. Values are stored as plain "
+        "text (the server itself is the trust boundary — the script runs "
+        "there anyway) but are injected into the child process env only "
+        "at the moment the scheduler actually executes the command; no "
+        "read endpoint or tool (including get_template/list_templates) "
+        "ever returns them."
+    )
+)
+def list_template_secrets(template_id: int) -> list[str]:
+    return (_api_get(f"/api/templates/{template_id}/secrets") or {}).get("keys", [])
+
+
+def _secret_key_path(template_id: int, key: str) -> str:
+    return f"/api/templates/{template_id}/secrets/{urllib.parse.quote(key, safe='')}"
+
+
+@server.tool(
+    description=(
+        "Set (or overwrite) one secret for a template's emit_pool_command "
+        "(PUT /api/templates/{id}/secrets/{key}) — write-only, the value is "
+        "never echoed back or readable again through any tool; use "
+        "list_template_secrets to see what's set. key must look like an "
+        "env var name ([A-Za-z_][A-Za-z0-9_]*) — it becomes exactly that "
+        "env var in the script's process, nothing more to reference it by."
+    )
+)
+def set_template_secret(template_id: int, key: str, value: str) -> dict[str, Any]:
+    _api("PUT", _secret_key_path(template_id, key), body={"value": value})
+    return {"template_id": template_id, "key": key, "set": True}
+
+
+@server.tool(
+    description="Remove one template secret (DELETE /api/templates/{id}/secrets/{key})."
+)
+def delete_template_secret(template_id: int, key: str) -> dict[str, Any]:
+    _api("DELETE", _secret_key_path(template_id, key))
+    return {"template_id": template_id, "key": key, "deleted": True}
+
+
 # Mirrors go/internal/schedule/materialize.go: emitPoolTimeout (20s) and the
 # shebang-body-vs-sh-one-liner dispatch of execEmitPoolCommand. Kept in sync by
 # hand — this is a dry-run, not the scheduler's own execution path.
@@ -944,7 +993,10 @@ def _clip(s: str, n: int = 4000) -> str:
         "sets, can pass here and still fail for real — confirmed twice: once "
         "against pacman/checkupdates/vercmp missing in the API container, "
         "once against a script needing env vars present in the MCP host's "
-        ".env but absent from the API container's own env file. (2) it does "
+        ".env but absent from the API container's own env file — the same "
+        "gap applies to anything set via set_template_secret, which this "
+        "tool never sees at all (those are injected only by the real "
+        "scheduler, inside the API server's own process). (2) it does "
         "NOT sandbox the command — any side effect the command performs for "
         "real (network writes, marking something read/consumed upstream, "
         "local files) happens for real, exactly as if the scheduler ran it; "
