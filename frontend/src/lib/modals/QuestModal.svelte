@@ -21,6 +21,7 @@
   import Icon from '../ui/Icon.svelte'
   import MentionTextarea from '../ui/MentionTextarea.svelte'
   import ConfirmModal from './ConfirmModal.svelte'
+  import ModalShell from './ModalShell.svelte'
   import { untrack } from 'svelte'
 
   /** @type {{ open: boolean, mode: 'create' | 'edit', quest?: any, defaults?: { questline_id?: number | null, category_id?: number | null }, quests?: any[], notes?: any[], attachments?: any[], onClose: () => void, onSaved: (q: any) => void, onDeleted?: (id: number) => void }} */
@@ -242,18 +243,6 @@
     })
   })
 
-  $effect(() => {
-    if (!open) return
-    const onKey = (event) => {
-      if (event.key === 'Escape') {
-        event.preventDefault()
-        onClose()
-      }
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  })
-
   function addStep() {
     steps = [...steps, blankStep()]
   }
@@ -389,23 +378,9 @@
       deleting = false
     }
   }
-
-  function onBackdrop(event) {
-    if (event.target === event.currentTarget) onClose()
-  }
 </script>
 
-{#if open}
-  <div class="backdrop" role="presentation" onclick={onBackdrop}>
-    <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-    <div
-      class="modal"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="quest-modal-title"
-      tabindex="-1"
-      onclick={(e) => e.stopPropagation()}
-    >
+<ModalShell {open} {onClose} labelledby="quest-modal-title" zIndex={40} maxWidth="36rem" dialogClass="quest-modal">
       <header class="modal__head">
         <h2 id="quest-modal-title" class="modal__title">
           <Icon name={mode === 'create' ? 'document' : 'edit'} size={18} />
@@ -780,9 +755,7 @@
           </div>
         </footer>
       </form>
-    </div>
-  </div>
-{/if}
+</ModalShell>
 
 <ConfirmModal
   open={deleteConfirmOpen}
@@ -796,26 +769,10 @@
 />
 
 <style>
-  .backdrop {
-    position: fixed;
-    inset: 0;
-    z-index: 40;
-    display: grid;
-    place-items: center;
-    padding: var(--space-4, 1rem);
-    background: color-mix(in srgb, var(--color-bg, #121212) 55%, transparent);
-    backdrop-filter: blur(2px);
-  }
-
-  .modal {
-    width: min(36rem, 100%);
+  :global(.quest-modal) {
     max-height: min(90vh, 52rem);
     overflow: auto;
-    border: 1px solid var(--color-border-strong, #4a4a4a);
-    border-radius: var(--radius-lg, 12px);
     background: var(--color-bg-raised, #1a1a1a);
-    box-shadow: 0 16px 48px color-mix(in srgb, #000 45%, transparent);
-    font-family: var(--font-ui, sans-serif);
   }
 
   .modal__head {

@@ -2,6 +2,7 @@
   import { updateQuestStep } from '../js/api.js'
   import Icon from '../ui/Icon.svelte'
   import MentionTextarea from '../ui/MentionTextarea.svelte'
+  import ModalShell from './ModalShell.svelte'
   import { untrack } from 'svelte'
 
   /** @type {{
@@ -73,18 +74,6 @@
     })
   })
 
-  $effect(() => {
-    if (!open) return
-    const onKey = (event) => {
-      if (event.key === 'Escape') {
-        event.preventDefault()
-        onClose()
-      }
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  })
-
   async function onSubmit(event) {
     event.preventDefault()
     if (!step?.id || questId == null || saving) return
@@ -117,36 +106,24 @@
       saving = false
     }
   }
-
-  function onBackdrop(event) {
-    if (event.target === event.currentTarget) onClose()
-  }
 </script>
 
-{#if open}
-  <div class="backdrop" role="presentation" onclick={onBackdrop}>
-    <div
-      class="modal"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="step-modal-title"
-      onclick={(e) => e.stopPropagation()}
-    >
-      <header class="modal__head">
-        <h2 id="step-modal-title" class="modal__title">
-          <Icon name="edit" size={18} />
-          <span>Редактировать шаг</span>
-        </h2>
-        <button type="button" class="btn btn--ghost btn--icon" aria-label="Закрыть" onclick={onClose}>
-          <Icon name="close" size={14} />
-        </button>
-      </header>
+<ModalShell {open} {onClose} labelledby="step-modal-title" zIndex={45} maxWidth="32rem" dialogClass="step-modal">
+  <header class="modal__head">
+    <h2 id="step-modal-title" class="modal__title">
+      <Icon name="edit" size={18} />
+      <span>Редактировать шаг</span>
+    </h2>
+    <button type="button" class="btn btn--ghost btn--icon" aria-label="Закрыть" onclick={onClose}>
+      <Icon name="close" size={14} />
+    </button>
+  </header>
 
-      {#if formError}
-        <p class="modal__error">{formError}</p>
-      {/if}
+  {#if formError}
+    <p class="modal__error">{formError}</p>
+  {/if}
 
-      <form class="modal__form" onsubmit={onSubmit}>
+  <form class="modal__form" onsubmit={onSubmit}>
         <label class="field">
           <span class="label">Название</span>
           <input type="text" bind:value={title} required />
@@ -255,31 +232,13 @@
           </button>
         </footer>
       </form>
-    </div>
-  </div>
-{/if}
+</ModalShell>
 
 <style>
-  .backdrop {
-    position: fixed;
-    inset: 0;
-    z-index: 45;
-    display: grid;
-    place-items: center;
-    padding: var(--space-4, 1rem);
-    background: color-mix(in srgb, var(--color-bg, #121212) 55%, transparent);
-    backdrop-filter: blur(2px);
-  }
-
-  .modal {
-    width: min(32rem, 100%);
+  :global(.step-modal) {
     max-height: min(90vh, 44rem);
     overflow: auto;
-    border: 1px solid var(--color-border-strong, #4a4a4a);
-    border-radius: var(--radius-lg, 12px);
     background: var(--color-bg-raised, #1a1a1a);
-    box-shadow: 0 16px 48px color-mix(in srgb, #000 45%, transparent);
-    font-family: var(--font-ui, sans-serif);
   }
 
   .modal__head {

@@ -17,6 +17,7 @@
   import Icon from '../ui/Icon.svelte'
   import MentionTextarea from '../ui/MentionTextarea.svelte'
   import ConfirmModal from './ConfirmModal.svelte'
+  import ModalShell from './ModalShell.svelte'
   import { untrack } from 'svelte'
 
   /** @type {{ open: boolean, quests?: any[], notes?: any[], attachments?: any[], onClose: () => void, onChanged: () => void }} */
@@ -276,22 +277,14 @@
     })
   })
 
-  $effect(() => {
-    if (!open) return
-    const onKey = (event) => {
-      if (event.key === 'Escape') {
-        event.preventDefault()
-        if (view !== 'list') {
-          view = 'list'
-          editing = null
-          return
-        }
-        onClose()
-      }
+  function handleClose() {
+    if (view !== 'list') {
+      view = 'list'
+      editing = null
+      return
     }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  })
+    onClose()
+  }
 
   function openCreate() {
     editing = null
@@ -484,10 +477,6 @@
     }
   }
 
-  function onBackdrop(event) {
-    if (event.target === event.currentTarget) onClose()
-  }
-
   function freqLabel(f) {
     return f === 'weekly' ? 'weekly' : 'daily'
   }
@@ -501,17 +490,14 @@
   }
 </script>
 
-{#if open}
-  <div class="backdrop" role="presentation" onclick={onBackdrop}>
-    <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-    <div
-      class="modal"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="templates-modal-title"
-      tabindex="-1"
-      onclick={(e) => e.stopPropagation()}
-    >
+<ModalShell
+  {open}
+  onClose={handleClose}
+  labelledby="templates-modal-title"
+  zIndex={40}
+  maxWidth="36rem"
+  dialogClass="templates-modal"
+>
       <header class="modal__head">
         <h2 id="templates-modal-title" class="modal__title">
           <Icon name="renew" size={18} />
@@ -1070,9 +1056,7 @@
           </footer>
         </form>
       {/if}
-    </div>
-  </div>
-{/if}
+</ModalShell>
 
 <ConfirmModal
   open={deleteConfirmOpen}
@@ -1088,26 +1072,10 @@
 />
 
 <style>
-  .backdrop {
-    position: fixed;
-    inset: 0;
-    z-index: 40;
-    display: grid;
-    place-items: center;
-    padding: var(--space-4, 1rem);
-    background: color-mix(in srgb, var(--color-bg, #121212) 55%, transparent);
-    backdrop-filter: blur(2px);
-  }
-
-  .modal {
-    width: min(36rem, 100%);
+  :global(.templates-modal) {
     max-height: min(90vh, 52rem);
     overflow: auto;
-    border: 1px solid var(--color-border-strong, #4a4a4a);
-    border-radius: var(--radius-lg, 12px);
     background: var(--color-bg-raised, #1a1a1a);
-    box-shadow: 0 16px 48px color-mix(in srgb, #000 45%, transparent);
-    font-family: var(--font-ui, sans-serif);
   }
 
   .modal__head {

@@ -13,6 +13,7 @@
   import QuestlineIcon from '../ui/QuestlineIcon.svelte'
   import MentionTextarea from '../ui/MentionTextarea.svelte'
   import ConfirmModal from './ConfirmModal.svelte'
+  import ModalShell from './ModalShell.svelte'
   import AttachmentsBlock from '../blocks/AttachmentsBlock.svelte'
   import { untrack } from 'svelte'
 
@@ -123,18 +124,6 @@
     })
   })
 
-  $effect(() => {
-    if (!open) return
-    const onKey = (event) => {
-      if (event.key === 'Escape') {
-        event.preventDefault()
-        onClose()
-      }
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  })
-
   async function onSubmit(event) {
     event.preventDefault()
     if (!title.trim()) {
@@ -186,22 +175,9 @@
       deleting = false
     }
   }
-
-  function onBackdrop(event) {
-    if (event.target === event.currentTarget) onClose()
-  }
 </script>
 
-{#if open}
-  <div class="backdrop" role="presentation" onclick={onBackdrop}>
-    <div
-      class="modal"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="ql-modal-title"
-      tabindex="-1"
-      onclick={(e) => e.stopPropagation()}
-    >
+<ModalShell {open} {onClose} labelledby="ql-modal-title" zIndex={50} maxWidth="32rem" dialogClass="ql-modal">
       <header class="modal__head">
         <h2 id="ql-modal-title">{heading}</h2>
         <div class="modal__head-actions">
@@ -353,9 +329,7 @@
           </button>
         </footer>
       </form>
-    </div>
-  </div>
-{/if}
+</ModalShell>
 
 <ConfirmModal
   open={deleteConfirmOpen}
@@ -368,24 +342,10 @@
 />
 
 <style>
-  .backdrop {
-    position: fixed;
-    inset: 0;
-    z-index: 50;
-    display: grid;
-    place-items: center;
-    padding: 1rem;
-    background: color-mix(in srgb, var(--color-bg, #121212) 55%, transparent);
-  }
-
-  .modal {
-    width: min(32rem, 100%);
+  :global(.ql-modal) {
     max-height: min(90vh, 40rem);
     overflow: auto;
-    border: 1px solid var(--color-border-strong, #4a4a4a);
-    border-radius: var(--radius-lg, 12px);
     background: var(--color-bg-raised, #1a1a1a);
-    box-shadow: 0 16px 48px color-mix(in srgb, #000 45%, transparent);
   }
 
   .modal__head {

@@ -8,6 +8,7 @@
   } from '../js/api.js'
   import Icon from '../ui/Icon.svelte'
   import QuestlineIcon from '../ui/QuestlineIcon.svelte'
+  import ModalShell from './ModalShell.svelte'
   import { untrack } from 'svelte'
 
   /** @type {{ open: boolean, note?: any | null, onClose: () => void, onSaved: (row: any) => void }} */
@@ -79,18 +80,6 @@
     })
   })
 
-  $effect(() => {
-    if (!open) return
-    const onKey = (event) => {
-      if (event.key === 'Escape') {
-        event.preventDefault()
-        onClose()
-      }
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  })
-
   async function onSubmit(event) {
     event.preventDefault()
     if (!note?.id || saving) return
@@ -114,31 +103,19 @@
       saving = false
     }
   }
-
-  function onBackdrop(event) {
-    if (event.target === event.currentTarget) onClose()
-  }
 </script>
 
-{#if open}
-  <div class="backdrop" role="presentation" onclick={onBackdrop}>
-    <div
-      class="modal"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="note-icon-title"
-      onclick={(e) => e.stopPropagation()}
-    >
-      <header class="modal__head">
-        <h2 id="note-icon-title">Иконка — {title}</h2>
-        <button type="button" class="icon-btn" aria-label="Закрыть" onclick={onClose}>
-          <Icon name="close" size={18} />
-        </button>
-      </header>
-      {#if formError}
-        <p class="modal__error">{formError}</p>
-      {/if}
-      <form class="modal__form" onsubmit={onSubmit}>
+<ModalShell {open} {onClose} labelledby="note-icon-title" zIndex={50} maxWidth="32rem" dialogClass="note-icon-modal">
+  <header class="modal__head">
+    <h2 id="note-icon-title">Иконка — {title}</h2>
+    <button type="button" class="icon-btn" aria-label="Закрыть" onclick={onClose}>
+      <Icon name="close" size={18} />
+    </button>
+  </header>
+  {#if formError}
+    <p class="modal__error">{formError}</p>
+  {/if}
+  <form class="modal__form" onsubmit={onSubmit}>
         <div class="field">
           <span class="label">Цвет</span>
           <div class="swatches" role="radiogroup" aria-label="Цвет">
@@ -204,29 +181,13 @@
           </button>
         </footer>
       </form>
-    </div>
-  </div>
-{/if}
+</ModalShell>
 
 <style>
-  .backdrop {
-    position: fixed;
-    inset: 0;
-    z-index: 50;
-    display: grid;
-    place-items: center;
-    padding: 1rem;
-    background: color-mix(in srgb, var(--color-bg, #121212) 55%, transparent);
-  }
-
-  .modal {
-    width: min(32rem, 100%);
+  :global(.note-icon-modal) {
     max-height: min(90vh, 36rem);
     overflow: auto;
-    border: 1px solid var(--color-border-strong, #4a4a4a);
-    border-radius: var(--radius-lg, 12px);
     background: var(--color-bg-raised, #1a1a1a);
-    box-shadow: 0 16px 48px color-mix(in srgb, #000 45%, transparent);
   }
 
   .modal__head {
