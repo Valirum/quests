@@ -30,6 +30,7 @@
   import StepModal from './lib/modals/StepModal.svelte'
   import QuestlineModal from './lib/modals/QuestlineModal.svelte'
   import TemplatesModal from './lib/modals/TemplatesModal.svelte'
+  import SecretsModal from './lib/modals/SecretsModal.svelte'
   import SettingsModal from './lib/modals/SettingsModal.svelte'
   import ConfirmModal from './lib/modals/ConfirmModal.svelte'
   import ContextMenu from './lib/ui/ContextMenu.svelte'
@@ -139,6 +140,7 @@
     /** @type {{ questline_id?: number | null, category_id?: number | null } | null} */ (null),
   )
   let templatesOpen = $state(false)
+  let secretsOpen = $state(false)
   let settingsOpen = $state(false)
   let assistantOpen = $state(false)
   let lineModalOpen = $state(false)
@@ -339,6 +341,10 @@
 
   function openTemplates() {
     templatesOpen = true
+  }
+
+  function openSecrets() {
+    secretsOpen = true
   }
 
   function openSettings() {
@@ -1088,7 +1094,7 @@
     const onKey = (event) => {
       if (event.key !== 'Escape') return
       if (view !== 'journal') return
-      if (modalOpen || lineModalOpen || templatesOpen || settingsOpen) return
+      if (modalOpen || lineModalOpen || templatesOpen || secretsOpen || settingsOpen) return
       if (deleteConfirmOpen || lineDeleteConfirmOpen || ctxOpen) return
       if (view === 'notes') {
         if (selectedNoteId == null) return
@@ -1128,6 +1134,7 @@
     onViewChange={(v) => setView(v)}
     onOpenSettings={openSettings}
     onOpenTemplates={openTemplates}
+    onOpenSecrets={openSecrets}
     onOpenCreateQuestline={openCreateQuestline}
     onOpenCreateQuest={() => openCreate()}
     onOpenAssistant={() => (assistantOpen = true)}
@@ -1312,6 +1319,8 @@
   onClose={() => (templatesOpen = false)}
   onChanged={() => load({ silent: true })}
 />
+
+<SecretsModal open={secretsOpen} onClose={() => (secretsOpen = false)} />
 
 <SettingsModal
   open={settingsOpen}
