@@ -14,6 +14,7 @@
 @import "./styles/themes/solarized-light.css";
 @import "./styles/theme-accents.css";
 @import "./styles/journal.css";
+@import "./styles/modal.css";
 
 *,
 *::before,

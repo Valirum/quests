@@ -2,6 +2,7 @@
   import { THEMES, applyTheme, currentThemeId } from '../js/theme.js'
   import Icon from '../ui/Icon.svelte'
   import ModalShell from './ModalShell.svelte'
+  import ModalHead from './ModalHead.svelte'
 
   /** @type {{ open?: boolean, onClose: () => void, health?: { api: string, overlay: string, telegram: string, webdav?: string, detail?: any }, liveStatus?: string, username?: string, onLogout?: (() => void) | null }} */
   let {
@@ -56,16 +57,8 @@
   }
 </script>
 
-<ModalShell {open} {onClose} labelledby="settings-modal-title" zIndex={55} maxWidth="26rem" dialogClass="settings-modal">
-      <header class="modal__head">
-        <h2 id="settings-modal-title" class="modal__title">
-          <Icon name="settings" size={18} />
-          <span>Настройки</span>
-        </h2>
-        <button type="button" class="btn btn--ghost btn--icon btn--close" onclick={onClose} aria-label="Закрыть">
-          <Icon name="close" size={14} />
-        </button>
-      </header>
+<ModalShell {open} {onClose} labelledby="settings-modal-title" zIndex={55} maxWidth="26rem">
+      <ModalHead id="settings-modal-title" title="Настройки" icon="settings" {onClose} />
 
       <div class="modal__body">
         <section class="block">
@@ -186,34 +179,8 @@
     border-color: var(--color-danger);
   }
 
-  :global(.settings-modal) {
-    max-height: min(90vh, 40rem);
-    overflow: auto;
-    background: color-mix(in srgb, var(--color-bg, #121212) 88%, var(--color-bg-raised, #1a1a1a));
-  }
-
-  .modal__head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--space-3, 0.75rem);
-    padding: var(--space-4, 1rem);
-    border-bottom: 1px solid var(--color-border, #333);
-  }
-
-  .modal__title {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--space-2, 0.5rem);
-    margin: 0;
-    font-family: var(--font-display, Georgia, serif);
-    font-size: var(--text-lg, 1.25rem);
-    color: var(--color-accent, #c9a227);
-  }
-
-  .modal__body {
-    padding: var(--space-4, 1rem);
-    display: grid;
+  /* Roomier than a form: these are separate blocks, not fields. */
+  :global(.modal) .modal__body {
     gap: var(--space-5, 1.5rem);
   }
 
@@ -363,25 +330,4 @@
     color: var(--color-fg-muted, #9a9a9a);
   }
 
-  .btn {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--space-2, 0.5rem);
-    font: inherit;
-    padding: var(--space-2, 0.5rem);
-    border: 1px solid transparent;
-    border-radius: var(--radius-lg, 12px);
-    background: transparent;
-    color: var(--color-fg-muted, #9a9a9a);
-    cursor: pointer;
-  }
-
-  .btn--close {
-    border: 0;
-  }
-
-  .btn--ghost:hover {
-    color: var(--color-fg, #e8e8e8);
-    background: var(--color-bg-hover, #2a2a2a);
-  }
 </style>

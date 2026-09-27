@@ -7,6 +7,7 @@
   } from '../js/api.js'
   import Icon from '../ui/Icon.svelte'
   import ModalShell from './ModalShell.svelte'
+  import ModalHead from './ModalHead.svelte'
   import { untrack } from 'svelte'
 
   /** Standalone secrets manager — GitHub-style: names are visible, values
@@ -173,16 +174,8 @@
   }
 </script>
 
-<ModalShell {open} {onClose} labelledby="secrets-modal-title" zIndex={40} maxWidth="30rem" dialogClass="secrets-modal">
-  <header class="modal__head">
-    <h2 id="secrets-modal-title" class="modal__title">
-      <Icon name="key" size={18} />
-      <span>Секреты</span>
-    </h2>
-    <button type="button" class="btn btn--ghost btn--icon" aria-label="Закрыть" onclick={onClose}>
-      <Icon name="close" size={14} />
-    </button>
-  </header>
+<ModalShell {open} {onClose} labelledby="secrets-modal-title" zIndex={40} maxWidth="30rem">
+  <ModalHead id="secrets-modal-title" title="Секреты" icon="key" {onClose} />
 
   <div class="modal__body">
     {#if loading}
@@ -274,63 +267,6 @@
 </ModalShell>
 
 <style>
-  .modal__head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--space-3, 0.75rem);
-    padding: var(--space-4, 1rem);
-    border-bottom: 1px solid var(--color-border, #333);
-  }
-
-  .modal__title {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--space-2, 0.5rem);
-    margin: 0;
-    font-family: var(--font-display, Georgia, serif);
-    font-size: var(--text-lg, 1.25rem);
-    color: var(--color-accent, #c9a227);
-  }
-
-  .modal__body {
-    display: grid;
-    gap: var(--space-3, 0.75rem);
-    padding: var(--space-4, 1rem);
-    max-height: min(70vh, 34rem);
-    overflow: auto;
-  }
-
-  .modal__error {
-    margin: 0;
-    color: var(--color-danger, #b54a3a);
-  }
-
-  .field {
-    display: grid;
-    gap: 0.35rem;
-  }
-
-  .label {
-    font-size: var(--text-xs, 0.75rem);
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-    color: var(--color-fg-muted, #9a9a9a);
-  }
-
-  select,
-  input[type='text'],
-  input[type='password'] {
-    width: 100%;
-    min-width: 0;
-    box-sizing: border-box;
-    border: 1px solid var(--color-border, #333);
-    border-radius: var(--radius-sm, 2px);
-    background: var(--color-bg, #121212);
-    color: var(--color-fg, #e8e8e8);
-    padding: 0.45rem 0.55rem;
-    font: inherit;
-  }
 
   .secrets-list {
     display: grid;
@@ -379,57 +315,4 @@
     font-size: var(--text-sm, 0.875rem);
   }
 
-  .btn {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--space-2, 0.5rem);
-    font: inherit;
-    font-size: var(--text-sm, 0.875rem);
-    padding: var(--space-2, 0.5rem) var(--space-3, 0.75rem);
-    border: 1px solid var(--color-border-strong, #4a4a4a);
-    border-radius: var(--radius-lg, 12px);
-    background: var(--color-bg-muted, #242424);
-    color: var(--color-fg, #e8e8e8);
-    cursor: pointer;
-  }
-
-  .btn:hover:not(:disabled) {
-    background: var(--color-bg-hover, #2a2a2a);
-  }
-
-  .btn:disabled {
-    opacity: 0.55;
-    cursor: wait;
-  }
-
-  .btn--ghost {
-    border-color: transparent;
-    background: transparent;
-    color: var(--color-fg-muted, #9a9a9a);
-  }
-
-  .btn--ghost:hover:not(:disabled) {
-    color: var(--color-fg, #e8e8e8);
-    background: var(--color-bg-hover, #2a2a2a);
-  }
-
-  .btn--icon {
-    padding: var(--space-2, 0.5rem);
-  }
-
-  .btn--accent {
-    border-color: transparent;
-    background: color-mix(in srgb, var(--color-accent, #c9a227) 18%, transparent);
-    color: var(--color-accent, #c9a227);
-  }
-
-  .btn--accent:hover:not(:disabled) {
-    background: color-mix(in srgb, var(--color-accent, #c9a227) 28%, transparent);
-  }
-
-  .hint {
-    margin: 0;
-    font-size: var(--text-xs, 0.75rem);
-    color: var(--color-fg-muted, #9a9a9a);
-  }
 </style>

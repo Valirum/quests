@@ -4,6 +4,8 @@
   import Icon from '../ui/Icon.svelte'
   import MentionTextarea from '../ui/MentionTextarea.svelte'
   import ModalShell from './ModalShell.svelte'
+  import ModalHead from './ModalHead.svelte'
+  import ModalFoot from './ModalFoot.svelte'
 
   /** @type {{
    *   open: boolean,
@@ -98,23 +100,15 @@
   }
 </script>
 
-<ModalShell {open} {onClose} labelledby="aa-modal-title" zIndex={50} maxWidth="34rem" dialogClass="aa-modal">
-      <header class="modal__head">
-        <h2 id="aa-modal-title">
-          <Icon name="terminal" size={16} />
-          Командная строка журнала
-        </h2>
-        <button type="button" class="icon-btn" aria-label="Закрыть" onclick={onClose}>
-          <Icon name="close" />
-        </button>
-      </header>
+<ModalShell {open} {onClose} labelledby="aa-modal-title" zIndex={50} maxWidth="34rem">
+      <ModalHead id="aa-modal-title" title="Командная строка журнала" icon="terminal" {onClose} />
 
       {#if errorMsg}
         <p class="modal__error">{errorMsg}</p>
       {/if}
 
       {#if phase !== 'preview'}
-        <div class="prompt-area">
+        <div class="modal__body">
           {#if clarifyQuestion}
             <p class="clarify">{clarifyQuestion}</p>
           {/if}
@@ -134,20 +128,17 @@
             @ + название — подставить существующий квест/квестлайн/шаг. Ctrl/Cmd+Enter — сгенерировать план.
             Ничего не запишется без подтверждения.
           </p>
-          <footer class="modal__foot">
-            <button type="button" class="btn btn--ghost" onclick={onClose}>Отмена</button>
-            <button
-              type="button"
-              class="btn btn--accent"
-              onclick={generate}
-              disabled={phase === 'loading' || !text.trim()}
-            >
-              {phase === 'loading' ? 'Думаю…' : 'Сгенерировать'}
-            </button>
-          </footer>
+          <ModalFoot
+            onCancel={onClose}
+            submitLabel="Сгенерировать"
+            onSubmit={generate}
+            busy={phase === 'loading'}
+            busyLabel="Думаю…"
+            disabled={!text.trim()}
+          />
         </div>
       {:else}
-        <div class="preview-area">
+        <div class="modal__body">
           <p class="hint">Проверь план перед применением — можно вернуться и переформулировать.</p>
           <ul class="tree">
             {#each tree.questlines as line (line.id)}
@@ -238,64 +229,20 @@
             {/each}
           </ul>
 
-          <footer class="modal__foot">
-            <button type="button" class="btn btn--ghost" onclick={backToEdit} disabled={phase === 'applying'}>
-              Назад
-            </button>
-            <button type="button" class="btn btn--accent" onclick={apply} disabled={phase === 'applying'}>
-              {phase === 'applying' ? 'Применяю…' : 'Применить'}
-            </button>
-          </footer>
+          <ModalFoot
+            onCancel={backToEdit}
+            cancelLabel="Назад"
+            submitLabel="Применить"
+            submitIcon="checkmark"
+            onSubmit={apply}
+            busy={phase === 'applying'}
+            busyLabel="Применяю…"
+          />
         </div>
       {/if}
 </ModalShell>
 
 <style>
-  :global(.aa-modal) {
-    max-height: min(90vh, 42rem);
-    overflow: auto;
-    background: var(--color-bg-raised, #1a1a1a);
-  }
-
-  .modal__head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0.75rem;
-    padding: 0.85rem 1rem;
-    border-bottom: 1px solid var(--color-border, #333);
-  }
-
-  .modal__head h2 {
-    display: flex;
-    align-items: center;
-    gap: 0.4rem;
-    margin: 0;
-    font-size: var(--text-lg, 1.1rem);
-    color: var(--color-accent, #c9a227);
-  }
-
-  .icon-btn {
-    display: inline-flex;
-    border: 0;
-    background: transparent;
-    color: var(--color-fg-muted, #9a9a9a);
-    padding: 0.35rem;
-    cursor: pointer;
-  }
-
-  .modal__error {
-    margin: 0.75rem 1rem 0;
-    color: var(--color-danger, #b54a3a);
-  }
-
-  .prompt-area,
-  .preview-area {
-    display: grid;
-    gap: 0.6rem;
-    padding: 1rem;
-  }
-
   .clarify {
     margin: 0;
     padding: 0.5rem 0.65rem;
@@ -304,12 +251,6 @@
     background: color-mix(in srgb, var(--color-accent, #c9a227) 10%, transparent);
     color: var(--color-fg, #e8e8e8);
     font-size: var(--text-sm, 0.875rem);
-  }
-
-  .hint {
-    margin: 0;
-    font-size: var(--text-xs, 0.75rem);
-    color: var(--color-fg-muted, #9a9a9a);
   }
 
   .tree,
@@ -379,40 +320,4 @@
     color: var(--color-fg, #e8e8e8);
   }
 
-  .modal__foot {
-    display: flex;
-    justify-content: flex-end;
-    gap: 0.5rem;
-    margin-top: 0.25rem;
-  }
-
-  .btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.35rem;
-    border: 1px solid var(--color-border-strong, #4a4a4a);
-    border-radius: var(--radius-lg, 12px);
-    background: var(--color-bg-muted, #242424);
-    color: var(--color-fg, #e8e8e8);
-    padding: 0.4rem 0.65rem;
-    cursor: pointer;
-    font: inherit;
-  }
-
-  .btn:disabled {
-    opacity: 0.55;
-    cursor: wait;
-  }
-
-  .btn--accent {
-    border-color: color-mix(in srgb, var(--color-accent, #c9a227) 55%, var(--color-border, #333));
-    background: color-mix(in srgb, var(--color-accent, #c9a227) 18%, var(--color-bg-muted, #242424));
-    color: var(--color-accent, #c9a227);
-  }
-
-  .btn--ghost {
-    border-color: transparent;
-    background: transparent;
-    color: var(--color-fg-muted, #9a9a9a);
-  }
 </style>

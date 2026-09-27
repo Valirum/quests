@@ -18,10 +18,21 @@
     localTimeZone,
     toLocalInputValue,
   } from '../js/time.js'
+  import { durationLabel, partsToSeconds, plural, secondsToParts } from '../js/duration.js'
+  import { questStepDraft, questStepsPayload } from '../js/steps.js'
   import Icon from '../ui/Icon.svelte'
   import MentionTextarea from '../ui/MentionTextarea.svelte'
+  import OptionPills from '../ui/OptionPills.svelte'
+  import Picker from '../ui/Picker.svelte'
+  import FormSection from '../ui/FormSection.svelte'
+  import HelpTip from '../ui/HelpTip.svelte'
+  import TimeSelect from '../ui/TimeSelect.svelte'
+  import DurationInput from '../ui/DurationInput.svelte'
+  import StepsEditor from '../ui/StepsEditor.svelte'
   import ConfirmModal from './ConfirmModal.svelte'
   import ModalShell from './ModalShell.svelte'
+  import ModalHead from './ModalHead.svelte'
+  import ModalFoot from './ModalFoot.svelte'
   import { untrack } from 'svelte'
 
   /** @type {{ open: boolean, mode: 'create' | 'edit', quest?: any, defaults?: { questline_id?: number | null, category_id?: number | null }, quests?: any[], notes?: any[], attachments?: any[], onClose: () => void, onSaved: (q: any) => void, onDeleted?: (id: number) => void }} */
@@ -53,37 +64,70 @@
   let categories = $state([])
   /** @type {{ id: number, title: string, category_id?: number | null, color?: string }[]} */
   let questlines = $state([])
-  /** Local date YYYY-MM-DD + 24h clock (no native time picker — it follows OS 12h). */
+  /** Local date YYYY-MM-DD + 24h clock. */
   let deadlineDate = $state('')
   let deadlineHour = $state('12')
   let deadlineMinute = $state('00')
-  /** duration as hours + minutes (optional) */
   let durationHours = $state('')
   let durationMinutes = $state('')
-  /** Collapsed = no deadline; expanded shows date/time/duration. */
-  let deadlineOpen = $state(false)
+  /** Off = no deadline. */
+  let deadlineOn = $state(false)
   /** Unchecked = duration_seconds explicitly 0 ("no window", no auto-expire). */
   let windowEnabled = $state(true)
-  /** @type {{ key: string, id: number | null, title: string, description: string, progress_current: number, progress_total: number, check_command: string, check_interval_seconds: string, wait_previous: boolean, run_mode: string, check_open: boolean }[]} */
-  let steps = $state([])
+  let steps = $state(/** @type {ReturnType<typeof questStepDraft>[]} */ ([]))
   let saving = $state(false)
   let deleting = $state(false)
   let deleteConfirmOpen = $state(false)
   let formError = $state('')
 
-  const HOURS_24 = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0'))
-  const MINUTES_60 = Array.from({ length: 60 }, (_, i) => String(i).padStart(2, '0'))
+  let secProps = $state(false)
+  let secDeadline = $state(false)
+  let secSteps = $state(true)
 
-  let heading = $derived(mode === 'create' ? 'Новый квест' : 'Редактировать квест')
-  let selectedLine = $derived(
-    questlineId === ''
-      ? null
-      : questlines.find((l) => String(l.id) === questlineId) ?? null,
+  const STATUS_OPTIONS = QUEST_STATUSES.map((s) => ({
+    id: s,
+    label: QUEST_STATUS_LABELS[s] ?? s,
+    kind: /** @type {const} */ ('status'),
+  }))
+  const SIG_OPTIONS = QUEST_SIGNIFICANCES.map((s) => ({ ...s, kind: /** @type {const} */ ('sig') }))
+
+  let lineOptions = $derived(
+    questlines.map((l) => ({ id: String(l.id), label: l.title, color: l.color || '' })),
   )
-  let categoryLocked = $derived(selectedLine != null)
-  let deadlineLocal = $derived(
-    deadlineDate ? `${deadlineDate}T${deadlineHour}:${deadlineMinute}` : '',
+  let categoryOptions = $derived(
+    categories.map((c) => ({ id: String(c.id), label: c.label, color: c.color || '' })),
   )
+  let lineCategory = $derived(
+    categoryId === '' ? null : categories.find((c) => String(c.id) === categoryId) ?? null,
+  )
+
+  let propsSummary = $derived(
+    [
+      QUEST_STATUS_LABELS[status] ?? status,
+      QUEST_SIGNIFICANCES.find((s) => s.id === significance)?.label,
+      pinned && 'закреплён',
+      automated && 'автоквест',
+    ]
+      .filter(Boolean)
+      .join(' · '),
+  )
+
+  let deadlineSummary = $derived.by(() => {
+    if (!deadlineOn || !deadlineDate) return 'без срока'
+    const d = new Date(`${deadlineDate}T00:00`)
+    const day = Number.isNaN(d.getTime())
+      ? deadlineDate
+      : d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })
+    const when = `до ${day} ${deadlineHour}:${deadlineMinute}`
+    if (!windowEnabled) return `${when} · без окна`
+    const dur = durationLabel(durationHours, durationMinutes)
+    return dur ? `${when} · окно ${dur}` : when
+  })
+
+  let stepsSummary = $derived.by(() => {
+    const n = steps.filter((s) => s.title.trim()).length
+    return n ? `${n} ${plural(n, ['шаг', 'шага', 'шагов'])}` : 'нет'
+  })
 
   function applyQuestline(idStr) {
     questlineId = idStr
@@ -93,129 +137,49 @@
     categoryId = line.category_id != null ? String(line.category_id) : ''
   }
 
-  function newStepKey() {
-    try {
-      const id = globalThis.crypto?.randomUUID?.()
-      if (id) return id
-    } catch {
-      /* http://host is not a secure context — randomUUID throws */
+  function setDeadlineOn(on) {
+    deadlineOn = on
+    if (on && !deadlineDate) {
+      const parts = defaultLocalDeadlineParts()
+      deadlineDate = parts.date
+      deadlineHour = parts.hour
+      deadlineMinute = parts.minute
     }
-    return `s-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`
-  }
-
-  function blankStep() {
-    return {
-      key: newStepKey(),
-      id: null,
-      title: '',
-      description: '',
-      progress_current: 0,
-      progress_total: 1,
-      check_command: '',
-      check_interval_seconds: '',
-      wait_previous: false,
-      run_mode: 'poll',
-      check_open: false,
-    }
-  }
-
-  function applyDefaultDeadline() {
-    const parts = defaultLocalDeadlineParts()
-    deadlineDate = parts.date
-    deadlineHour = parts.hour
-    deadlineMinute = parts.minute
-  }
-
-  function clearDeadline() {
-    deadlineDate = ''
-    durationHours = ''
-    durationMinutes = ''
-    windowEnabled = true
-  }
-
-  function setDeadlineEnabled(on) {
-    if (!on) {
-      deadlineOpen = false
-      clearDeadline()
-      return
-    }
-    deadlineOpen = true
-    if (!deadlineDate) applyDefaultDeadline()
   }
 
   function resetFromQuest(q) {
-    if (!q) {
-      title = ''
-      description = ''
-      status = 'active'
-      significance = 'common'
-      pinned = false
-      automated = false
-      sortOrder = 0
-      categoryId =
-        defaults?.category_id != null ? String(defaults.category_id) : ''
-      questlineId =
-        defaults?.questline_id != null ? String(defaults.questline_id) : ''
-      deadlineOpen = false
-      clearDeadline()
-      steps = [blankStep()]
-      return
-    }
-    title = q.title ?? ''
-    description = q.description ?? ''
-    status = q.status ?? 'active'
-    significance = q.significance ?? 'common'
-    pinned = Boolean(q.pinned)
-    automated = Boolean(q.automated)
-    sortOrder = q.sort_order ?? 0
-    categoryId = q.category_id != null ? String(q.category_id) : ''
-    questlineId = q.questline_id != null ? String(q.questline_id) : ''
-    const local = toLocalInputValue(q.deadline_at)
-    if (local && local.includes('T')) {
-      deadlineOpen = true
+    title = q?.title ?? ''
+    description = q?.description ?? ''
+    status = q?.status ?? 'active'
+    significance = q?.significance ?? 'common'
+    pinned = Boolean(q?.pinned)
+    automated = Boolean(q?.automated)
+    sortOrder = q?.sort_order ?? 0
+    const cat = q ? q.category_id : defaults?.category_id
+    const line = q ? q.questline_id : defaults?.questline_id
+    categoryId = cat != null ? String(cat) : ''
+    questlineId = line != null ? String(line) : ''
+
+    const local = toLocalInputValue(q?.deadline_at)
+    deadlineOn = Boolean(local && local.includes('T'))
+    if (deadlineOn) {
       const [d, t] = local.split('T')
       deadlineDate = d || ''
       const [hh = '12', mm = '00'] = (t || '').slice(0, 5).split(':')
       deadlineHour = String(Math.min(23, Math.max(0, Number(hh) || 0))).padStart(2, '0')
       deadlineMinute = String(Math.min(59, Math.max(0, Number(mm) || 0))).padStart(2, '0')
     } else {
-      deadlineOpen = false
-      clearDeadline()
+      deadlineDate = ''
     }
     // duration_seconds === 0 is an explicit "no window" (distinct from
     // null/undefined, which just means "let the server auto-compute").
-    if (q.duration_seconds === 0) {
-      windowEnabled = false
-      durationHours = ''
-      durationMinutes = ''
-    } else {
-      windowEnabled = true
-      const dur = Number(q.duration_seconds) || 0
-      if (dur > 0) {
-        durationHours = String(Math.floor(dur / 3600))
-        durationMinutes = String(Math.floor((dur % 3600) / 60))
-      } else {
-        durationHours = ''
-        durationMinutes = ''
-      }
-    }
-    steps =
-      q.steps?.length > 0
-        ? q.steps.map((s) => ({
-            key: String(s.id ?? newStepKey()),
-            id: s.id ?? null,
-            title: s.title ?? '',
-            description: s.description ?? '',
-            progress_current: s.progress_current ?? 0,
-            progress_total: s.progress_total ?? 1,
-            check_command: s.check_command ?? '',
-            check_interval_seconds:
-              s.check_interval_seconds != null ? String(s.check_interval_seconds) : '',
-            wait_previous: Boolean(s.wait_previous),
-            run_mode: s.run_mode === 'once' ? 'once' : 'poll',
-            check_open: Boolean(String(s.check_command || '').trim()),
-          }))
-        : [blankStep()]
+    windowEnabled = q?.duration_seconds !== 0
+    ;({ hours: durationHours, minutes: durationMinutes } = secondsToParts(q?.duration_seconds))
+
+    steps = q?.steps?.length ? q.steps.map((s) => questStepDraft(s)) : [questStepDraft()]
+    secProps = false
+    secDeadline = false
+    secSteps = true
   }
 
   // Init when `open` becomes true. Only track `open` — reading quest/mode
@@ -243,45 +207,9 @@
     })
   })
 
-  function addStep() {
-    steps = [...steps, blankStep()]
-  }
-
-  function removeStep(key) {
-    if (steps.length <= 1) {
-      steps = [blankStep()]
-      return
-    }
-    steps = steps.filter((s) => s.key !== key)
-  }
-
-  function buildStepsPayload() {
-    return steps
-      .map((s, i) => {
-        const cmd = String(s.check_command || '').trim()
-        const intervalRaw = String(s.check_interval_seconds ?? '').trim()
-        const interval = intervalRaw === '' ? null : Math.max(15, Number(intervalRaw) || 15)
-        return {
-          id: s.id != null ? Number(s.id) : null,
-          title: s.title.trim(),
-          description: String(s.description || '').trim(),
-          progress_current: Math.max(0, Number(s.progress_current) || 0),
-          progress_total: Math.max(1, Number(s.progress_total) || 1),
-          sort_order: i,
-          check_command: cmd || null,
-          check_interval_seconds: cmd ? interval : null,
-          wait_previous: cmd ? Boolean(s.wait_previous) : false,
-          run_mode: cmd && s.run_mode === 'once' ? 'once' : 'poll',
-        }
-      })
-      .filter((s) => s.title)
-  }
-
   /** Sync step list via CRUD (PATCH quest no longer replaces steps[]). */
   async function syncQuestSteps(questId, desired, existing) {
-    const desiredIds = new Set(
-      desired.filter((s) => s.id != null).map((s) => Number(s.id)),
-    )
+    const desiredIds = new Set(desired.filter((s) => s.id != null).map((s) => Number(s.id)))
     let saved = null
     for (const s of desired) {
       if (s.id == null) continue
@@ -306,25 +234,13 @@
       formError = 'Нужен заголовок'
       return
     }
-    const stepsPayload = buildStepsPayload()
+    const stepsPayload = questStepsPayload(steps)
     saving = true
     formError = ''
     try {
-      const deadline_at = deadlineOpen ? localInputToUtcIso(deadlineLocal) : null
-      let duration_seconds = null
-      if (deadline_at && !windowEnabled) {
-        // Explicit 0 = no urgency window, no auto-expire (see NormalizeDeadline).
-        duration_seconds = 0
-      } else if (deadline_at) {
-        const h = Number(durationHours)
-        const m = Number(durationMinutes)
-        if (Number.isFinite(h) || Number.isFinite(m)) {
-          const hours = Number.isFinite(h) ? Math.max(0, h) : 0
-          const mins = Number.isFinite(m) ? Math.max(0, m) : 0
-          const total = Math.round(hours * 3600 + mins * 60)
-          if (total > 0) duration_seconds = total
-        }
-      }
+      const deadline_at = deadlineOn
+        ? localInputToUtcIso(`${deadlineDate}T${deadlineHour}:${deadlineMinute}`)
+        : null
       const payload = {
         title: title.trim(),
         description: description.trim(),
@@ -336,10 +252,15 @@
         category_id: categoryId === '' ? null : Number(categoryId),
         questline_id: questlineId === '' ? null : Number(questlineId),
         deadline_at,
-        ...(deadline_at && duration_seconds != null ? { duration_seconds } : {}),
       }
       if (!deadline_at) {
         payload.duration_seconds = null
+      } else if (!windowEnabled) {
+        // Explicit 0 = no urgency window, no auto-expire (see NormalizeDeadline).
+        payload.duration_seconds = 0
+      } else {
+        const dur = partsToSeconds(durationHours, durationMinutes)
+        if (dur != null) payload.duration_seconds = dur
       }
       let saved
       if (mode === 'create') {
@@ -358,11 +279,6 @@
     }
   }
 
-  function requestDelete() {
-    if (!quest?.id || deleting || saving) return
-    deleteConfirmOpen = true
-  }
-
   async function confirmDelete() {
     if (!quest?.id) return
     deleting = true
@@ -373,6 +289,7 @@
       onDeleted?.(quest.id)
       onClose()
     } catch (e) {
+      deleteConfirmOpen = false
       formError = e.message || String(e)
     } finally {
       deleting = false
@@ -380,381 +297,131 @@
   }
 </script>
 
-<ModalShell {open} {onClose} labelledby="quest-modal-title" zIndex={40} maxWidth="36rem" dialogClass="quest-modal">
-      <header class="modal__head">
-        <h2 id="quest-modal-title" class="modal__title">
-          <Icon name={mode === 'create' ? 'document' : 'edit'} size={18} />
-          <span>{heading}</span>
-        </h2>
-        <button type="button" class="btn btn--ghost btn--icon btn--close" onclick={onClose} aria-label="Закрыть">
-          <Icon name="close" size={14} />
-        </button>
-      </header>
+<ModalShell {open} {onClose} labelledby="quest-modal-title" zIndex={40} maxWidth="36rem">
+  <ModalHead
+    id="quest-modal-title"
+    title={mode === 'create' ? 'Новый квест' : 'Редактировать квест'}
+    icon={mode === 'create' ? 'add' : 'edit'}
+    {onClose}
+  />
 
-      {#if formError}
-        <p class="modal__error">{formError}</p>
+  {#if formError}
+    <p class="modal__error">{formError}</p>
+  {/if}
+
+  <form class="modal__form" onsubmit={onSubmit}>
+    <label class="field">
+      <span class="label">Заголовок</span>
+      <input type="text" bind:value={title} required />
+    </label>
+
+    <div class="field">
+      <span class="label">Описание</span>
+      <MentionTextarea
+        bind:value={description}
+        {quests}
+        {questlines}
+        {notes}
+        {attachments}
+        rows={3}
+        placeholder="@название — квест, заметка, файл, шаг, квестлайн"
+      />
+    </div>
+
+    <div class="field-row">
+      <div class="field">
+        <span class="label">Квестлайн</span>
+        <Picker options={lineOptions} bind:value={questlineId} label="Квестлайн" onChange={applyQuestline} />
+        {#if questlineId !== '' && lineCategory}
+          <span class="hint">раздел «{lineCategory.label}» — от квестлайна</span>
+        {/if}
+      </div>
+      {#if questlineId === ''}
+        <div class="field">
+          <span class="label">Раздел</span>
+          <Picker options={categoryOptions} bind:value={categoryId} label="Раздел" />
+        </div>
       {/if}
+    </div>
 
-      <form class="modal__form" onsubmit={onSubmit}>
-        <label class="field">
-          <span class="label">Заголовок</span>
-          <input type="text" bind:value={title} required />
-        </label>
-
-        <div class="field">
-          <span class="label">Описание</span>
-          <MentionTextarea
-            bind:value={description}
-            {quests}
-            {questlines}
-            {notes}
-            {attachments}
-            rows={3}
-            placeholder="@название — квест, заметка, файл, шаг, квестлайн"
-          />
-        </div>
-
-        <div class="field">
-          <span class="label">Статус</span>
-          <div class="opt-slider" role="radiogroup" aria-label="Статус">
-            {#each QUEST_STATUSES as s}
-              <button
-                type="button"
-                class="opt-slider__opt"
-                class:opt-slider__opt--on={status === s}
-                role="radio"
-                aria-checked={status === s}
-                onclick={() => (status = s)}
-              >
-                {QUEST_STATUS_LABELS[s] ?? s}
-              </button>
-            {/each}
-          </div>
-        </div>
-
-        <div class="field">
-          <span class="label">Значимость</span>
-          <div class="opt-slider" role="radiogroup" aria-label="Значимость">
-            {#each QUEST_SIGNIFICANCES as s}
-              <button
-                type="button"
-                class="opt-slider__opt opt-slider__opt--sig"
-                class:opt-slider__opt--on={significance === s.id}
-                data-sig={s.id}
-                role="radio"
-                aria-checked={significance === s.id}
-                onclick={() => (significance = s.id)}
-              >
-                {s.label}
-              </button>
-            {/each}
-          </div>
-        </div>
-
-        <div class="field">
-          <span class="label">Квестлайн</span>
-          <div class="opt-slider opt-slider--wrap" role="radiogroup" aria-label="Квестлайн">
-            <button
-              type="button"
-              class="opt-slider__opt"
-              class:opt-slider__opt--on={questlineId === ''}
-              role="radio"
-              aria-checked={questlineId === ''}
-              onclick={() => applyQuestline('')}
-            >
-              Нет
-            </button>
-            {#each questlines as line}
-              <button
-                type="button"
-                class="opt-slider__opt opt-slider__opt--cat"
-                class:opt-slider__opt--on={questlineId === String(line.id)}
-                style="--opt-color: {line.color || '#9a9a9a'}"
-                role="radio"
-                aria-checked={questlineId === String(line.id)}
-                onclick={() => applyQuestline(String(line.id))}
-              >
-                {line.title}
-              </button>
-            {/each}
-          </div>
-        </div>
-
-        <div class="field">
-          <span class="label">Раздел{categoryLocked ? ' (от квестлайна)' : ''}</span>
-          <div
-            class="opt-slider opt-slider--wrap"
-            class:opt-slider--locked={categoryLocked}
-            role="radiogroup"
-            aria-label="Раздел"
-            aria-disabled={categoryLocked}
-          >
-            <button
-              type="button"
-              class="opt-slider__opt opt-slider__opt--cat"
-              class:opt-slider__opt--on={categoryId === ''}
-              data-cat="none"
-              role="radio"
-              aria-checked={categoryId === ''}
-              disabled={categoryLocked}
-              onclick={() => (categoryId = '')}
-            >
-              Нет
-            </button>
-            {#each categories as c}
-              <button
-                type="button"
-                class="opt-slider__opt opt-slider__opt--cat"
-                class:opt-slider__opt--on={categoryId === String(c.id)}
-                style="--opt-color: {c.color || '#9a9a9a'}"
-                role="radio"
-                aria-checked={categoryId === String(c.id)}
-                disabled={categoryLocked}
-                onclick={() => (categoryId = String(c.id))}
-              >
-                {c.label}
-              </button>
-            {/each}
-          </div>
-        </div>
-
-        <label class="check">
-          <input type="checkbox" bind:checked={pinned} />
-          Закрепить (показывать в оверлее)
-        </label>
+    <FormSection title="Свойства" summary={propsSummary} bind:open={secProps}>
+      <div class="field">
+        <span class="label">Статус</span>
+        <OptionPills options={STATUS_OPTIONS} bind:value={status} label="Статус" wrap />
+      </div>
+      <div class="field">
+        <span class="label">Значимость</span>
+        <OptionPills options={SIG_OPTIONS} bind:value={significance} label="Значимость" wrap />
+      </div>
+      <label class="check">
+        <input type="checkbox" bind:checked={pinned} />
+        Закрепить — показывать в оверлее
+      </label>
+      <div class="check-line">
         <label class="check">
           <input type="checkbox" bind:checked={automated} />
-          Автоквест (создание/старт — тихий тост, не на весь экран)
+          Автоквест
         </label>
+        <HelpTip label="Что такое автоквест">
+          Появление и старт такого квеста — тихий тост, а не оповещение на весь экран. Для квестов, которые создают скрипты и шаблоны.
+        </HelpTip>
+      </div>
+    </FormSection>
 
-        <div class="deadline-block">
+    <FormSection title="Срок" summary={deadlineSummary} bind:open={secDeadline}>
+      <label class="check">
+        <input type="checkbox" checked={deadlineOn} onchange={(e) => setDeadlineOn(e.currentTarget.checked)} />
+        Указать срок
+        <span class="hint">({localTimeZone()})</span>
+      </label>
+      {#if deadlineOn}
+        <div class="inline-line">
+          <input class="deadline-date" type="date" lang="ru-RU" bind:value={deadlineDate} required aria-label="Дата срока" />
+          <TimeSelect bind:hour={deadlineHour} bind:minute={deadlineMinute} label="Время срока" />
+        </div>
+        <div class="inline-line">
           <label class="check">
-            <input
-              type="checkbox"
-              checked={deadlineOpen}
-              onchange={(e) => setDeadlineEnabled(e.currentTarget.checked)}
-            />
-            Указать срок ({localTimeZone()}, 24ч)
+            <input type="checkbox" bind:checked={windowEnabled} />
+            Окно срочности
           </label>
-          {#if deadlineOpen}
-            <div class="deadline-body">
-              <label class="field field--deadline">
-                <span class="label">Дата и время</span>
-                <div class="deadline-inputs">
-                  <input type="date" lang="ru-RU" bind:value={deadlineDate} required />
-                  <div class="time-24" title="Часы:минуты (0–23)">
-                    <select bind:value={deadlineHour} aria-label="Часы (0–23)">
-                      {#each HOURS_24 as h}
-                        <option value={h}>{h}</option>
-                      {/each}
-                    </select>
-                    <span class="time-24__sep">:</span>
-                    <select bind:value={deadlineMinute} aria-label="Минуты">
-                      {#each MINUTES_60 as m}
-                        <option value={m}>{m}</option>
-                      {/each}
-                    </select>
-                  </div>
-                </div>
-              </label>
-
-              <label class="check">
-                <input type="checkbox" bind:checked={windowEnabled} />
-                Ограничить окно срочности
-              </label>
-              {#if windowEnabled}
-                <div class="field field--duration">
-                  <span class="label">Длительность окна</span>
-                  <div class="duration-row">
-                    <input type="number" min="0" placeholder="ч" bind:value={durationHours} />
-                    <span class="duration-row__sep">:</span>
-                    <input
-                      type="number"
-                      min="0"
-                      max="59"
-                      placeholder="мин"
-                      bind:value={durationMinutes}
-                    />
-                  </div>
-                </div>
-                <p class="hint">
-                  Длительность пусто = от создания/изменения до срока. Окно срочности = срок −
-                  длительность.
-                </p>
-              {:else}
-                <p class="hint">
-                  Без окна: срок — просто ориентир, без таймера-срочности и без автопросрочки.
-                </p>
-              {/if}
-            </div>
+          {#if windowEnabled}
+            <DurationInput bind:hours={durationHours} bind:minutes={durationMinutes} label="Окно срочности" />
           {/if}
+          <HelpTip label="Что такое окно срочности">
+            <p>Окно — сколько времени до срока квест считается срочным: таймер, напоминание в HUD и Telegram. По истечении срока квест просрочен.</p>
+            <p>Пустая длительность — окно от создания квеста до срока. Без окна срок — просто ориентир: без таймера и без автопросрочки.</p>
+          </HelpTip>
         </div>
+      {/if}
+    </FormSection>
 
-        <div class="steps-block">
-          <div class="steps-block__head">
-            <span class="label">Шаги</span>
-            <button type="button" class="btn btn--ghost btn--add-step" onclick={addStep}>
-              <Icon name="add" size={16} />
-              <span class="btn__text">шаг</span>
-            </button>
-          </div>
-          {#each steps as step (step.key)}
-            <div class="step-edit">
-              <div class="step-edit__row">
-                <input
-                  type="text"
-                  class="step-edit__title"
-                  placeholder="Название шага"
-                  bind:value={step.title}
-                />
-                <input
-                  type="number"
-                  class="step-edit__num"
-                  min="0"
-                  title="текущее"
-                  bind:value={step.progress_current}
-                />
-                <span class="step-edit__slash">/</span>
-                <input
-                  type="number"
-                  class="step-edit__num"
-                  min="1"
-                  title="всего"
-                  bind:value={step.progress_total}
-                />
-                <button
-                  type="button"
-                  class="btn btn--ghost btn--icon"
-                  class:btn--check-on={step.check_open}
-                  onclick={() => (step.check_open = !step.check_open)}
-                  aria-label="Команда проверки"
-                  title="Команда проверки"
-                >
-                  <Icon name="terminal" size={14} />
-                </button>
-                <button
-                  type="button"
-                  class="btn btn--ghost btn--icon btn--step-remove"
-                  onclick={() => removeStep(step.key)}
-                  aria-label="Удалить шаг"
-                >
-                  <Icon name="delete" size={14} />
-                </button>
-              </div>
-              <MentionTextarea
-                class="step-edit__desc"
-                bind:value={step.description}
-                {quests}
-                {questlines}
-                {notes}
-                {attachments}
-                rows={2}
-                placeholder="Описание шага (markdown, @упоминания)"
-              />
-              {#if step.check_open}
-                <div class="step-edit__check">
-                  <input
-                    type="text"
-                    class="step-edit__cmd"
-                    placeholder="команда: опрос (stdout → число) или разовый запуск"
-                    bind:value={step.check_command}
-                    spellcheck="false"
-                  />
-                  <input
-                    type="number"
-                    class="step-edit__interval"
-                    min="15"
-                    step="15"
-                    placeholder="сек"
-                    title="Интервал опроса (сек, мин. 15)"
-                    bind:value={step.check_interval_seconds}
-                    disabled={!String(step.check_command || '').trim() || step.run_mode === 'once'}
-                  />
-                </div>
-                <div class="step-edit__auto-opts">
-                  <label class="check check--inline">
-                    <input type="checkbox" bind:checked={step.wait_previous} disabled={!String(step.check_command || '').trim()} />
-                    ждать предыдущий
-                  </label>
-                  <div class="opt-slider opt-slider--compact" role="radiogroup" aria-label="Режим автошага">
-                    <button
-                      type="button"
-                      class="opt-slider__opt"
-                      class:opt-slider__opt--on={step.run_mode !== 'once'}
-                      role="radio"
-                      aria-checked={step.run_mode !== 'once'}
-                      disabled={!String(step.check_command || '').trim()}
-                      onclick={() => (step.run_mode = 'poll')}
-                    >
-                      опрос
-                    </button>
-                    <button
-                      type="button"
-                      class="opt-slider__opt"
-                      class:opt-slider__opt--on={step.run_mode === 'once'}
-                      role="radio"
-                      aria-checked={step.run_mode === 'once'}
-                      disabled={!String(step.check_command || '').trim()}
-                      onclick={() => (step.run_mode = 'once')}
-                    >
-                      разово
-                    </button>
-                  </div>
-                </div>
-              {/if}
-            </div>
-          {/each}
-          <p class="hint">
-            Пустые шаги отбрасываются. Команда — по кнопке терминала: опрос читает число из stdout
-            каждые N сек; разово ждёт код 0 (сбой проваливает квест). «Ждать предыдущий» — линейный пайплайн.
-          </p>
-        </div>
+    <FormSection title="Шаги" summary={stepsSummary} bind:open={secSteps}>
+      <StepsEditor bind:steps variant="quest" {quests} {questlines} {notes} {attachments} />
+    </FormSection>
 
-        <footer class="modal__foot">
-          {#if mode === 'edit'}
-            <button
-              type="button"
-              class="btn btn--danger"
-              onclick={requestDelete}
-              disabled={saving || deleting}
-              aria-label={deleting ? 'Удаление…' : 'Удалить'}
-            >
-              <Icon name="delete" size={14} />
-              <span class="btn__text">{deleting ? '…' : 'Удалить'}</span>
-            </button>
-          {:else}
-            <span></span>
-          {/if}
-          <div class="modal__foot-right">
-            <button
-              type="button"
-              class="btn"
-              onclick={onClose}
-              disabled={saving || deleting}
-              aria-label="Отмена"
-            >
-              <Icon name="close" size={12} />
-              <span class="btn__text">Отмена</span>
-            </button>
-            <button
-              type="submit"
-              class="btn btn--accent"
-              disabled={saving || deleting}
-              aria-label={mode === 'create' ? 'Создать' : 'Сохранить'}
-            >
-              {#if saving}
-                <span>…</span>
-              {:else if mode === 'create'}
-                <Icon name="checkmark" size={15} />
-                <span class="btn__text">Создать</span>
-              {:else}
-                <Icon name="save" size={15} />
-                <span class="btn__text">Сохранить</span>
-              {/if}
-            </button>
-          </div>
-        </footer>
-      </form>
+    <ModalFoot
+      onCancel={onClose}
+      submitLabel={mode === 'create' ? 'Создать' : 'Сохранить'}
+      submitIcon={mode === 'create' ? 'checkmark' : 'save'}
+      busy={saving}
+      disabled={deleting}
+    >
+      {#snippet left()}
+        {#if mode === 'edit'}
+          <button
+            type="button"
+            class="btn btn--danger"
+            onclick={() => (deleteConfirmOpen = true)}
+            disabled={saving || deleting}
+            title="Удалить квест"
+          >
+            <Icon name="delete" size={14} />
+            <span class="btn__text">{deleting ? '…' : 'Удалить'}</span>
+          </button>
+        {/if}
+      {/snippet}
+    </ModalFoot>
+  </form>
 </ModalShell>
 
 <ConfirmModal
@@ -769,424 +436,13 @@
 />
 
 <style>
-  :global(.quest-modal) {
-    max-height: min(90vh, 52rem);
-    overflow: auto;
-    background: var(--color-bg-raised, #1a1a1a);
-  }
-
-  .modal__head {
+  .check-line {
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    gap: var(--space-3, 0.75rem);
-    padding: var(--space-4, 1rem);
-    border-bottom: 1px solid var(--color-border, #333);
+    gap: 0.5rem;
   }
 
-  .modal__title {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--space-2, 0.5rem);
-    margin: 0;
-    font-family: var(--font-display, Georgia, serif);
-    font-size: var(--text-lg, 1.25rem);
-    color: var(--color-accent, #c9a227);
-  }
-
-  .modal__error {
-    margin: 0;
-    padding: var(--space-2, 0.5rem) var(--space-4, 1rem);
-    background: color-mix(in srgb, var(--color-danger, #b54a3a) 18%, transparent);
-    color: var(--color-danger, #b54a3a);
-    font-size: var(--text-sm, 0.875rem);
-  }
-
-  .modal__form {
-    display: grid;
-    gap: var(--space-3, 0.75rem);
-    padding: var(--space-4, 1rem);
-  }
-
-  .field {
-    display: grid;
-    gap: var(--space-1, 0.25rem);
-  }
-
-  .label {
-    font-size: var(--text-xs, 0.75rem);
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    color: var(--color-fg-muted, #9a9a9a);
-  }
-
-  .deadline-block {
-    display: grid;
-    border: 1px solid var(--color-border, #333);
-    border-radius: var(--radius-sm, 2px);
-    background: var(--color-bg-muted, #242424);
-    overflow: hidden;
-  }
-
-  .deadline-block > .check {
-    padding: var(--space-2, 0.5rem) var(--space-3, 0.75rem);
-  }
-
-  .deadline-body {
-    display: grid;
-    gap: var(--space-2, 0.5rem);
-    padding: var(--space-2, 0.5rem) var(--space-3, 0.75rem) var(--space-3, 0.75rem);
-  }
-
-  .deadline-inputs {
-    display: grid;
-    grid-template-columns: 1.15fr auto;
-    gap: var(--space-2, 0.5rem);
-    align-items: center;
-  }
-
-  input[type='text'],
-  input[type='number'],
-  input[type='date'],
-  input[type='time'],
-  textarea,
-  select {
-    width: 100%;
-    padding: var(--space-2, 0.5rem);
-    border: 1px solid var(--color-border, #333);
-    border-radius: var(--radius-sm, 2px);
-    background: var(--color-bg, #121212);
-    color: var(--color-fg, #e8e8e8);
-    font: inherit;
-  }
-
-  input:focus,
-  textarea:focus,
-  select:focus {
-    outline: 1px solid var(--color-accent, #c9a227);
-    outline-offset: 1px;
-  }
-
-  .opt-slider {
-    display: flex;
-    flex-direction: row;
-    flex-wrap: nowrap;
-    gap: 2px;
-    padding: 3px;
-    border: 1px solid var(--color-border, #333);
-    border-radius: var(--radius-lg, 12px);
-    background: var(--color-bg-muted, #242424);
-    overflow-x: auto;
-  }
-
-  .opt-slider__opt {
-    flex: 1 1 0;
-    margin: 0;
-    padding: 0.45rem 0.5rem;
-    border: 0;
-    border-radius: calc(var(--radius-lg, 12px) - 2px);
-    background: transparent;
-    color: var(--color-fg-muted, #9a9a9a);
-    font: inherit;
-    font-size: var(--text-xs, 0.75rem);
-    letter-spacing: 0.02em;
-    white-space: nowrap;
-    cursor: pointer;
-  }
-
-  .opt-slider__opt:hover {
-    color: var(--color-fg, #e8e8e8);
-    background: color-mix(in srgb, var(--color-bg-hover, #2a2a2a) 80%, transparent);
-  }
-
-  .opt-slider__opt--on {
-    background: color-mix(in srgb, var(--color-accent, #c9a227) 22%, var(--color-bg, #121212));
-    color: var(--color-accent, #c9a227);
-    font-weight: 600;
-  }
-
-  .opt-slider--wrap {
-    flex-wrap: wrap;
-  }
-
-  .opt-slider__opt--cat {
-    color: var(--opt-color, var(--color-fg-muted, #9a9a9a));
-    background: color-mix(in srgb, var(--opt-color, #9a9a9a) 12%, transparent);
-  }
-
-  .opt-slider__opt--cat[data-cat='none'] {
-    color: var(--color-fg-muted, #9a9a9a);
-    background: transparent;
-  }
-
-  .opt-slider__opt--cat.opt-slider__opt--on {
-    color: color-mix(in srgb, var(--opt-color, #e8e8e8) 85%, #fff);
-    background: color-mix(
-      in srgb,
-      var(--opt-color, #9a9a9a) 34%,
-      var(--color-bg, #121212)
-    );
-  }
-
-  .opt-slider__opt--cat[data-cat='none'].opt-slider__opt--on {
-    color: var(--color-fg, #e8e8e8);
-    background: color-mix(in srgb, var(--color-bg-hover, #2a2a2a) 80%, transparent);
-  }
-
-  .opt-slider--locked {
-    opacity: 0.72;
-  }
-
-  .opt-slider--locked .opt-slider__opt:disabled {
-    cursor: default;
-  }
-
-  .time-24 {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.25rem;
-  }
-
-  .time-24 select {
-    width: 3.6rem;
-    padding: var(--space-2, 0.5rem) 0.35rem;
-    text-align: center;
-    font-variant-numeric: tabular-nums;
-  }
-
-  .time-24__sep {
-    color: var(--color-fg-subtle, #6e6e6e);
-    font-weight: 600;
-  }
-
-  .duration-row {
-    display: flex;
-    align-items: center;
-    gap: var(--space-2, 0.5rem);
-    min-height: 2.25rem;
-  }
-
-  .duration-row input {
-    width: 4.5rem;
-  }
-
-  .duration-row__sep {
-    color: var(--color-fg-subtle, #6e6e6e);
-  }
-
-  .check {
-    display: flex;
-    align-items: center;
-    gap: var(--space-2, 0.5rem);
-    font-size: var(--text-sm, 0.875rem);
-    color: var(--color-fg-muted, #9a9a9a);
-  }
-
-  .steps-block {
-    display: grid;
-    gap: var(--space-2, 0.5rem);
-    padding-top: var(--space-2, 0.5rem);
-    border-top: 1px dashed var(--color-border, #333);
-  }
-
-  .steps-block__head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-  }
-
-  .step-edit {
-    display: grid;
-    gap: var(--space-2, 0.5rem);
-  }
-
-  .step-edit__row {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) 3.2rem auto 3.2rem auto auto;
-    gap: var(--space-2, 0.5rem);
-    align-items: center;
-  }
-
-  .step-edit__check {
-    display: grid;
-    grid-template-columns: 1fr 4.5rem;
-    gap: var(--space-2, 0.5rem);
-    align-items: center;
-  }
-
-  .step-edit__cmd {
-    font-family: var(--font-mono, monospace);
-    font-size: var(--text-xs, 0.75rem);
-  }
-
-  .step-edit__interval {
-    width: 100%;
-  }
-
-  .step-edit__auto-opts {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: var(--space-3, 0.75rem);
-  }
-
-  .check--inline {
-    margin: 0;
-  }
-
-  .opt-slider--compact {
+  .inline-line .deadline-date {
     width: auto;
-  }
-
-  .step-edit__slash {
-    color: var(--color-fg-subtle, #6e6e6e);
-    text-align: center;
-  }
-
-  .hint {
-    margin: 0;
-    font-size: var(--text-xs, 0.75rem);
-    color: var(--color-fg-subtle, #6e6e6e);
-  }
-
-  .modal__foot {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--space-3, 0.75rem);
-    padding-top: var(--space-2, 0.5rem);
-    border-top: 1px solid var(--color-border, #333);
-  }
-
-  .modal__foot-right {
-    display: flex;
-    gap: var(--space-2, 0.5rem);
-  }
-
-  .btn {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--space-2, 0.5rem);
-    font: inherit;
-    font-size: var(--text-sm, 0.875rem);
-    padding: var(--space-2, 0.5rem) var(--space-3, 0.75rem);
-    border: 1px solid var(--color-border-strong, #4a4a4a);
-    border-radius: var(--radius-lg, 12px);
-    background: var(--color-bg-muted, #242424);
-    color: var(--color-fg, #e8e8e8);
-    cursor: pointer;
-  }
-
-  .btn:hover {
-    background: var(--color-bg-hover, #2a2a2a);
-  }
-
-  .btn:disabled {
-    opacity: 0.55;
-    cursor: wait;
-  }
-
-  .btn--accent {
-    border-color: color-mix(in srgb, var(--color-accent, #c9a227) 55%, var(--color-border, #333));
-    background: color-mix(in srgb, var(--color-accent, #c9a227) 18%, var(--color-bg-muted, #242424));
-    color: var(--color-accent, #c9a227);
-  }
-
-  .btn--danger {
-    border-color: transparent;
-    background: transparent;
-    color: color-mix(in srgb, var(--color-danger, #b54a3a) 78%, var(--color-fg, #e8e8e8));
-  }
-
-  .btn--danger:hover:not(:disabled) {
-    color: var(--color-danger, #b54a3a);
-    background: color-mix(in srgb, var(--color-danger, #b54a3a) 10%, transparent);
-  }
-
-  .btn--ghost {
-    border-color: transparent;
-    background: transparent;
-    color: var(--color-fg-muted, #9a9a9a);
-  }
-
-  .btn--ghost:hover {
-    color: var(--color-fg, #e8e8e8);
-    background: var(--color-bg-hover, #2a2a2a);
-  }
-
-  .btn--add-step {
-    align-items: center;
-    line-height: 1;
-    gap: 0.2rem;
-    padding: 0.2rem 0.35rem;
-  }
-
-  .btn--add-step :global(.icon) {
-    display: block;
-  }
-
-  .btn--add-step .btn__text {
-    line-height: 1;
-    display: inline-flex;
-    align-items: center;
-  }
-
-  .btn--add-step:hover {
-    background: transparent;
-    color: var(--color-fg, #e8e8e8);
-  }
-
-  .btn--close {
-    border: 0;
-    background: transparent;
-  }
-
-  .btn--icon {
-    padding: var(--space-2, 0.5rem);
-  }
-
-  .btn--step-remove:hover {
-    color: var(--color-danger, #b54a3a);
-    background: color-mix(in srgb, var(--color-danger, #b54a3a) 10%, transparent);
-  }
-
-  .btn--check-on {
-    border-color: var(--color-accent, #c9a227);
-    color: var(--color-accent, #c9a227);
-  }
-
-  @media (max-width: 520px) {
-    .deadline-inputs {
-      grid-template-columns: 1fr;
-    }
-  }
-
-  @media (orientation: portrait) {
-    /* Wrap into rows rather than stacking one option per line — a column
-       per group stretched the form to several screens on a phone. */
-    .opt-slider {
-      flex-wrap: wrap;
-      overflow-x: visible;
-    }
-
-    .opt-slider__opt {
-      flex: 1 1 auto;
-    }
-
-    .btn__text {
-      position: absolute;
-      width: 1px;
-      height: 1px;
-      padding: 0;
-      margin: -1px;
-      overflow: hidden;
-      clip: rect(0, 0, 0, 0);
-      white-space: nowrap;
-      border: 0;
-    }
-
-    .btn:not(.btn--icon) {
-      padding: var(--space-2, 0.5rem);
-    }
   }
 </style>
