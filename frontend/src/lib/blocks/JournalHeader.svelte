@@ -98,6 +98,7 @@
   // Same idea, independently, for the health chips: labeled by default,
   // dots-only only once the brand+health cluster actually doesn't fit.
   let brandEl = $state(null)
+  let healthEl = $state(null)
   let healthMeasureEl = $state(null)
   let healthCollapsed = $state(false)
 
@@ -111,7 +112,11 @@
    * the actual gaps beside the tab block instead.
    *
    * In portrait the CSS drops the tabs onto their own row; then the two
-   * clusters share one line and only have to clear each other.
+   * clusters share one line and only have to clear each other — and the
+   * health chips, which portrait CSS pulls out of header-left and centers
+   * on the header absolutely, so leftEl's width no longer accounts for them.
+   * There each side gets whatever lies between its cluster and the header's
+   * center, and health's own box is subtracted from the actions' side.
    */
   function headerSlots() {
     const cs = getComputedStyle(headerEl)
@@ -122,6 +127,21 @@
 
     if (getComputedStyle(tabsEl).position !== 'absolute') {
       const width = contentRight - contentLeft
+      if (healthEl && getComputedStyle(healthEl).position === 'absolute') {
+        const center = (rect.left + rect.right) / 2
+        const health = healthEl.getBoundingClientRect()
+        return {
+          right: contentRight - health.right - gap,
+          // Health is centered, so it needs room for half its width on
+          // *both* sides of the center; report the tighter side, doubled.
+          health:
+            2 *
+            Math.min(
+              center - (contentLeft + leftEl.offsetWidth) - gap,
+              contentRight - (actionsEl?.offsetWidth ?? 0) - center - gap,
+            ),
+        }
+      }
       return {
         left: width - (actionsEl?.offsetWidth ?? 0) - gap,
         right: width - leftEl.offsetWidth - gap,
@@ -141,7 +161,8 @@
 
   function recomputeHealthCollapse() {
     if (!headerEl || !leftEl || !tabsEl || !brandEl || !healthMeasureEl) return
-    const forHealth = headerSlots().left - brandEl.offsetWidth - 12 /* header-left gap */
+    const slots = headerSlots()
+    const forHealth = slots.health ?? slots.left - brandEl.offsetWidth - 12 /* header-left gap */
     healthCollapsed = healthMeasureEl.scrollWidth > forHealth
   }
 
@@ -167,6 +188,7 @@
     if (tabsEl) ro.observe(tabsEl)
     if (measureEl) ro.observe(measureEl)
     if (brandEl) ro.observe(brandEl)
+    if (healthEl) ro.observe(healthEl)
     if (healthMeasureEl) ro.observe(healthMeasureEl)
     if (actionsEl) ro.observe(actionsEl)
     window.addEventListener('resize', recomputeAll)
@@ -237,7 +259,7 @@
       </span>
     {/snippet}
 
-    <div class="health" role="status" aria-label="Состояние сервисов">
+    <div class="health" bind:this={healthEl} role="status" aria-label="Состояние сервисов">
       {@render healthChips()}
     </div>
   </div>
