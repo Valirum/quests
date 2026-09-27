@@ -141,6 +141,26 @@ export function copyTemplate(id) {
   return request(`/api/templates/${id}/copy`, { method: 'POST' })
 }
 
+/** Only the secret *names* — GET never returns values, see setTemplateSecret. */
+export async function listTemplateSecrets(templateId) {
+  const { keys } = await request(`/api/templates/${templateId}/secrets`)
+  return keys || []
+}
+
+/** Write-only: sets/overwrites one secret. Never readable back through the API. */
+export function setTemplateSecret(templateId, key, value) {
+  return request(`/api/templates/${templateId}/secrets/${encodeURIComponent(key)}`, {
+    method: 'PUT',
+    body: JSON.stringify({ value }),
+  })
+}
+
+export function deleteTemplateSecret(templateId, key) {
+  return request(`/api/templates/${templateId}/secrets/${encodeURIComponent(key)}`, {
+    method: 'DELETE',
+  })
+}
+
 export function getHero() {
   return request('/api/hero')
 }

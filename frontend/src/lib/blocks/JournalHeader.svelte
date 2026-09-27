@@ -11,6 +11,7 @@
    *   onViewChange: (v: 'journal' | 'toc' | 'notes' | 'attachments' | 'calendar' | 'hero' | 'stats') => void,
    *   onOpenSettings: () => void,
    *   onOpenTemplates: () => void,
+   *   onOpenSecrets: () => void,
    *   onOpenCreateQuestline: () => void,
    *   onOpenCreateQuest: () => void,
    *   onOpenAssistant: () => void,
@@ -24,6 +25,7 @@
     onViewChange,
     onOpenSettings,
     onOpenTemplates,
+    onOpenSecrets,
     onOpenCreateQuestline,
     onOpenCreateQuest,
     onOpenAssistant,
@@ -60,6 +62,7 @@
     if (view === 'journal' || view === 'toc' || view === 'notes') {
       items.push(
         { id: 'templates', label: 'Шаблоны' },
+        { id: 'secrets', label: 'Секреты' },
         { id: 'questline', label: 'Новый квестлайн' },
       )
     }
@@ -77,6 +80,7 @@
     if (id === 'assistant') onOpenAssistant()
     else if (id === 'settings') onOpenSettings()
     else if (id === 'templates') onOpenTemplates()
+    else if (id === 'secrets') onOpenSecrets()
     else if (id === 'questline') onOpenCreateQuestline()
   }
 
@@ -337,6 +341,10 @@
       <button type="button" class="btn" onclick={onOpenTemplates} aria-label="Шаблоны периодики">
         <Icon name="renew" />
         <span class="btn__text">Шаблоны</span>
+      </button>
+      <button type="button" class="btn" onclick={onOpenSecrets} aria-label="Секреты">
+        <Icon name="terminal" />
+        <span class="btn__text">Секреты</span>
       </button>
       <button type="button" class="btn" onclick={onOpenCreateQuestline} aria-label="Новый квестлайн">
         <Icon name="flag" />
