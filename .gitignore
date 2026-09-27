@@ -70,3 +70,6 @@ go/bin/
 *.exe
 
 .mcp.json
+
+# Claude Code preview-pane dev server config (local only)
+.claude/launch.json
