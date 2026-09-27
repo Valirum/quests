@@ -1,5 +1,8 @@
 <script>
   /** Shared backdrop + dialog + Escape-close wrapper used by every modal.
+   * The dialog's own look, and the chrome/form primitives inside it, live in
+   * styles/modal.css (scoped under .modal) rather than being copied into
+   * each modal.
    * @type {{
    *   open: boolean,
    *   onClose: () => void,
@@ -24,11 +27,14 @@
   $effect(() => {
     if (!open) return
     const onKey = (event) => {
-      if (event.key === 'Escape') {
-        event.preventDefault()
-        event.stopPropagation()
-        if (!closeDisabled) onClose()
-      }
+      if (event.key !== 'Escape') return
+      // A popover inside the dialog (picker list, help tip) closes itself on
+      // Escape; this capture-phase listener runs first, so it has to step
+      // aside or one keypress would take the whole dialog down with it.
+      if (event.target instanceof Element && event.target.closest('[data-own-escape]')) return
+      event.preventDefault()
+      event.stopPropagation()
+      if (!closeDisabled) onClose()
     }
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
@@ -66,14 +72,5 @@
     padding: var(--space-4, 1rem);
     background: color-mix(in srgb, var(--color-bg, #121212) 55%, transparent);
     backdrop-filter: blur(2px);
-  }
-
-  .modal {
-    width: 100%;
-    border: 1px solid var(--color-border-strong, #4a4a4a);
-    border-radius: var(--radius-lg, 12px);
-    background: color-mix(in srgb, var(--color-bg, #121212) 88%, var(--color-bg-raised, #1a1a1a));
-    box-shadow: 0 16px 48px color-mix(in srgb, #000 45%, transparent);
-    font-family: var(--font-ui, sans-serif);
   }
 </style>

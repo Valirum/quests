@@ -1,7 +1,5 @@
 <script>
   import {
-    QUESTLINE_COLORS,
-    QUESTLINE_ICONS,
     clearQuestlineIcon,
     createQuestline,
     deleteQuestline,
@@ -10,10 +8,13 @@
     uploadQuestlineIcon,
   } from '../js/api.js'
   import Icon from '../ui/Icon.svelte'
-  import QuestlineIcon from '../ui/QuestlineIcon.svelte'
   import MentionTextarea from '../ui/MentionTextarea.svelte'
+  import Picker from '../ui/Picker.svelte'
+  import ColorIconPicker from '../ui/ColorIconPicker.svelte'
   import ConfirmModal from './ConfirmModal.svelte'
   import ModalShell from './ModalShell.svelte'
+  import ModalHead from './ModalHead.svelte'
+  import ModalFoot from './ModalFoot.svelte'
   import AttachmentsBlock from '../blocks/AttachmentsBlock.svelte'
   import { untrack } from 'svelte'
 
@@ -41,7 +42,6 @@
   let iconUrl = $state(/** @type {string | null} */ (null))
   /** Pending local file for upload after save. */
   let pendingFile = $state(/** @type {File | null} */ (null))
-  let pendingPreview = $state(/** @type {string | null} */ (null))
   /** User chose to drop custom icon on save. */
   let clearCustom = $state(false)
   /** @type {{ id: number, slug: string, label: string, color?: string }[]} */
@@ -50,59 +50,20 @@
   let deleting = $state(false)
   let deleteConfirmOpen = $state(false)
   let formError = $state('')
-  let fileInput = $state(/** @type {HTMLInputElement | null} */ (null))
 
-  let heading = $derived(mode === 'create' ? 'Новый квестлайн' : 'Редактировать квестлайн')
-  let previewUrl = $derived(pendingPreview || (!clearCustom ? iconUrl : null))
-
-  function revokePendingPreview() {
-    if (pendingPreview) URL.revokeObjectURL(pendingPreview)
-    pendingPreview = null
-  }
+  let categoryOptions = $derived(
+    categories.map((c) => ({ id: String(c.id), label: c.label, color: c.color || '' })),
+  )
 
   function resetFromLine(row) {
-    revokePendingPreview()
     pendingFile = null
     clearCustom = false
-    if (!row) {
-      title = ''
-      description = ''
-      categoryId = ''
-      color = '#9a9a9a'
-      icon = 'document'
-      iconUrl = null
-      return
-    }
-    title = row.title ?? ''
-    description = row.description ?? ''
-    categoryId = row.category_id != null ? String(row.category_id) : ''
-    color = row.color || '#9a9a9a'
-    icon = row.icon || 'document'
-    iconUrl = row.icon_url || null
-  }
-
-  function pickBuiltin(name) {
-    icon = name
-    clearCustom = true
-    pendingFile = null
-    revokePendingPreview()
-  }
-
-  function onFileChange(event) {
-    const input = /** @type {HTMLInputElement} */ (event.currentTarget)
-    const file = input.files?.[0] || null
-    input.value = ''
-    if (!file) return
-    revokePendingPreview()
-    pendingFile = file
-    pendingPreview = URL.createObjectURL(file)
-    clearCustom = false
-  }
-
-  function removeCustom() {
-    pendingFile = null
-    revokePendingPreview()
-    clearCustom = true
+    title = row?.title ?? ''
+    description = row?.description ?? ''
+    categoryId = row?.category_id != null ? String(row.category_id) : ''
+    color = row?.color || '#9a9a9a'
+    icon = row?.icon || 'document'
+    iconUrl = row?.icon_url || null
   }
 
   // Init when `open` becomes true — only track `open`.
@@ -170,6 +131,7 @@
       onDeleted?.(line.id)
       onClose()
     } catch (e) {
+      deleteConfirmOpen = false
       formError = e.message || String(e)
     } finally {
       deleting = false
@@ -177,158 +139,68 @@
   }
 </script>
 
-<ModalShell {open} {onClose} labelledby="ql-modal-title" zIndex={50} maxWidth="32rem" dialogClass="ql-modal">
-      <header class="modal__head">
-        <h2 id="ql-modal-title">{heading}</h2>
-        <div class="modal__head-actions">
-          {#if mode === 'edit'}
-            <button
-              type="button"
-              class="icon-btn icon-btn--danger"
-              aria-label="Удалить"
-              disabled={deleting || saving}
-              onclick={() => (deleteConfirmOpen = true)}
-            >
-              <Icon name="delete" />
-            </button>
-          {/if}
-          <button type="button" class="icon-btn" aria-label="Закрыть" onclick={onClose}>
-            <Icon name="close" />
+<ModalShell {open} {onClose} labelledby="ql-modal-title" zIndex={50} maxWidth="32rem">
+  <ModalHead
+    id="ql-modal-title"
+    title={mode === 'create' ? 'Новый квестлайн' : 'Редактировать квестлайн'}
+    icon="flag"
+    {onClose}
+  />
+
+  {#if formError}
+    <p class="modal__error">{formError}</p>
+  {/if}
+
+  <form class="modal__form" onsubmit={onSubmit}>
+    <label class="field">
+      <span class="label">Заголовок</span>
+      <input type="text" bind:value={title} required />
+    </label>
+
+    <div class="field">
+      <span class="label">Описание</span>
+      <MentionTextarea
+        bind:value={description}
+        {quests}
+        {questlines}
+        {notes}
+        {attachments}
+        rows={2}
+        placeholder="@название — квест, заметка, файл, шаг, квестлайн"
+      />
+    </div>
+
+    <div class="field">
+      <span class="label">Раздел</span>
+      <Picker options={categoryOptions} bind:value={categoryId} label="Раздел" />
+    </div>
+
+    <ColorIconPicker bind:color bind:icon {iconUrl} bind:pendingFile bind:clearCustom ownerLabel="этого квестлайна" />
+
+    {#if mode === 'edit' && line?.id}
+      <div class="field">
+        <span class="label">Вложения</span>
+        <AttachmentsBlock ownerType="questline" ownerId={line.id} />
+      </div>
+    {/if}
+
+    <ModalFoot onCancel={onClose} submitLabel={mode === 'create' ? 'Создать' : 'Сохранить'} submitIcon="save" busy={saving} disabled={deleting}>
+      {#snippet left()}
+        {#if mode === 'edit'}
+          <button
+            type="button"
+            class="btn btn--danger"
+            onclick={() => (deleteConfirmOpen = true)}
+            disabled={saving || deleting}
+            title="Удалить квестлайн"
+          >
+            <Icon name="delete" size={14} />
+            <span class="btn__text">Удалить</span>
           </button>
-        </div>
-      </header>
-
-      {#if formError}
-        <p class="modal__error">{formError}</p>
-      {/if}
-
-      <form class="modal__form" onsubmit={onSubmit}>
-        <label class="field">
-          <span class="label">Заголовок</span>
-          <input type="text" bind:value={title} required />
-        </label>
-
-        <div class="field">
-          <span class="label">Описание</span>
-          <MentionTextarea
-            bind:value={description}
-            {quests}
-            {questlines}
-            {notes}
-            {attachments}
-            rows={2}
-            placeholder="@название — квест, заметка, файл, шаг, квестлайн"
-          />
-        </div>
-
-        <div class="field">
-          <span class="label">Раздел</span>
-          <div class="opt-slider opt-slider--wrap" role="radiogroup" aria-label="Раздел">
-            <button
-              type="button"
-              class="opt-slider__opt opt-slider__opt--cat"
-              class:opt-slider__opt--on={categoryId === ''}
-              data-cat="none"
-              role="radio"
-              aria-checked={categoryId === ''}
-              onclick={() => (categoryId = '')}
-            >
-              Нет
-            </button>
-            {#each categories as c}
-              <button
-                type="button"
-                class="opt-slider__opt opt-slider__opt--cat"
-                class:opt-slider__opt--on={categoryId === String(c.id)}
-                style="--opt-color: {c.color || '#9a9a9a'}"
-                role="radio"
-                aria-checked={categoryId === String(c.id)}
-                onclick={() => (categoryId = String(c.id))}
-              >
-                {c.label}
-              </button>
-            {/each}
-          </div>
-        </div>
-
-        <div class="field">
-          <span class="label">Цвет</span>
-          <div class="swatches" role="radiogroup" aria-label="Цвет">
-            {#each QUESTLINE_COLORS as c}
-              <button
-                type="button"
-                class="swatch"
-                class:swatch--on={color === c}
-                style="--swatch: {c}"
-                role="radio"
-                aria-checked={color === c}
-                aria-label={c}
-                onclick={() => (color = c)}
-              ></button>
-            {/each}
-          </div>
-          <input class="color-hex" type="text" bind:value={color} maxlength="16" />
-        </div>
-
-        <div class="field">
-          <span class="label">Иконка</span>
-          <div class="icon-picker" role="radiogroup" aria-label="Иконка">
-            {#each QUESTLINE_ICONS as name}
-              <button
-                type="button"
-                class="icon-pick"
-                class:icon-pick--on={!previewUrl && icon === name}
-                role="radio"
-                aria-checked={!previewUrl && icon === name}
-                aria-label={name}
-                onclick={() => pickBuiltin(name)}
-              >
-                <Icon {name} size={16} />
-              </button>
-            {/each}
-          </div>
-          <div class="icon-custom">
-            {#if previewUrl}
-              <span class="icon-custom__preview" style="--line-color: {color}">
-                <QuestlineIcon iconUrl={previewUrl} size="md" />
-              </span>
-              <button type="button" class="btn btn--ghost" onclick={removeCustom}>
-                Убрать свою
-              </button>
-            {/if}
-            <button
-              type="button"
-              class="btn"
-              onclick={() => fileInput?.click()}
-            >
-              Загрузить…
-            </button>
-            <input
-              bind:this={fileInput}
-              class="icon-custom__file"
-              type="file"
-              accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml"
-              onchange={onFileChange}
-            />
-          </div>
-          <p class="hint">Своя иконка только у этого квестлайна, в пул SVG не попадает.</p>
-        </div>
-
-        {#if mode === 'edit' && line?.id}
-          <div class="field">
-            <span class="label">Вложения</span>
-            <AttachmentsBlock ownerType="questline" ownerId={line.id} />
-          </div>
         {/if}
-
-        <footer class="modal__foot">
-          <button type="button" class="btn btn--ghost" onclick={onClose}>Отмена</button>
-          <button type="submit" class="btn btn--accent" disabled={saving}>
-            <Icon name="save" />
-            {saving ? '…' : 'Сохранить'}
-          </button>
-        </footer>
-      </form>
+      {/snippet}
+    </ModalFoot>
+  </form>
 </ModalShell>
 
 <ConfirmModal
@@ -340,239 +212,3 @@
   onCancel={() => (deleteConfirmOpen = false)}
   onConfirm={confirmDelete}
 />
-
-<style>
-  :global(.ql-modal) {
-    max-height: min(90vh, 40rem);
-    overflow: auto;
-    background: var(--color-bg-raised, #1a1a1a);
-  }
-
-  .modal__head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0.75rem;
-    padding: 0.85rem 1rem;
-    border-bottom: 1px solid var(--color-border, #333);
-  }
-
-  .modal__head h2 {
-    margin: 0;
-    font-size: var(--text-lg, 1.1rem);
-    color: var(--color-accent, #c9a227);
-  }
-
-  .modal__head-actions {
-    display: flex;
-    gap: 0.25rem;
-  }
-
-  .icon-btn {
-    display: inline-flex;
-    border: 0;
-    background: transparent;
-    color: var(--color-fg-muted, #9a9a9a);
-    padding: 0.35rem;
-    cursor: pointer;
-  }
-
-  .icon-btn--danger {
-    color: var(--color-danger, #b54a3a);
-  }
-
-  .modal__error {
-    margin: 0.75rem 1rem 0;
-    color: var(--color-danger, #b54a3a);
-  }
-
-  .modal__form {
-    display: grid;
-    gap: 0.85rem;
-    padding: 1rem;
-  }
-
-  .field {
-    display: grid;
-    gap: 0.35rem;
-  }
-
-  .label {
-    font-size: var(--text-xs, 0.75rem);
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-    color: var(--color-fg-muted, #9a9a9a);
-  }
-
-  input,
-  textarea {
-    border: 1px solid var(--color-border, #333);
-    border-radius: var(--radius-sm, 2px);
-    background: var(--color-bg, #121212);
-    color: var(--color-fg, #e8e8e8);
-    padding: 0.45rem 0.55rem;
-    font: inherit;
-  }
-
-  .opt-slider {
-    display: flex;
-    flex-wrap: nowrap;
-    gap: 2px;
-    padding: 3px;
-    border: 1px solid var(--color-border, #333);
-    border-radius: var(--radius-lg, 12px);
-    overflow: hidden;
-    background: var(--color-bg-muted, #242424);
-  }
-
-  .opt-slider--wrap {
-    flex-wrap: wrap;
-  }
-
-  .opt-slider__opt {
-    flex: 1 1 auto;
-    border: 0;
-    border-radius: calc(var(--radius-lg, 12px) - 2px);
-    background: transparent;
-    color: var(--color-fg-muted, #9a9a9a);
-    padding: 0.4rem 0.55rem;
-    cursor: pointer;
-    font: inherit;
-    font-size: var(--text-sm, 0.875rem);
-  }
-
-  .opt-slider__opt:last-child {
-    border-right: 0;
-  }
-
-  .opt-slider__opt--cat {
-    color: var(--opt-color, var(--color-fg-muted, #9a9a9a));
-    background: color-mix(in srgb, var(--opt-color, #9a9a9a) 12%, transparent);
-  }
-
-  .opt-slider__opt--cat[data-cat='none'] {
-    color: var(--color-fg-muted, #9a9a9a);
-    background: transparent;
-  }
-
-  .opt-slider__opt--cat.opt-slider__opt--on {
-    color: color-mix(in srgb, var(--opt-color, #e8e8e8) 85%, #fff);
-    background: color-mix(
-      in srgb,
-      var(--opt-color, #9a9a9a) 34%,
-      var(--color-bg, #121212)
-    );
-  }
-
-  .opt-slider__opt--cat[data-cat='none'].opt-slider__opt--on {
-    color: var(--color-fg, #e8e8e8);
-    background: color-mix(in srgb, var(--color-bg-hover, #2a2a2a) 80%, transparent);
-  }
-
-  .swatches {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.35rem;
-  }
-
-  .swatch {
-    width: 1.35rem;
-    height: 1.35rem;
-    border: 2px solid transparent;
-    border-radius: var(--radius-sm, 2px);
-    background: var(--swatch);
-    cursor: pointer;
-    padding: 0;
-  }
-
-  .swatch--on {
-    border-color: var(--color-fg, #e8e8e8);
-  }
-
-  .color-hex {
-    max-width: 8rem;
-  }
-
-  .icon-picker {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.35rem;
-  }
-
-  .icon-pick {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 2rem;
-    height: 2rem;
-    border: 1px solid var(--color-border, #333);
-    border-radius: var(--radius-sm, 2px);
-    background: var(--color-bg-muted, #242424);
-    color: var(--color-fg-muted, #9a9a9a);
-    cursor: pointer;
-  }
-
-  .icon-pick--on {
-    border-color: var(--color-accent, #c9a227);
-    color: var(--color-accent, #c9a227);
-    background: color-mix(in srgb, var(--color-accent, #c9a227) 16%, transparent);
-  }
-
-  .icon-custom {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 0.5rem;
-    margin-top: 0.5rem;
-  }
-
-  .icon-custom__preview {
-    display: inline-flex;
-  }
-
-  .icon-custom__file {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    opacity: 0;
-    pointer-events: none;
-  }
-
-  .hint {
-    margin: 0.4rem 0 0;
-    font-size: var(--text-xs, 0.75rem);
-    color: var(--color-fg-muted, #9a9a9a);
-  }
-
-  .modal__foot {
-    display: flex;
-    justify-content: flex-end;
-    gap: 0.5rem;
-    margin-top: 0.25rem;
-  }
-
-  .btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.35rem;
-    border: 1px solid var(--color-border-strong, #4a4a4a);
-    border-radius: var(--radius-lg, 12px);
-    background: var(--color-bg-muted, #242424);
-    color: var(--color-fg, #e8e8e8);
-    padding: 0.4rem 0.65rem;
-    cursor: pointer;
-    font: inherit;
-  }
-
-  .btn--accent {
-    border-color: color-mix(in srgb, var(--color-accent, #c9a227) 55%, var(--color-border, #333));
-    background: color-mix(in srgb, var(--color-accent, #c9a227) 18%, var(--color-bg-muted, #242424));
-    color: var(--color-accent, #c9a227);
-  }
-
-  .btn--ghost {
-    border-color: transparent;
-    background: transparent;
-    color: var(--color-fg-muted, #9a9a9a);
-  }
-</style>

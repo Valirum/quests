@@ -1,0 +1,377 @@
+/* Modal chrome and form primitives — shared by every dialog.
+ *
+ * ModalShell puts .modal on each dialog, so everything here is scoped under
+ * it: the same class names (.btn, .field, .label …) mean other things out on
+ * the page. These used to be copied into every modal's <style>, each copy
+ * drifting a little (padding, radius, font size) from the others.
+ */
+
+.modal {
+  width: 100%;
+  max-height: min(90vh, 52rem);
+  overflow: auto;
+  border: 1px solid var(--color-border-strong, #4a4a4a);
+  border-radius: var(--radius-lg, 12px);
+  background: var(--color-bg-raised, #1a1a1a);
+  box-shadow: 0 16px 48px color-mix(in srgb, #000 45%, transparent);
+  font-family: var(--font-ui, sans-serif);
+}
+
+/* --- head / body / foot --------------------------------------------------- */
+
+/* Head and foot stay pinned while a long form scrolls, so the close and save
+   buttons are always in reach. */
+.modal .modal__head {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3, 0.75rem);
+  padding: var(--space-3, 0.75rem) var(--space-4, 1rem);
+  border-bottom: 1px solid var(--color-border, #333);
+  background: var(--color-bg-raised, #1a1a1a);
+}
+
+.modal .modal__title {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2, 0.5rem);
+  min-width: 0;
+  margin: 0;
+  font-family: var(--font-display, Georgia, serif);
+  font-size: var(--text-lg, 1.25rem);
+  color: var(--color-accent, #c9a227);
+}
+
+.modal .modal__title > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.modal .modal__head-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1, 0.25rem);
+  flex-shrink: 0;
+}
+
+.modal .modal__error {
+  margin: 0;
+  padding: var(--space-2, 0.5rem) var(--space-4, 1rem);
+  background: color-mix(in srgb, var(--color-danger, #b54a3a) 18%, transparent);
+  color: var(--color-danger, #b54a3a);
+  font-size: var(--text-sm, 0.875rem);
+}
+
+.modal .modal__form,
+.modal .modal__body {
+  display: grid;
+  gap: var(--space-3, 0.75rem);
+  padding: var(--space-4, 1rem);
+}
+
+.modal .modal__text {
+  margin: 0;
+  font-family: var(--font-body, Georgia, serif);
+  font-size: var(--text-sm, 0.875rem);
+  line-height: 1.45;
+  color: var(--color-fg, #e8e8e8);
+}
+
+/* Always the last child of a .modal__form/.modal__body: the negative margins
+   let it span the dialog edge to edge and take over the body's bottom
+   padding, so it can stick flush to the bottom of the scroll area. */
+.modal .modal__foot {
+  position: sticky;
+  bottom: 0;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3, 0.75rem);
+  margin: var(--space-1, 0.25rem) calc(-1 * var(--space-4, 1rem)) calc(-1 * var(--space-4, 1rem));
+  padding: var(--space-3, 0.75rem) var(--space-4, 1rem);
+  border-top: 1px solid var(--color-border, #333);
+  background: var(--color-bg-raised, #1a1a1a);
+}
+
+.modal .modal__foot-left,
+.modal .modal__foot-right {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2, 0.5rem);
+}
+
+.modal .modal__foot-left {
+  gap: var(--space-1, 0.25rem);
+}
+
+/* --- fields --------------------------------------------------------------- */
+
+.modal .field {
+  display: grid;
+  gap: var(--space-1, 0.25rem);
+  min-width: 0;
+}
+
+/* Two short fields side by side when there's room (questline + section). */
+.modal .field-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  gap: var(--space-3, 0.75rem);
+}
+
+.modal .label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-family: var(--font-ui, sans-serif);
+  font-size: var(--text-xs, 0.75rem);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-fg-muted, #9a9a9a);
+}
+
+.modal :is(input[type='text'], input[type='number'], input[type='date'], input[type='password'], input[type='search'], textarea, select) {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  padding: 0.45rem 0.55rem;
+  border: 1px solid var(--color-border, #333);
+  border-radius: var(--radius-md, 4px);
+  background: var(--color-bg, #121212);
+  color: var(--color-fg, #e8e8e8);
+  font: inherit;
+  font-family: var(--font-ui, sans-serif);
+  font-size: var(--text-sm, 0.875rem);
+}
+
+.modal input[type='date'] {
+  color-scheme: dark;
+}
+
+.modal :is(input, textarea, select):focus-visible {
+  outline: 1px solid var(--color-accent, #c9a227);
+  outline-offset: 1px;
+}
+
+.modal :is(input, textarea, select):disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.modal .mono {
+  font-family: var(--font-mono, monospace);
+}
+
+.modal .hint {
+  margin: 0;
+  font-size: var(--text-xs, 0.75rem);
+  line-height: 1.4;
+  color: var(--color-fg-subtle, #6e6e6e);
+}
+
+.modal .hint code {
+  font-family: var(--font-mono, monospace);
+}
+
+.modal .check {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2, 0.5rem);
+  font-size: var(--text-sm, 0.875rem);
+  color: var(--color-fg-muted, #9a9a9a);
+  cursor: pointer;
+}
+
+.modal .check input {
+  margin: 0;
+  accent-color: var(--color-accent, #c9a227);
+}
+
+/* A line of words and inline controls, read as a sentence:
+   "с шансом [15] % между [18:00] и [21:00]". */
+.modal .inline-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2, 0.5rem);
+  font-size: var(--text-sm, 0.875rem);
+  color: var(--color-fg-muted, #9a9a9a);
+}
+
+.modal .inline-line input[type='number'] {
+  width: 4.25rem;
+}
+
+/* --- buttons (sizes on top of the page-wide .btn) ------------------------ */
+
+.modal .btn {
+  height: 2rem;
+  padding: 0 0.75rem;
+  gap: 0.4rem;
+  font-family: var(--font-ui, sans-serif);
+  font-size: var(--text-sm, 0.875rem);
+}
+
+.modal .btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.modal .btn--ghost {
+  border-color: transparent;
+  background: transparent;
+  color: var(--color-fg-muted, #9a9a9a);
+}
+
+.modal .btn--ghost:hover:not(:disabled) {
+  color: var(--color-fg, #e8e8e8);
+  background: var(--color-bg-hover, #2a2a2a);
+}
+
+.modal .btn--icon {
+  width: 2rem;
+  padding: 0;
+  justify-content: center;
+}
+
+.modal .btn--danger {
+  border-color: transparent;
+  background: transparent;
+  color: color-mix(in srgb, var(--color-danger, #b54a3a) 78%, var(--color-fg, #e8e8e8));
+}
+
+.modal .btn--danger:hover:not(:disabled) {
+  color: var(--color-danger, #b54a3a);
+  background: color-mix(in srgb, var(--color-danger, #b54a3a) 10%, transparent);
+}
+
+.modal .btn--danger-solid {
+  border-color: color-mix(in srgb, var(--color-danger, #b54a3a) 55%, var(--color-border, #333));
+  background: color-mix(in srgb, var(--color-danger, #b54a3a) 18%, var(--color-bg-muted, #242424));
+  color: var(--color-danger, #b54a3a);
+}
+
+.modal .btn--danger-solid:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-danger, #b54a3a) 28%, var(--color-bg-muted, #242424));
+}
+
+.modal .btn--link {
+  height: auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-accent, #c9a227);
+  font-size: inherit;
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+}
+
+/* Phone: the secondary actions on the left drop to icons; Cancel/Save keep
+   their words. Order stays the same everywhere. */
+@media (max-width: 480px) {
+  .modal .modal__foot-left .btn {
+    width: 2rem;
+    padding: 0;
+  }
+
+  .modal .modal__foot-left .btn__text {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+  }
+}
+
+/* --- time / duration ------------------------------------------------------ */
+
+.modal .time-24,
+.modal .dur {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.modal .time-24 select {
+  width: 3.6rem;
+  padding-inline: 0.35rem;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.modal .dur input[type='number'] {
+  width: 4rem;
+}
+
+.modal .time-24__sep,
+.modal .dur__unit {
+  color: var(--color-fg-subtle, #6e6e6e);
+  font-size: var(--text-xs, 0.75rem);
+}
+
+/* --- option pills (also the TOC filters, hence not .modal-scoped) --------- */
+
+/* Layout only — per-option colour and on/off state live in
+   theme-accents.css. */
+.opt-slider {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 2px;
+  min-width: 0;
+  padding: 3px;
+  border: 1px solid var(--color-border, #333);
+  border-radius: var(--radius-lg, 12px);
+  background: var(--color-bg-muted, #242424);
+  overflow-x: auto;
+}
+
+.opt-slider--wrap {
+  flex-wrap: wrap;
+  overflow-x: visible;
+}
+
+.opt-slider--compact {
+  display: inline-flex;
+  align-self: start;
+  width: auto;
+}
+
+.opt-slider--locked {
+  opacity: 0.6;
+}
+
+.opt-slider__opt {
+  flex: 1 1 auto;
+  margin: 0;
+  padding: 0.4rem 0.6rem;
+  border: 0;
+  border-radius: calc(var(--radius-lg, 12px) - 2px);
+  font: inherit;
+  font-family: var(--font-ui, sans-serif);
+  font-size: var(--text-xs, 0.75rem);
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.opt-slider--compact .opt-slider__opt {
+  padding: 0.25rem 0.6rem;
+}
+
+.opt-slider__opt:disabled {
+  cursor: not-allowed;
+}
+
+/* Portrait: wrap into rows rather than scrolling sideways. */
+@media (orientation: portrait) {
+  .opt-slider {
+    flex-wrap: wrap;
+    overflow-x: visible;
+  }
+}
