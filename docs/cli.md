@@ -52,7 +52,7 @@ quests show 3 --json | jq .title
 | `llm-add TEXT…` | свободный текст → Cursor/Ollama → квест (`-y` без confirm) |
 | `set ID` | поля: `--title` / `-d` / `--category` / `--questline` / `--significance` (`none` снимает) |
 | `pin ID` / `unpin ID` | булавки (`pin --off`) |
-| `status ID STATUS` | `active\|delayed\|completed\|failed\|archived` |
+| `status ID STATUS` | `active\|expired\|completed\|failed\|archived` |
 | `complete ID` | → completed |
 | `fail ID` | → failed |
 | `step ID` | +1 к шагу (или `--inc N` / `--set N` / `--done`; `--step-id` / `--title`) |

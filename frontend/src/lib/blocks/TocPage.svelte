@@ -39,7 +39,7 @@
     return next
   }
 
-  let statusFilter = $state(new Set(['active', 'delayed']))
+  let statusFilter = $state(new Set(['active', 'expired']))
   let sigFilter = $state(new Set(QUEST_SIGNIFICANCES.map((s) => s.id)))
   let catTouched = $state(false)
   /** Phone only: the three filter rows sit behind a toggle (CSS keeps them always shown on wider screens). */

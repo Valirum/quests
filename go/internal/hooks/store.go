@@ -15,15 +15,15 @@ var eventAliases = map[string][]string{
 	"on_complete":      {"quest_completed"},
 	"step":             {"step_completed", "step_progress"},
 	"on_step":          {"step_completed", "step_progress"},
-	"status":           {"status_changed", "quest_completed", "quest_failed", "quest_delayed"},
-	"on_status_change": {"status_changed", "quest_completed", "quest_failed", "quest_delayed"},
+	"status":           {"status_changed", "quest_completed", "quest_failed", "quest_expired"},
+	"on_status_change": {"status_changed", "quest_completed", "quest_failed", "quest_expired"},
 	"fail":             {"quest_failed"},
 	"created":          {"quest_created"},
 	"deleted":          {"quest_deleted"},
 	"appear":           {"quest_appeared", "quest_created"},
 	"start":            {"quest_started"},
 	"window":           {"quest_started"},
-	"delay":            {"quest_delayed"},
+	"expire":           {"quest_expired"},
 }
 
 type Hook struct {

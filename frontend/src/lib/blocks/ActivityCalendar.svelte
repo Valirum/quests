@@ -315,7 +315,7 @@
         updated &&
         updated >= dayStart &&
         updated < dayEnd &&
-        (st === 'failed' || st === 'delayed' || st === 'archived')
+        (st === 'failed' || st === 'expired' || st === 'archived')
       ) {
         const sameCreate =
           created && Math.abs(created.getTime() - updated.getTime()) < 2000

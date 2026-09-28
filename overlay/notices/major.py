@@ -26,7 +26,7 @@ MAJOR_KINDS = frozenset(
         "quest_started",
         "quest_completed",
         "quest_failed",
-        "quest_delayed",
+        "quest_expired",
     }
 )
 
@@ -49,7 +49,7 @@ MAJOR_EYEBROW = {
     "quest_started": "Началось задание",
     "quest_completed": "Задание завершено",
     "quest_failed": "Задание провалено",
-    "quest_delayed": "Задание просрочено",
+    "quest_expired": "Задание просрочено",
 }
 
 
@@ -178,7 +178,7 @@ def major_eyebrow_parts(kind: str, significance: str) -> tuple[str, str, str]:
         return "Завершено ", word, " задание"
     if kind == "quest_failed":
         return "Провалено ", word, " задание"
-    if kind == "quest_delayed":
+    if kind == "quest_expired":
         return "Просрочено ", word, " задание"
     return "", MAJOR_EYEBROW.get(kind, kind), ""
 

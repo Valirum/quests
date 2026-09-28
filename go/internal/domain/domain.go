@@ -6,7 +6,7 @@ type QuestStatus string
 
 const (
 	StatusActive    QuestStatus = "active"
-	StatusDelayed   QuestStatus = "delayed"
+	StatusExpired   QuestStatus = "expired"
 	StatusCompleted QuestStatus = "completed"
 	StatusFailed    QuestStatus = "failed"
 	StatusArchived  QuestStatus = "archived"
@@ -152,7 +152,7 @@ func SyncStatusFromSteps(q *Quest, now time.Time) {
 			break
 		}
 	}
-	if allDone && (q.Status == StatusActive || q.Status == StatusDelayed || q.Status == StatusFailed) {
+	if allDone && (q.Status == StatusActive || q.Status == StatusExpired || q.Status == StatusFailed) {
 		q.Status = StatusCompleted
 	} else if !allDone && q.Status == StatusCompleted {
 		q.Status = StatusActive

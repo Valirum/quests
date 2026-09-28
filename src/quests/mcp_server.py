@@ -49,7 +49,7 @@ from quests.refs import resolve_questline_id as _shared_resolve_questline_id
 
 API_BASE = (os.environ.get("QUESTS_API") or f"http://{HOST}:{PORT}").rstrip("/")
 
-ALLOWED_STATUS = {"active", "delayed", "completed", "failed", "archived"}
+ALLOWED_STATUS = {"active", "expired", "completed", "failed", "archived"}
 
 server = MCPServer(
     "quests",
@@ -91,7 +91,7 @@ server = MCPServer(
         "To change steps on an existing quest use add_step / update_step / "
         "delete_step (do not replace the whole steps array). "
         "To change quest lifecycle or metadata use update_quest "
-        "(status: active|delayed|completed|failed|archived; pin; title; …) — "
+        "(status: active|expired|completed|failed|archived; pin; title; …) — "
         "do not curl the Quests API or dig into the Quests repo for that. "
         "Attachments: list_quests and the get_*_context tools return metadata only "
         "(filename, size, type, scan_status, comment, available, "
@@ -588,7 +588,7 @@ def list_quests(
 
 @server.tool(
     description=(
-        "Only the live work: quests with status active/delayed, each with just "
+        "Only the live work: quests with status active/expired, each with just "
         "its undone steps (done ones dropped). No completed/failed/archived "
         "quests, no finished steps — use this instead of list_quests when you "
         "just need 'what's actually pending', without wading through history. "
@@ -598,7 +598,7 @@ def list_quests(
     )
 )
 def get_active_context(questline: str | int | None = None) -> dict[str, Any]:
-    return _quests_by_status_context(("active", "delayed"), questline, all_steps=False)
+    return _quests_by_status_context(("active", "expired"), questline, all_steps=False)
 
 
 @server.tool(
@@ -1367,7 +1367,7 @@ def add_step(
 @server.tool(
     description=(
         "Update quest fields (PATCH /api/quests/{id}). Only pass fields to change. "
-        "Use for lifecycle: status=active|delayed|completed|failed|archived "
+        "Use for lifecycle: status=active|expired|completed|failed|archived "
         "(e.g. archive when blocked / needs clarification). Also title, description "
         "(markdown in the journal), "
         "pinned, significance, sort_order, deadline_at, duration_seconds, "

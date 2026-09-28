@@ -20,7 +20,7 @@
   --color-info: #2aa198;
 
   --color-status-active: var(--color-accent);
-  --color-status-delayed: var(--color-warning);
+  --color-status-expired: var(--color-warning);
   --color-status-completed: var(--color-success);
   --color-status-failed: var(--color-danger);
   --color-status-archived: var(--color-fg-subtle);

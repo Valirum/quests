@@ -449,8 +449,8 @@ func (s *Server) patchQuest(w http.ResponseWriter, r *http.Request) {
 			kind, detail, toast = "quest_completed", "завершено", true
 		case domain.StatusFailed:
 			kind, detail, toast = "quest_failed", "провалено", true
-		case domain.StatusDelayed:
-			kind, detail, toast = "quest_delayed", "просрочено", true
+		case domain.StatusExpired:
+			kind, detail, toast = "quest_expired", "просрочено", true
 		default:
 			kind, detail, toast = "status_changed", string(beforeStatus)+" → "+string(q.Status), true
 		}

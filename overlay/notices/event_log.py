@@ -24,7 +24,7 @@ LOG_KIND_LABEL = {
     "quest_started": "Началось",
     "quest_completed": "Завершено",
     "quest_failed": "Провалено",
-    "quest_delayed": "Просрочено",
+    "quest_expired": "Просрочено",
 }
 
 
@@ -57,7 +57,7 @@ def format_log_message(kind: str, detail: str = "") -> str:
         return "завершено"
     if kind == "quest_failed":
         return "провалено"
-    if kind == "quest_delayed":
+    if kind == "quest_expired":
         return "просрочено"
     if kind == "quest_deleted":
         return "удалено"

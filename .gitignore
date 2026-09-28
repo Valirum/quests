@@ -74,3 +74,6 @@ go/bin/
 
 # Claude Code preview-pane dev server config (local only)
 .claude/launch.json
+
+# Local manual backups (scripts/pull-prod-data.sh, ad-hoc tar snapshots)
+/backups/

@@ -26,7 +26,7 @@ log = logging.getLogger("quests.telegram.notify")
 NOTIFY_KINDS = {
     "quest_completed": "Выполнено",
     "quest_failed": "Провал",
-    "quest_delayed": "Просрочено",
+    "quest_expired": "Просрочено",
     "quest_started": "Задача началась",
     "quest_appeared": "Новая задача",
 }
