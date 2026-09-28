@@ -59,6 +59,8 @@ def format_log_message(kind: str, detail: str = "") -> str:
         return "провалено"
     if kind == "quest_expired":
         return "просрочено"
+    if kind == "quest_delayed_reminder":
+        return "кстати, проверь"
     if kind == "quest_deleted":
         return "удалено"
     if kind == "quest_updated":
