@@ -54,7 +54,15 @@ ALLOWED_STATUS = {"active", "delayed", "completed", "failed", "archived"}
 server = MCPServer(
     "quests",
     instructions=(
-        "Quests journal tools. Use list_questlines then list_quests to browse "
+        "Quests is a personal task/quest journal with light gamification "
+        "(significance, rewards) for one user, conversing in Russian — a web "
+        "journal, desktop GTK/Wayland HUD, Telegram bot, and Android app all "
+        "hit the same REST API this MCP server wraps. For the data model, "
+        "workflow expectations (interim reports as notes under note=12, "
+        "splitting work into real steps, closing steps only once actually "
+        "verified, cross-linking via ref tokens), and tone guidance, see "
+        "note=30 before diving into unfamiliar work here. "
+        "Use list_questlines then list_quests to browse "
         "missions; list_notes for the knowledge vault. get_base_context for one "
         "entity's own fields (quest/step/questline — accepts a pasted ref like "
         "quest=23 / step=252 / questline=3); get_note_context for a note's own "
