@@ -163,6 +163,14 @@
   let lineDeleting = $state(false)
   let deleting = $state(false)
   let deleteConfirmOpen = $state(false)
+  /** True while QuestDetail is playing its erase-before-delete animation. */
+  let deleteAnimActive = $state(false)
+  /** @type {(() => void) | null} */
+  let deleteAnimResolve = null
+  function onDeleteAnimDone() {
+    deleteAnimResolve?.()
+    deleteAnimResolve = null
+  }
   let statusBusy = $state(false)
   let pinBusyId = $state(/** @type {number | null} */ (null))
   let stepBusyId = $state(/** @type {number | null} */ (null))
@@ -659,6 +667,11 @@
     error = ''
     try {
       const id = selected.id
+      deleteAnimActive = true
+      await new Promise((resolve) => {
+        deleteAnimResolve = resolve
+      })
+      deleteAnimActive = false
       await deleteQuest(id)
       deleteConfirmOpen = false
       onDeleted(id)
@@ -667,6 +680,7 @@
       toast(error, { kind: 'error' })
     } finally {
       deleting = false
+      deleteAnimActive = false
     }
   }
 
@@ -1288,6 +1302,8 @@
         {nowMs}
         {statusBusy}
         {deleting}
+        {deleteAnimActive}
+        onDeleteAnimDone={onDeleteAnimDone}
         {stepBusyId}
         {stepEditId}
         {stepEditValue}
