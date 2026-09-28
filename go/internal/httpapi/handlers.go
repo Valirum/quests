@@ -14,6 +14,7 @@ import (
 	"github.com/valirum/quests/go/internal/domain"
 	"github.com/valirum/quests/go/internal/events"
 	"github.com/valirum/quests/go/internal/health"
+	"github.com/valirum/quests/go/internal/refs"
 	"github.com/valirum/quests/go/internal/store"
 	"github.com/valirum/quests/go/internal/timeutil"
 	"github.com/valirum/quests/go/internal/webdav"
@@ -208,7 +209,9 @@ func (s *Server) getQuest(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, domain.ToQuestRead(q, timeutil.NowUTC()))
+	out := domain.ToQuestRead(q, timeutil.NowUTC())
+	out.Refs = s.resolveRefs(r, refs.Parse(q.Title+"\n"+q.Description))
+	writeJSON(w, http.StatusOK, out)
 }
 
 func (s *Server) createQuest(w http.ResponseWriter, r *http.Request) {

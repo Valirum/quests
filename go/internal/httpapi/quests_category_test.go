@@ -3,10 +3,14 @@ package httpapi
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
 	"testing"
+
+	"github.com/valirum/quests/go/internal/domain"
+	"github.com/valirum/quests/go/internal/timeutil"
 )
 
 // TestPatchQuestCategoryFollowsQuestline covers the drift bug: manually
@@ -87,4 +91,57 @@ func questCategory(t *testing.T, h http.Handler, qid int64) int64 {
 		t.Fatalf("quest %d has no category_id", qid)
 	}
 	return *out.CategoryID
+}
+
+// TestGetQuestResolvesRefs covers the parity gap fixed alongside quest=214:
+// getQuest didn't resolve note=/attachment=/etc. mentions in its
+// description the way getNote already did for notes.
+func TestGetQuestResolvesRefs(t *testing.T) {
+	s := newAttachmentServer(t, "", "", 0)
+	h := s.Handler()
+
+	res, err := s.Store.DB.Exec(
+		`INSERT INTO note (title, description, created_at, updated_at) VALUES ('Toolkit', '', datetime('now'), datetime('now'))`,
+	)
+	if err != nil {
+		t.Fatalf("insert note: %v", err)
+	}
+	noteID, _ := res.LastInsertId()
+
+	now := timeutil.NowUTC()
+	q, err := s.Store.CreateQuest(t.Context(), domain.Quest{
+		Title:        "refs test",
+		Description:  fmt.Sprintf("see note=%d", noteID),
+		Status:       domain.StatusActive,
+		Significance: domain.SigCommon,
+		CreatedAt:    now,
+		UpdatedAt:    now,
+		Steps:        []domain.Step{{Title: "one", ProgressTotal: 1}},
+	})
+	if err != nil {
+		t.Fatalf("create quest: %v", err)
+	}
+
+	req := httptest.NewRequest("GET", fmt.Sprintf("/api/quests/%d", q.ID), nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", w.Code, w.Body.String())
+	}
+
+	var out struct {
+		Refs []map[string]any `json:"refs"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(out.Refs) != 1 {
+		t.Fatalf("refs = %+v, want exactly one resolved note ref", out.Refs)
+	}
+	if out.Refs[0]["kind"] != "note" || int64(out.Refs[0]["id"].(float64)) != noteID {
+		t.Fatalf("refs[0] = %+v, want kind=note id=%d", out.Refs[0], noteID)
+	}
+	if out.Refs[0]["title"] != "Toolkit" {
+		t.Fatalf("refs[0].title = %v, want resolved note title", out.Refs[0]["title"])
+	}
 }
