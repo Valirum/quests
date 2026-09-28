@@ -104,9 +104,7 @@ def cmd_llm_add(ns: argparse.Namespace) -> int:
 
     settings = load_llm_settings()
     if not bool(getattr(ns, "json", False)):
-        if settings.provider == "cursor":
-            print(f"Cursor ({settings.model})…", file=sys.stderr)
-        elif settings.provider == "groq":
+        if settings.provider == "groq":
             print(f"Groq ({settings.model})…", file=sys.stderr)
         else:
             print(

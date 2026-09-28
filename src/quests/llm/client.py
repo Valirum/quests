@@ -1,8 +1,7 @@
-"""Extract QuestDraft via Groq (default), Cursor Agent API, or Ollama."""
+"""Extract QuestDraft via Groq (default) or Ollama."""
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import os
@@ -40,23 +39,6 @@ def _now_context() -> tuple[str, str]:
     tz = _tz()
     now = datetime.now(tz)
     return now.strftime("%Y-%m-%d %H:%M %A"), str(tz)
-
-
-def _user_block(user_text: str, history: list[tuple[str, str]] | None) -> str:
-    parts: list[str] = []
-    for role, content in history or []:
-        if role in {"user", "assistant"} and content.strip():
-            parts.append(f"{role.upper()}: {content.strip()}")
-    parts.append(f"USER: {user_text.strip()}")
-    return "\n\n".join(parts)
-
-
-def _full_prompt(user_text: str, history: list[tuple[str, str]] | None) -> str:
-    local, tz_name = _now_context()
-    return (
-        f"{system_prompt(now_local=local, tz_name=tz_name)}\n\n"
-        f"Ввод:\n{_user_block(user_text, history)}"
-    )
 
 
 def _parse_draft(raw: str | dict[str, Any]) -> QuestDraftBundle:
@@ -97,57 +79,6 @@ def _parse_draft(raw: str | dict[str, Any]) -> QuestDraftBundle:
         return QuestDraftBundle.model_validate(data)
     except ValidationError as e:
         raise LlmError(f"черновик не прошёл валидацию: {e}") from e
-
-
-def _extract_cursor_sync(
-    user_text: str,
-    *,
-    settings: LlmSettings,
-    history: list[tuple[str, str]] | None,
-) -> QuestDraftBundle:
-    from cursor_sdk import Agent, AgentOptions, CloudAgentOptions, CursorAgentError
-
-    if not settings.api_key:
-        raise LlmError(
-            "нужен CURSOR_API_KEY или QUESTS_CURSOR_API_KEY "
-            "(Dashboard → Integrations / API Keys)"
-        )
-
-    prompt = _full_prompt(user_text, history)
-    try:
-        # Cloud, без репо — пустой workspace, только текст→JSON.
-        result = Agent.prompt(
-            prompt,
-            AgentOptions(
-                api_key=settings.api_key,
-                model=settings.model,
-                cloud=CloudAgentOptions(),
-            ),
-        )
-    except CursorAgentError as e:
-        raise LlmError(f"Cursor API: {e}") from e
-
-    status = getattr(result.status, "value", result.status)
-    if str(status) != "finished":
-        raise LlmError(
-            f"Cursor agent status={status!r} id={result.id} "
-            f"text={(result.result or '')[:200]!r}"
-        )
-
-    content = (result.result or "").strip()
-    if not content:
-        raise LlmError(f"пустой ответ Cursor agent (run={result.id})")
-    bundle = _parse_draft(content)
-    draft = bundle.primary
-    log.info(
-        "cursor draft title=%r variants=%s cat=%s clarify=%s run=%s",
-        draft.title,
-        len(bundle.variations),
-        draft.category_slug,
-        bundle.needs_clarification,
-        result.id,
-    )
-    return bundle
 
 
 def _build_ollama_messages(
@@ -290,9 +221,7 @@ def extract_quest_draft_sync(
         raise LlmError("пустой текст")
     if settings.provider == "groq":
         return _extract_groq_sync(user_text, settings=settings, history=history)
-    if settings.provider == "ollama":
-        return _extract_ollama_sync(user_text, settings=settings, history=history)
-    return _extract_cursor_sync(user_text, settings=settings, history=history)
+    return _extract_ollama_sync(user_text, settings=settings, history=history)
 
 
 async def extract_quest_draft(
@@ -302,18 +231,10 @@ async def extract_quest_draft(
     history: list[tuple[str, str]] | None = None,
     session: aiohttp.ClientSession | None = None,
 ) -> QuestDraftBundle:
-    """Async entry — Cursor runs in a worker thread; Groq/Ollama use aiohttp."""
+    """Async entry — Groq/Ollama use aiohttp."""
     settings = settings or load_llm_settings()
     if not user_text.strip():
         raise LlmError("пустой текст")
-
-    if settings.provider == "cursor":
-        return await asyncio.to_thread(
-            _extract_cursor_sync,
-            user_text,
-            settings=settings,
-            history=history,
-        )
 
     if settings.provider == "groq":
         if not settings.api_key:
