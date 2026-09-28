@@ -14,8 +14,10 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, Message
 
-from quests.stt import SttError, get_stt, load_stt_settings
-from quests.telegram.actions_preview import format_actions_preview, history_to_prompt_text
+from quests.telegram.actions_preview import (
+    format_actions_preview,
+    history_to_prompt_text,
+)
 from quests.telegram.api_client import ApiError, QuestsApi
 from quests.telegram.formatters import format_active_by_category, format_quest_card
 from quests.telegram.keyboards import (
@@ -27,14 +29,15 @@ from quests.telegram.keyboards import (
     _is_closed,
     category_pick_keyboard,
     llm_confirm_keyboard,
-    stt_confirm_keyboard,
     main_reply_keyboard,
     quest_keyboard,
     quest_pick_keyboard,
+    stt_confirm_keyboard,
 )
 from quests.telegram.resilience import tg_retry, tg_soft
 from quests.telegram.settings import TgSettings
 from quests.telegram.store import ChatRegistry
+from quests.telegram.sttclient import SttClient, SttClientError
 from quests.timeutil import to_utc_iso
 
 log = logging.getLogger("quests.telegram.handlers")
@@ -191,6 +194,7 @@ async def _on_quest_callback_error(query: CallbackQuery, e: ApiError) -> None:
 def build_router(
     *,
     api: QuestsApi,
+    stt: SttClient,
     settings: TgSettings,
     chats: ChatRegistry,
 ) -> Router:
@@ -651,7 +655,7 @@ def build_router(
         )
 
     async def _voice_to_text(message: Message, state: FSMContext) -> str | None:
-        """Download Telegram voice/audio → whisper. None on failure (already replied)."""
+        """Download Telegram voice/audio → quests-stt. None on failure (already replied)."""
         import tempfile
         from pathlib import Path
 
@@ -665,10 +669,7 @@ def build_router(
             if "." in name:
                 suffix = "." + name.rsplit(".", 1)[-1]
         wait = await tg_retry(
-            lambda: message.answer(
-                f"Слушаю (whisper · {load_stt_settings().model})…",
-                reply_markup=reply_kb,
-            ),
+            lambda: message.answer("Слушаю…", reply_markup=reply_kb),
             label="stt-wait",
         )
         tmp: Path | None = None
@@ -679,10 +680,8 @@ def build_router(
                 lambda: message.bot.download(media, destination=tmp),
                 label="voice-dl",
             )
-            text = await get_stt().transcribe_file_async(
-                tmp, settings=load_stt_settings()
-            )
-        except SttError as e:
+            text = await stt.transcribe(tmp)
+        except SttClientError as e:
             await _say(message, state, f"STT: {e}", reply_markup=reply_kb)
             return None
         except Exception as e:

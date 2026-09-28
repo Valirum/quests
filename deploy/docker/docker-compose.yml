@@ -1,4 +1,4 @@
-# Quests — Docker Compose (server: api + bot + frontend)
+# Quests — Docker Compose (server: api + bot + stt + frontend)
 #
 #   cd /path/to/Quests
 #   cp .env.example .env   # fill TG_* ; QUESTS_*_IMAGE for GHCR
@@ -77,6 +77,39 @@ services:
       - clamav-sigs:/var/lib/clamav
     # No published port: api talks to it on the compose network as clamav:3310.
 
+  # Voice-to-text sidecar (faster-whisper). Split out of bot so the
+  # ctranslate2/onnxruntime/av stack (~450MB unpacked) only rebuilds when STT
+  # itself changes. bot is network_mode: host (see below) so it can't resolve
+  # this by compose service name — reaches it via 127.0.0.1, same as api.
+  # Loopback-only publish: nothing outside this host has business calling it.
+  stt:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile
+      target: stt
+    image: ${QUESTS_STT_IMAGE:-quests-stt:local}
+    container_name: quests-stt
+    restart: unless-stopped
+    env_file:
+      - path: ../../.env
+        required: false
+    environment:
+      QUESTS_ROOT: /app
+      QUESTS_DATA_DIR: /app/data
+      # QUESTS_WHISPER_* from env_file (.env): small|medium|large — app default small
+    volumes:
+      - quests-data:/app/data
+    ports:
+      - "127.0.0.1:${QUESTS_STT_PORT:-8766}:8766"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8766/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      # Whisper model download + load on first request can take a while on a
+      # cold volume — the healthcheck should not flap the container over it.
+      start_period: 60s
+
   # host network: proxy on 127.0.0.1:12334 is reachable (bridge → host.docker.internal is not)
   bot:
     build:
@@ -90,6 +123,8 @@ services:
     depends_on:
       api:
         condition: service_healthy
+      stt:
+        condition: service_healthy
     env_file:
       - path: ../../.env
         required: false
@@ -97,10 +132,10 @@ services:
       QUESTS_ROOT: /app
       QUESTS_DATA_DIR: /app/data
       QUESTS_API: http://127.0.0.1:${QUESTS_PUBLISH_PORT:-8765}
+      QUESTS_STT: http://127.0.0.1:${QUESTS_STT_PORT:-8766}
       # Mint with: docker compose exec api quests-server token add telegram
       QUESTS_API_TOKEN: ${QUESTS_API_TOKEN:-}
       QUESTS_TG_PROXY: ${QUESTS_TG_PROXY:-http://127.0.0.1:12334}
-      # QUESTS_WHISPER_* from env_file (.env): small|medium|large — app default small
     volumes:
       - quests-data:/app/data
 

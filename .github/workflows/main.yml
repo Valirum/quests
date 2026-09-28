@@ -19,6 +19,10 @@ name: CI
         description: Force rebuild/push quests-bot
         type: boolean
         default: false
+      force_stt:
+        description: Force rebuild/push quests-stt
+        type: boolean
+        default: false
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -35,6 +39,7 @@ jobs:
       api: ${{ steps.filter.outputs.api }}
       frontend: ${{ steps.filter.outputs.frontend }}
       bot: ${{ steps.filter.outputs.bot }}
+      stt: ${{ steps.filter.outputs.stt }}
     steps:
       # depth 1 (checkout default) breaks push diffs → filters stay false,
       # so build-* only run via workflow_dispatch force_* inputs.
@@ -61,10 +66,11 @@ jobs:
               - 'deploy/docker/nginx.conf'
               - 'deploy/docker/docker-compose.yml'
             bot:
-              # Bot image runs telegram + STT/LLM draft only; shared API code is via HTTP.
+              # Bot image runs telegram + LLM draft only; STT is its own
+              # image/container now (see `stt` filter below), shared API
+              # code is via HTTP.
               - 'src/quests/telegram/**'
               - 'src/quests/llm/**'
-              - 'src/quests/stt/**'
               - 'src/quests/mcp_server.py'
               - 'src/quests/cli.py'
               - 'src/quests/config.py'
@@ -74,6 +80,16 @@ jobs:
               - 'deploy/docker/Dockerfile'
               - 'deploy/docker/docker-bake.hcl'
               - 'deploy/docker/entrypoint-bot.sh'
+            stt:
+              - 'src/quests/stt.py'
+              - 'src/quests/stt_server.py'
+              - 'src/quests/config.py'
+              - 'src/quests/envload.py'
+              - 'pyproject.toml'
+              - 'uv.lock'
+              - 'deploy/docker/Dockerfile'
+              - 'deploy/docker/docker-bake.hcl'
+              - 'deploy/docker/entrypoint-stt.sh'
 
   test:
     runs-on: ubuntu-latest
@@ -111,7 +127,8 @@ jobs:
         needs.changes.outputs.api == 'true' ||
         needs.changes.outputs.frontend == 'true' ||
         needs.changes.outputs.bot == 'true' ||
-        (github.event_name == 'workflow_dispatch' && (inputs.force_api || inputs.force_bot))
+        needs.changes.outputs.stt == 'true' ||
+        (github.event_name == 'workflow_dispatch' && (inputs.force_api || inputs.force_bot || inputs.force_stt))
       )
     runs-on: ubuntu-latest
     permissions:
@@ -127,10 +144,12 @@ jobs:
           owner="${GITHUB_REPOSITORY_OWNER,,}"
           echo "API_IMAGE=ghcr.io/${owner}/quests-api" >> "$GITHUB_ENV"
           echo "BOT_IMAGE=ghcr.io/${owner}/quests-bot" >> "$GITHUB_ENV"
+          echo "STT_IMAGE=ghcr.io/${owner}/quests-stt" >> "$GITHUB_ENV"
 
           targets=()
           want_api=false
           want_bot=false
+          want_stt=false
           if [ "${{ needs.changes.outputs.api }}" = "true" ] \
             || [ "${{ needs.changes.outputs.frontend }}" = "true" ] \
             || { [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.force_api }}" = "true" ]; }; then
@@ -140,9 +159,14 @@ jobs:
             || { [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.force_bot }}" = "true" ]; }; then
             want_bot=true
           fi
+          if [ "${{ needs.changes.outputs.stt }}" = "true" ] \
+            || { [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.force_stt }}" = "true" ]; }; then
+            want_stt=true
+          fi
 
           $want_api && targets+=(api)
           $want_bot && targets+=(bot)
+          $want_stt && targets+=(stt)
           if [ ${#targets[@]} -eq 0 ]; then
             echo "No bake targets resolved" >&2
             exit 1
@@ -169,6 +193,7 @@ jobs:
           vars: |
             API_IMAGE=${{ env.API_IMAGE }}
             BOT_IMAGE=${{ env.BOT_IMAGE }}
+            STT_IMAGE=${{ env.STT_IMAGE }}
             TAG=${{ github.sha }}
           set: |
             *.cache-from=type=gha,scope=quests
