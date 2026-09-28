@@ -23,6 +23,7 @@ STATUSES = (
     ("completed", "✓ Выполнено"),
     ("failed", "✗ Провал"),
     ("expired", "⏳ Просрочено"),
+    ("delayed", "⏸ Отложено"),
     ("active", "▶ Активно"),
 )
 
@@ -166,29 +167,18 @@ def quest_keyboard(
     steps = list(quest.get("steps") or [])
     page = _clamp_page(page, len(steps))
 
-    rows: list[list[InlineKeyboardButton]] = [
-        *copy_rows,
-        [
-            InlineKeyboardButton(
-                text=STATUSES[0][1],
-                callback_data=f"qs:{qid}:{STATUSES[0][0]}",
-            ),
-            InlineKeyboardButton(
-                text=STATUSES[1][1],
-                callback_data=f"qs:{qid}:{STATUSES[1][0]}",
-            ),
-        ],
-        [
-            InlineKeyboardButton(
-                text=STATUSES[2][1],
-                callback_data=f"qs:{qid}:{STATUSES[2][0]}",
-            ),
-            InlineKeyboardButton(
-                text=STATUSES[3][1],
-                callback_data=f"qs:{qid}:{STATUSES[3][0]}",
-            ),
-        ],
-    ]
+    rows: list[list[InlineKeyboardButton]] = [*copy_rows]
+    for i in range(0, len(STATUSES), 2):
+        pair = STATUSES[i : i + 2]
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text=label,
+                    callback_data=f"qs:{qid}:{status}",
+                )
+                for status, label in pair
+            ]
+        )
 
     if steps:
         start = page * STEPS_PER_PAGE

@@ -101,7 +101,7 @@ def split_hud_quests(
     slug = (category_slug or "").strip().lower() or None
 
     for q in items:
-        if q.get("status") in {"completed", "failed", "archived"}:
+        if q.get("status") in {"completed", "failed", "archived", "delayed"}:
             continue
         steps = _open_steps(q)
         if not steps:
@@ -113,7 +113,7 @@ def split_hud_quests(
                 taken.add(entry.quest_id)
 
     for q in items:
-        if q.get("status") in {"completed", "failed", "archived"}:
+        if q.get("status") in {"completed", "failed", "archived", "delayed"}:
             continue
         qid = q.get("id")
         if qid is not None and int(qid) in taken:

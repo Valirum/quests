@@ -88,6 +88,7 @@ export function toastDone(id, message, kind = 'success') {
 const STATUS_RU = {
   active: 'активен',
   expired: 'просрочен',
+  delayed: 'отложен',
   completed: 'выполнен',
   failed: 'провален',
   archived: 'в архиве',

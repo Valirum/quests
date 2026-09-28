@@ -23,7 +23,7 @@ var actionKinds = []string{
 	"update_quest",
 }
 
-var statusValues = []string{"active", "expired", "completed", "failed", "archived"}
+var statusValues = []string{"active", "expired", "delayed", "completed", "failed", "archived"}
 
 // CategoryHint is a live journal category for the system prompt appendix.
 type CategoryHint struct {
@@ -255,7 +255,7 @@ func SystemPrompt(pc PromptContext) string {
 	b.WriteString("Верни ОДИН JSON-объект по схеме, без пояснений вне JSON. Поля, не нужные ")
 	b.WriteString("для конкретного action, оставляй null (clear_questline=false по ")
 	b.WriteString("умолчанию, steps=null кроме create_quest с явными шагами).\n")
-	b.WriteString("status один из: active, expired, completed, failed, archived.\n")
+	b.WriteString("status один из: active, expired, delayed, completed, failed, archived.\n")
 	b.WriteString("deadline_at — ISO-8601 в локальном времени пользователя или с offset; ")
 	b.WriteString("считай относительно «сейчас» ниже (не UTC, если пользователь не сказал GMT).\n")
 	b.WriteString("needs_clarification=true (actions=[]) только если запрос реально ")

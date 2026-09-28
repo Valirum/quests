@@ -59,6 +59,9 @@
 .opt-slider__opt--status[data-status='expired'] {
   --opt-color: var(--color-status-expired);
 }
+.opt-slider__opt--status[data-status='delayed'] {
+  --opt-color: var(--color-status-delayed);
+}
 .opt-slider__opt--status[data-status='completed'] {
   --opt-color: var(--color-status-completed);
 }

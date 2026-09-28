@@ -10,6 +10,7 @@ from quests.timeutil import ensure_utc, format_remaining
 STATUS_RU = {
     "active": "активно",
     "expired": "просрочено",
+    "delayed": "отложено",
     "completed": "выполнено",
     "failed": "провал",
     "archived": "архив",
