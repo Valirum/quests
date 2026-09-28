@@ -116,11 +116,24 @@
 
   let searchActive = $derived(search.trim().length > 0)
 
+  /** Grouping key for the tree: the open note's own live `parentId` field
+   * (even before it's written into noteDrafts — that only happens once the
+   * whole form differs from `saved`), else its draft if one exists, else the
+   * server's own `parent_id`. Lets picking a new parent move the row in the
+   * sidebar immediately — parentMenuItems already excludes self/descendants,
+   * so this can't introduce a cycle. */
+  function parentKeyOf(n) {
+    if (n.id === selectedId) return parentId === '' ? 'root' : parentId
+    const draft = noteDrafts[String(n.id)]
+    if (draft) return draft.parentId === '' ? 'root' : draft.parentId
+    return n.parent_id == null ? 'root' : String(n.parent_id)
+  }
+
   let byParent = $derived.by(() => {
     /** @type {Map<string, any[]>} */
     const m = new Map()
     for (const n of filtered) {
-      const key = n.parent_id == null ? 'root' : String(n.parent_id)
+      const key = parentKeyOf(n)
       if (!m.has(key)) m.set(key, [])
       m.get(key).push(n)
     }
