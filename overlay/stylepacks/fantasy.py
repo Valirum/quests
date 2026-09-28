@@ -438,7 +438,7 @@ button.hud-drag:selected {{
   color: rgba(251, 73, 52, 0.95);
 }}
 
-.major--quest_delayed .major__eyebrow:not(.major__significance) {{
+.major--quest_expired .major__eyebrow:not(.major__significance) {{
   color: rgba(251, 73, 52, 0.95);
 }}
 
@@ -512,7 +512,7 @@ button.hud-drag:selected {{
   color: rgba(251, 73, 52, 0.9);
 }}
 
-.minor--quest_delayed .minor__change {{
+.minor--quest_expired .minor__change {{
   color: rgba(254, 128, 25, 0.95);
 }}
 
@@ -585,7 +585,7 @@ button.hud-drag:selected {{
   color: rgba(251, 73, 52, 0.9);
 }}
 
-.minor-log__msg--quest_delayed {{
+.minor-log__msg--quest_expired {{
   color: rgba(254, 128, 25, 0.95);
 }}
 

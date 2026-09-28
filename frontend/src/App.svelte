@@ -169,7 +169,7 @@
   let stepModalStep = $state(/** @type {any | null} */ (null))
   /** Prefer this id across in-flight load() (URL / HUD focus). */
   let pendingSelectId = $state(/** @type {number | null} */ (null))
-  /** When false — only active/delayed; when true — all statuses. */
+  /** When false — only active/expired; when true — all statuses. */
   let showAllQuests = $state(false)
   /** Sidebar scope narrowing: null = all, else a category, optionally further narrowed to one of its questlines. */
   let scopeCategoryId = $state(/** @type {number | null} */ (null))

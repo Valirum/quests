@@ -8,7 +8,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const expectedAlembic = "2aa2bb8ef734"
+const expectedAlembic = "580461765b15"
 
 func Open(path string) (*sql.DB, error) {
 	if err := os.MkdirAll(dirOf(path), 0o755); err != nil {

@@ -17,10 +17,10 @@ def utcnow() -> datetime:
 
 
 class QuestStatus(str, Enum):
-    """Lifecycle status. Extensible later (delayed = real-life slip, not fail)."""
+    """Lifecycle status. Extensible later (expired = real-life slip, not fail)."""
 
     active = "active"
-    delayed = "delayed"
+    expired = "expired"
     completed = "completed"
     failed = "failed"
     archived = "archived"

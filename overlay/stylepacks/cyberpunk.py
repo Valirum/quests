@@ -504,7 +504,7 @@ button.hud-drag:selected {{
   color: {RED_HOT};
 }}
 
-.major--quest_delayed .major__eyebrow:not(.major__significance) {{
+.major--quest_expired .major__eyebrow:not(.major__significance) {{
   color: {RED_HOT};
 }}
 
@@ -594,7 +594,7 @@ button.hud-drag:selected {{
   color: {RED_HOT};
 }}
 
-.minor--quest_delayed .minor__change {{
+.minor--quest_expired .minor__change {{
   color: {YELLOW};
 }}
 
@@ -668,7 +668,7 @@ button.hud-drag:selected {{
   color: {RED_HOT};
 }}
 
-.minor-log__msg--quest_delayed {{
+.minor-log__msg--quest_expired {{
   color: {YELLOW};
 }}
 

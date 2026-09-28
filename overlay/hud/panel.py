@@ -62,7 +62,7 @@ def _with_timer(quest: dict, steps: list[HudStep]) -> HudQuest:
     deadline = quest.get("deadline_at")
     duration = quest.get("duration_seconds")
     status = str(quest.get("status") or "")
-    overdue = status == "delayed"
+    overdue = status == "expired"
     if deadline:
         rem = remaining_seconds(deadline)
         if rem is not None and int(rem) <= 0:
@@ -93,7 +93,7 @@ def split_hud_quests(
     *,
     category_slug: str | None = None,
 ) -> tuple[list[HudQuest], list[HudQuest], list[HudQuest]]:
-    """Pinned → urgent → category (active/delayed). Earlier lanes win on overlap."""
+    """Pinned → urgent → category (active/expired). Earlier lanes win on overlap."""
     favorites: list[HudQuest] = []
     urgent: list[HudQuest] = []
     category: list[HudQuest] = []
@@ -125,8 +125,8 @@ def split_hud_quests(
         if urgent_flag is None:
             urgent_flag = is_urgent(q.get("deadline_at"), q.get("duration_seconds"))
         status = str(q.get("status") or "")
-        # Overdue / delayed: same HUD lane as near-deadline (API may lag expire).
-        if status == "delayed":
+        # Overdue / expired: same HUD lane as near-deadline (API may lag expire).
+        if status == "expired":
             urgent_flag = True
         else:
             rem = remaining_seconds(q.get("deadline_at"))
@@ -142,7 +142,7 @@ def split_hud_quests(
     if slug:
         for q in items:
             status = str(q.get("status") or "")
-            if status not in {"active", "delayed"}:
+            if status not in {"active", "expired"}:
                 continue
             qid = q.get("id")
             if qid is not None and int(qid) in taken:

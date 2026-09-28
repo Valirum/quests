@@ -16,7 +16,7 @@ CUE_FOLDERS = {
     "quest_started": "quest_appeared",
     "quest_completed": "quest_completed",
     "quest_failed": "quest_failed",
-    "quest_delayed": "quest_delayed",
+    "quest_expired": "quest_expired",
     "step_completed": "step_completed",
     "step_progress": "step_progress",
     "status_changed": "status_changed",
@@ -31,7 +31,7 @@ MAJOR_CUES = frozenset(
         "quest_started",
         "quest_completed",
         "quest_failed",
-        "quest_delayed",
+        "quest_expired",
     }
 )
 
@@ -50,7 +50,7 @@ class SoundBus:
             "quest_appeared",
             "quest_completed",
             "quest_failed",
-            "quest_delayed",
+            "quest_expired",
         }:
             return
 

@@ -332,7 +332,7 @@ export const WEEKDAY_LABELS = [
 
 export const QUEST_STATUSES = [
   'active',
-  'delayed',
+  'expired',
   'completed',
   'failed',
   'archived',
@@ -341,7 +341,7 @@ export const QUEST_STATUSES = [
 /** @type {Record<string, string>} */
 export const QUEST_STATUS_LABELS = {
   active: 'активен',
-  delayed: 'отложен',
+  expired: 'просрочен',
   completed: 'выполнен',
   failed: 'провален',
   archived: 'архив',

@@ -217,7 +217,7 @@ func (s *Store) templateStats(ctx context.Context, templateID int64, now time.Ti
 		switch status {
 		case "completed":
 			outcome = "completed"
-		case "failed", "delayed", "archived":
+		case "failed", "expired", "archived":
 			outcome = "miss"
 		default:
 			if deadline.Valid {

@@ -65,7 +65,7 @@ type StepRead struct {
 func ToQuestRead(q Quest, now time.Time) QuestRead {
 	done, total, label := ProgressLabel(q.Steps)
 	rem := remaining(q.DeadlineAt, now)
-	overdue := q.Status == StatusDelayed || (rem != nil && *rem <= 0)
+	overdue := q.Status == StatusExpired || (rem != nil && *rem <= 0)
 	var tone *string
 	urgent := false
 	if overdue {

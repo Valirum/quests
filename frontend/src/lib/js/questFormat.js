@@ -1,7 +1,7 @@
 import { QUEST_SIGNIFICANCES } from './api.js'
 import { formatRemaining, remainingFromDeadline, timerTone } from './time.js'
 
-export const OPEN_STATUSES = new Set(['active', 'delayed'])
+export const OPEN_STATUSES = new Set(['active', 'expired'])
 
 export function isQuestInactive(q) {
   return !OPEN_STATUSES.has(q?.status)

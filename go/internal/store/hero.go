@@ -18,7 +18,7 @@ const (
 	xpOnComplete    = 20
 	momentumOnComplete = 12
 	momentumOnFail     = -20
-	momentumOnDelayed  = -2
+	momentumOnExpired  = -2
 	attrProgressPool   = 10
 )
 
@@ -179,8 +179,8 @@ func (s *Store) ApplyQuestStatusRewards(ctx context.Context, q domain.Quest, new
 		reason = "quest_completed"
 	case domain.StatusFailed:
 		reason = "quest_failed"
-	case domain.StatusDelayed:
-		reason = "quest_delayed"
+	case domain.StatusExpired:
+		reason = "quest_expired"
 	default:
 		return nil
 	}
@@ -233,8 +233,8 @@ func (s *Store) ApplyQuestStatusRewards(ctx context.Context, q domain.Quest, new
 			INSERT INTO metricledger (at, kind, attr_id, delta, balance_after, quest_id, reason, flavor)
 			VALUES (?, 'momentum', NULL, ?, ?, ?, ?, ?)`,
 			timeutil.ToDBUTC(now), dm, mom, q.ID, reason, "Импульс "+itoa(dm)+" · провал: "+title)
-	case domain.StatusDelayed:
-		dm := momentumOnDelayed
+	case domain.StatusExpired:
+		dm := momentumOnExpired
 		mom = clampMom(mom + dm)
 		_, _ = s.DB.ExecContext(ctx, `UPDATE herosheet SET momentum=?, momentum_updated_at=?, updated_at=? WHERE id=1`,
 			mom, timeutil.ToDBUTC(now), timeutil.ToDBUTC(now))

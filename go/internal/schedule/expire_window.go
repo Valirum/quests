@@ -9,7 +9,7 @@ import (
 	"github.com/valirum/quests/go/internal/timeutil"
 )
 
-// ExpireOverdue marks active quests past deadline as delayed and publishes events.
+// ExpireOverdue marks active quests past deadline as expired and publishes events.
 func ExpireOverdue(ctx context.Context, st *store.Store, hub *events.Hub) ([]int64, error) {
 	now := timeutil.NowUTC()
 	nowDB := timeutil.ToDBUTC(now)
@@ -17,7 +17,7 @@ func ExpireOverdue(ctx context.Context, st *store.Store, hub *events.Hub) ([]int
 		SELECT id FROM quest
 		WHERE status = 'active' AND deadline_at IS NOT NULL AND deadline_at <= ?
 			-- duration=0/NULL means "no window": deadline is informational only,
-			-- don't auto-flip the quest to delayed just because it passed.
+			-- don't auto-flip the quest to expired just because it passed.
 			AND duration_seconds IS NOT NULL AND duration_seconds > 0
 		ORDER BY id`, nowDB)
 	if err != nil {
@@ -40,7 +40,7 @@ func ExpireOverdue(ctx context.Context, st *store.Store, hub *events.Hub) ([]int
 		return nil, nil
 	}
 
-	delayed := make([]int64, 0, len(ids))
+	expired := make([]int64, 0, len(ids))
 	for _, id := range ids {
 		q, err := st.GetQuest(ctx, id)
 		if err != nil {
@@ -49,15 +49,15 @@ func ExpireOverdue(ctx context.Context, st *store.Store, hub *events.Hub) ([]int
 		if q.Status != domain.StatusActive {
 			continue
 		}
-		q.Status = domain.StatusDelayed
+		q.Status = domain.StatusExpired
 		q.UpdatedAt = now
-		updated, err := st.UpdateQuest(ctx, q, "quest_delayed", "просрочено")
+		updated, err := st.UpdateQuest(ctx, q, "quest_expired", "просрочено")
 		if err != nil {
-			return delayed, err
+			return expired, err
 		}
-		_ = st.ApplyQuestStatusRewards(ctx, updated, domain.StatusDelayed)
+		_ = st.ApplyQuestStatusRewards(ctx, updated, domain.StatusExpired)
 		qid := updated.ID
-		hub.Publish("quest_delayed", events.PublishOpts{
+		hub.Publish("quest_expired", events.PublishOpts{
 			QuestID:      &qid,
 			Title:        updated.Title,
 			Description:  updated.Description,
@@ -67,9 +67,9 @@ func ExpireOverdue(ctx context.Context, st *store.Store, hub *events.Hub) ([]int
 			Significance: string(updated.Significance),
 			Automated:    updated.Automated,
 		})
-		delayed = append(delayed, qid)
+		expired = append(expired, qid)
 	}
-	return delayed, nil
+	return expired, nil
 }
 
 // WindowNotifier fires quest_started once when the urgent window opens.
