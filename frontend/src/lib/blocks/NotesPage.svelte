@@ -772,27 +772,25 @@
     return true
   }
 
-  /** @param {number} id @param {number | null} newParentId */
-  async function moveNoteTo(id, newParentId) {
+  /** Stage a reparent from a tree drag — like picking a new parent from the
+   * breadcrumb picker, this only touches the local draft/form; nothing is
+   * sent to the server until the note is explicitly saved.
+   * @param {number} id @param {number | null} newParentId */
+  function moveNoteTo(id, newParentId) {
     const n = noteById(id)
     if (!n) return
-    if ((n.parent_id ?? null) === newParentId) return
-    error = ''
-    try {
-      const savedRow = await updateNote(id, { parent_id: newParentId })
-      const pid = newParentId == null ? '' : String(newParentId)
-      if (id === selectedId) {
-        saved = { ...saved, parentId: pid }
-        parentId = pid
-        detail = savedRow
-        const draft = getNoteDraft(id)
-        if (draft) putNoteDraft(id, { ...draft, parentId: pid })
-      }
-      onChanged()
-    } catch (e) {
-      error = e.message || String(e)
-      toast(error, { kind: 'error' })
+    const pid = newParentId == null ? '' : String(newParentId)
+    if (id === selectedId) {
+      parentId = pid
+      return
     }
+    const draft = getNoteDraft(id) || fromRow(n)
+    if (draft.parentId === pid) return
+    const next = { ...draft, parentId: pid }
+    // Dragging it back to its own saved parent should drop the draft
+    // entirely, not leave a no-op "unsaved" marker on the row.
+    if (draftsEqual(next, fromRow(n))) clearNoteDraft(id)
+    else putNoteDraft(id, next)
   }
 
   function onRowDragStart(event, id) {
