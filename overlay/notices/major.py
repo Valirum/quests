@@ -94,10 +94,16 @@ def _cap_wrap_label(
             lbl.set_natural_wrap_mode(Gtk.NaturalWrapMode.WORD)
         except Exception:
             pass
-    # Character cap as a second brake (avg glyph ≈ width/14; coarse).
-    avg = max(8, width_px // 14)
+    # max_width_chars(1) is a deliberate near-zero value, NOT a real cap —
+    # it tells GTK "don't trust this label's own natural width", so it falls
+    # back to whatever width the *card* (hard-capped via set_size_request in
+    # _show) actually allocates it. A previous version tried to convert
+    # width_px into a character count assuming ~14px/glyph; that broke for
+    # the 44pt legendary title (real glyphs ~3x wider), so the label kept
+    # rendering at full natural width regardless of width_px. Letting the
+    # container own the real constraint avoids guessing glyph width at all.
     try:
-        lbl.set_max_width_chars(avg)
+        lbl.set_max_width_chars(1)
     except Exception:
         pass
     if max_lines > 0:
@@ -234,6 +240,12 @@ class MajorHost:
         card.set_hexpand(False)
         card.set_opacity(0.0)
         wrap_w = _toast_wrap_width(self._window)
+        # The real width cap: GTK CSS has no max-width property (confirmed by
+        # the "No property named max-width" theme-parser warning the old CSS
+        # block below always triggered — it was a silent no-op), so the
+        # container's own size_request is what actually bounds it. Labels
+        # inside defer to this via max_width_chars(1) in _cap_wrap_label.
+        card.set_size_request(wrap_w, -1)
         # Card CSS padding is ~48px each side in style packs.
         content_w = max(360, wrap_w - 96)
 
