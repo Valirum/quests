@@ -86,3 +86,5 @@ jobs:
           name: Quests HUD ${{ steps.version.outputs.name }} (build ${{ github.run_number }})
           files: android/dist/*.apk
           generate_release_notes: true
+
+# ci: rebuild hook 2026-09-28T13:00Z
