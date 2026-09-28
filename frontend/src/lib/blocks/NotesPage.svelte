@@ -566,7 +566,7 @@
   }
 
   function isTreeOpen(id) {
-    return treeOpen[String(id)] !== false
+    return treeOpen[String(id)] === true
   }
 
   /** @param {MouseEvent} event */
@@ -574,7 +574,7 @@
     event.stopPropagation()
     event.preventDefault()
     const key = String(id)
-    treeOpen = { ...treeOpen, [key]: treeOpen[key] === false }
+    treeOpen = { ...treeOpen, [key]: treeOpen[key] !== true }
   }
 
   function showChildren(id) {
