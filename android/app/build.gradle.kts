@@ -3,6 +3,21 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
+// Release signing: CI decodes QUESTS_RELEASE_KEYSTORE_B64 to this path and
+// supplies the passwords as env vars (see .github/workflows/android.yml).
+// Locally unset → release builds fall back to unsigned (fine for manual
+// `assembleRelease` testing; installDebug/adb still use the debug key).
+val releaseKeystorePath = System.getenv("QUESTS_RELEASE_KEYSTORE_PATH")
+val releaseKeystorePassword = System.getenv("QUESTS_RELEASE_KEYSTORE_PASSWORD")
+val releaseKeyAlias = System.getenv("QUESTS_RELEASE_KEY_ALIAS")
+val releaseKeyPassword = System.getenv("QUESTS_RELEASE_KEY_PASSWORD")
+val hasReleaseSigning = !releaseKeystorePath.isNullOrBlank()
+
+// versionCode must strictly increase between installed updates — CI passes
+// -PqcVersionCode=<run number> so nobody has to remember to bump it by hand.
+// versionName stays a manually-maintained human string below.
+val ciVersionCode = (project.findProperty("qcVersionCode") as String?)?.toIntOrNull()
+
 android {
     namespace = "com.quests.hud"
     compileSdk = 34
@@ -11,13 +26,27 @@ android {
         applicationId = "com.quests.hud"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
+        versionCode = ciVersionCode ?: 1
         versionName = "0.1"
+    }
+
+    signingConfigs {
+        if (hasReleaseSigning) {
+            create("release") {
+                storeFile = file(releaseKeystorePath!!)
+                storePassword = releaseKeystorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+            }
+        }
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
+            if (hasReleaseSigning) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
 
