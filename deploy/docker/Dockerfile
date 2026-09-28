@@ -89,4 +89,4 @@ VOLUME ["/app/data"]
 ENTRYPOINT ["/entrypoint.sh"]
 CMD ["quests-stt"]
 
-# ci: rebuild hook 2026-09-21T15:39Z
+# ci: rebuild hook 2026-09-28T11:58Z
