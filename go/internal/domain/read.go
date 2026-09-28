@@ -39,6 +39,10 @@ type QuestRead struct {
 	RemainingSeconds *int         `json:"remaining_seconds"`
 	TimerTone        *string      `json:"timer_tone"`
 	Urgent           bool         `json:"urgent"`
+	// Refs is populated only for a single-quest fetch (see Server.getQuest) —
+	// resolving note=N/attachment=N/... mentions for every row in a list
+	// response would be an N+1 query fan-out nobody needs there.
+	Refs []map[string]any `json:"refs,omitempty"`
 }
 
 type StepRead struct {

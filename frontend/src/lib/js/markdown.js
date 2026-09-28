@@ -178,8 +178,7 @@ function linkifyRefs(source, opts = {}) {
   const withMdLinks = splitCode(source)
     .map((part, i) => {
       if (i % 2 === 1) return part
-      let chunk = part.replace(/\]\(attachment:(\d+)\)/g, (_, id) => `](?attachment=${id})`)
-      chunk = chunk.replace(REF_RE, (full, kind, id) => {
+      const chunk = part.replace(REF_RE, (full, kind, id) => {
         const label = labels[`${kind}:${id}`] || full
         return `[${label}](${refHref(kind, id)})`
       })

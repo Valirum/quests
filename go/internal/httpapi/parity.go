@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/valirum/quests/go/internal/domain"
+	"github.com/valirum/quests/go/internal/refs"
 	"github.com/valirum/quests/go/internal/schedule"
 	"github.com/valirum/quests/go/internal/store"
 	"github.com/valirum/quests/go/internal/timeutil"
@@ -63,6 +64,9 @@ func (s *Server) getQuestline(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
+	title, _ := row["title"].(string)
+	desc, _ := row["description"].(string)
+	row["refs"] = s.resolveRefs(r, refs.Parse(title+"\n"+desc))
 	writeJSON(w, 200, row)
 }
 
