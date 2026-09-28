@@ -87,7 +87,11 @@ server = MCPServer(
         "Attachments: list_quests and the get_*_context tools return metadata only "
         "(filename, size, type, scan_status, comment, available, "
         "source_updated) — never file bytes. Use get_attachment when you "
-        "actually need the contents of one file. "
+        "actually need the contents of one file. Use upload_attachment to add "
+        "a local file to a quest/questline/note as a real attachment — this is "
+        "the only supported way to attach files from here; it needs the "
+        "API's WebDAV storage and ClamAV scanning configured server-side, and "
+        "fails otherwise. "
         "If you're blocked on the user's input and they may not be watching this "
         "conversation, use ping_user — it's the only tool guaranteed to interrupt "
         "them via the overlay HUD."
@@ -174,8 +178,14 @@ def _api_get(path: str, query: dict[str, Any] | None = None) -> Any:
     return _api("GET", path, query=query)
 
 
-def _api_upload_file(path: str, file_path: str, *, field: str = "file") -> Any:
-    """POST a local file as multipart/form-data (icon uploads etc.)."""
+def _api_upload_file(
+    path: str,
+    file_path: str,
+    *,
+    field: str = "file",
+    extra_fields: dict[str, str] | None = None,
+) -> Any:
+    """POST a local file as multipart/form-data (icon uploads, attachments, ...)."""
     try:
         with open(file_path, "rb") as fh:
             raw = fh.read()
@@ -184,11 +194,21 @@ def _api_upload_file(path: str, file_path: str, *, field: str = "file") -> Any:
     filename = os.path.basename(file_path)
     content_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
     boundary = uuid.uuid4().hex
-    body = (
+    parts = bytearray()
+    for name, value in (extra_fields or {}).items():
+        if value is None:
+            continue
+        parts += (
+            f"--{boundary}\r\n"
+            f'Content-Disposition: form-data; name="{name}"\r\n\r\n'
+            f"{value}\r\n"
+        ).encode("utf-8")
+    parts += (
         f"--{boundary}\r\n"
         f'Content-Disposition: form-data; name="{field}"; filename="{filename}"\r\n'
         f"Content-Type: {content_type}\r\n\r\n"
     ).encode("utf-8") + raw + f"\r\n--{boundary}--\r\n".encode("utf-8")
+    body = bytes(parts)
     url = f"{API_BASE}{path}"
     headers = {
         "Accept": "application/json",
@@ -1568,6 +1588,41 @@ def set_icon(
     kind, owner_id = chosen[0]
     seg = {"questline": "questlines", "note": "notes"}[kind]
     return _api_upload_file(f"/api/{seg}/{owner_id}/icon", file_path)
+
+
+@server.tool(
+    description=(
+        "Upload a local file as an attachment (POST /api/{quests|questlines|"
+        "notes}/{id}/attachments) on a quest, questline, or note. Pass a "
+        "local file_path (this reads from the filesystem where the MCP "
+        "server runs, not from the conversation) plus exactly one of quest / "
+        "questline / note, and an optional comment. Requires the API's "
+        "WebDAV storage and ClamAV scanning to be configured server-side; "
+        "the file is rejected if it fails the virus scan. Use get_attachment "
+        "to read a file back afterward."
+    )
+)
+def upload_attachment(
+    file_path: str,
+    quest: int | None = None,
+    questline: int | None = None,
+    note: int | None = None,
+    comment: str | None = None,
+) -> dict[str, Any]:
+    chosen = [
+        (k, v)
+        for k, v in (("quest", quest), ("questline", questline), ("note", note))
+        if v is not None
+    ]
+    if len(chosen) != 1:
+        raise ValueError("provide exactly one of: quest, questline, note")
+    kind, owner_id = chosen[0]
+    seg = {"quest": "quests", "questline": "questlines", "note": "notes"}[kind]
+    return _api_upload_file(
+        f"/api/{seg}/{owner_id}/attachments",
+        file_path,
+        extra_fields={"comment": comment} if comment else None,
+    )
 
 
 @server.tool(
