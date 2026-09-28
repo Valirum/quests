@@ -35,10 +35,13 @@ export function questTimer(q, nowMs) {
   if (q.status === 'completed' || q.status === 'failed') return null
   const rem = remainingFromDeadline(q.deadline_at, nowMs)
   if (rem == null || rem <= 0) return null
-  const tone = q.timer_tone || timerTone(rem, q.duration_seconds) || 'red'
+  // No duration ⇒ no window to measure urgency against — stay neutral
+  // (untoned) rather than defaulting to "red", which read as false urgency.
+  // duration_seconds === 0 is an explicit "no window" state (see
+  // QuestModal.svelte), same as null/undefined here.
+  const tone = q.timer_tone || timerTone(rem, q.duration_seconds) || null
   const remLabel = formatRemaining(rem)
-  const durLabel =
-    q.duration_seconds != null ? formatRemaining(q.duration_seconds) : null
+  const durLabel = q.duration_seconds ? formatRemaining(q.duration_seconds) : null
   return {
     rem,
     label: remLabel,
