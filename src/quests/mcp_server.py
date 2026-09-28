@@ -270,13 +270,17 @@ def _tool_query(*, quiet: bool) -> dict[str, str]:
 
 
 def _parse_ref(ref: str) -> tuple[str, int]:
+    # Kinds the frontend and Go backend already parse out of description text
+    # (frontend/src/lib/js/refs.js REF_RE, go/internal/refs/refs.go TokenRe) —
+    # "attachment" was missing here, so ref="attachment=N" pasted straight
+    # from a description raised "bad ref" instead of the guided error below.
     text = (ref or "").strip()
-    for kind in ("questline", "quest", "step", "note"):
+    for kind in ("questline", "quest", "step", "note", "attachment"):
         prefix = f"{kind}="
         if text.startswith(prefix):
             return kind, int(text[len(prefix) :].strip())
     raise ValueError(
-        f"bad ref {ref!r}; expected quest=N, step=N, questline=N, or note=N"
+        f"bad ref {ref!r}; expected quest=N, step=N, questline=N, note=N, or attachment=N"
     )
 
 
@@ -381,7 +385,8 @@ def get_note_context(note_id: int) -> dict[str, Any]:
         "description, steps, attachments, and a brief questline (if any). For "
         "a step: its description/progress and a brief owning quest. Pass "
         "exactly one of ref / quest / step / questline (notes aren't "
-        "supported here — use get_note_context for those)."
+        "supported here — use get_note_context for those; attachments "
+        "aren't either — use get_attachment)."
     )
 )
 def get_base_context(
@@ -394,6 +399,11 @@ def get_base_context(
         kind, eid = _parse_ref(ref)
         if kind == "note":
             raise ValueError("get_base_context does not support notes; use get_note_context")
+        if kind == "attachment":
+            raise ValueError(
+                "get_base_context does not support attachments; use get_attachment "
+                "(it also needs the owning quest=/questline=/note=)"
+            )
     else:
         chosen = [
             (k, v)
