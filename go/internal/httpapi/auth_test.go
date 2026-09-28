@@ -197,6 +197,86 @@ func TestLogin_SetsCookieThatUnlocksProtectedRoutes(t *testing.T) {
 	}
 }
 
+func TestLogin_SecureCookieViaForwardedProto(t *testing.T) {
+	s, authStore := newTestServer(t, true)
+	if _, err := authStore.CreateUser("alice", "correcthorse"); err != nil {
+		t.Fatal(err)
+	}
+	h := s.testHandler()
+
+	// Plain LAN request (no X-Forwarded-Proto) must not get a Secure cookie —
+	// otherwise the browser drops it and LAN login breaks.
+	w := doJSON(t, h, "POST", "/api/auth/login",
+		map[string]string{"username": "alice", "password": "correcthorse"}, nil)
+	if cookie := w.Result().Cookies()[0]; cookie.Secure {
+		t.Error("cookie should not be Secure for a plain-HTTP request")
+	}
+
+	// Request proxied through the gateway (Caddy sets X-Forwarded-Proto:
+	// https) must get a Secure cookie even though SecureCookies is unset.
+	w2 := doJSON(t, h, "POST", "/api/auth/login",
+		map[string]string{"username": "alice", "password": "correcthorse"},
+		map[string]string{"X-Forwarded-Proto": "https"})
+	if w2.Code != http.StatusOK {
+		t.Fatalf("login status = %d, want 200", w2.Code)
+	}
+	if cookie := w2.Result().Cookies()[0]; !cookie.Secure {
+		t.Error("cookie should be Secure when X-Forwarded-Proto: https")
+	}
+}
+
+func TestLogin_ThrottlesRepeatedFailures(t *testing.T) {
+	s, authStore := newTestServer(t, true)
+	if _, err := authStore.CreateUser("alice", "correcthorse"); err != nil {
+		t.Fatal(err)
+	}
+	h := s.testHandler()
+
+	wrong := map[string]string{"username": "alice", "password": "wrong"}
+	for i := 0; i < loginFreeAttempts; i++ {
+		w := doJSON(t, h, "POST", "/api/auth/login", wrong, nil)
+		if w.Code != http.StatusUnauthorized {
+			t.Fatalf("attempt %d: status = %d, want 401", i, w.Code)
+		}
+	}
+	// The next failure past the free budget should trip the lockout.
+	w := doJSON(t, h, "POST", "/api/auth/login", wrong, nil)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("attempt %d: status = %d, want 401", loginFreeAttempts, w.Code)
+	}
+	// Now even the *correct* password is throttled — the point is to slow
+	// down guessing, not just repeat wrong guesses.
+	w2 := doJSON(t, h, "POST", "/api/auth/login",
+		map[string]string{"username": "alice", "password": "correcthorse"}, nil)
+	if w2.Code != http.StatusTooManyRequests {
+		t.Fatalf("status = %d, want 429 once locked out", w2.Code)
+	}
+	if w2.Header().Get("Retry-After") == "" {
+		t.Error("expected a Retry-After header on 429")
+	}
+}
+
+func TestLogin_SuccessResetsThrottle(t *testing.T) {
+	s, authStore := newTestServer(t, true)
+	if _, err := authStore.CreateUser("alice", "correcthorse"); err != nil {
+		t.Fatal(err)
+	}
+	h := s.testHandler()
+
+	wrong := map[string]string{"username": "alice", "password": "wrong"}
+	doJSON(t, h, "POST", "/api/auth/login", wrong, nil)
+	doJSON(t, h, "POST", "/api/auth/login", wrong, nil)
+
+	w := doJSON(t, h, "POST", "/api/auth/login",
+		map[string]string{"username": "alice", "password": "correcthorse"}, nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+	if ok, _ := s.limiter().allow(loginClientKey(httptest.NewRequest("GET", "/", nil))); !ok {
+		t.Error("successful login should reset the failure count")
+	}
+}
+
 func TestLogin_RejectsCrossOriginPost(t *testing.T) {
 	s, authStore := newTestServer(t, true)
 	if _, err := authStore.CreateUser("alice", "correcthorse"); err != nil {
