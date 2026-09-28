@@ -171,7 +171,32 @@
   let pendingSelectId = $state(/** @type {number | null} */ (null))
   /** When false — only active/delayed; when true — all statuses. */
   let showAllQuests = $state(false)
+  /** Sidebar scope narrowing: null = all, else a category, optionally further narrowed to one of its questlines. */
+  let scopeCategoryId = $state(/** @type {number | null} */ (null))
+  let scopeQuestlineId = $state(/** @type {number | null} */ (null))
   let nowMs = $state(Date.now())
+
+  function setScopeCategory(id) {
+    scopeCategoryId = id
+    scopeQuestlineId = null
+  }
+  function setScopeQuestline(id) {
+    scopeQuestlineId = id
+  }
+  /** Questlines under the current scope category, limited to ones with an
+   * open quest unless "показывать завершённые" is on — a questline with
+   * nothing active left isn't a live "session" worth offering to narrow to. */
+  let scopeQuestlineOptions = $derived.by(() => {
+    if (scopeCategoryId == null) return []
+    const inCategory = questlines.filter((l) => (l.category_id ?? null) === scopeCategoryId)
+    if (showAllQuests) return inCategory
+    const liveLineIds = new Set(
+      quests
+        .filter((q) => OPEN_STATUSES.has(q.status) && q.questline_id != null)
+        .map((q) => q.questline_id),
+    )
+    return inCategory.filter((l) => liveLineIds.has(l.id))
+  })
 
   let ctxItems = $derived.by(() => {
     if (ctxKind === 'line') {
@@ -231,8 +256,15 @@
       ? matchedQuests
       : matchedQuests.filter((q) => OPEN_STATUSES.has(q.status)),
   )
+  let scopedQuests = $derived(
+    listedQuests.filter((q) => {
+      if (scopeCategoryId != null && (q.category_id ?? null) !== scopeCategoryId) return false
+      if (scopeQuestlineId != null && q.questline_id !== scopeQuestlineId) return false
+      return true
+    }),
+  )
   let byCategory = $derived(
-    groupQuestsByCategory(listedQuests, categories, questlines),
+    groupQuestsByCategory(scopedQuests, categories, questlines),
   )
   let selected = $derived(quests.find((q) => q.id === selectedId) ?? null)
   let attachments = $derived(flattenAttachmentIndex(attachmentIndex))
@@ -1213,6 +1245,12 @@
         {matchedQuests}
         {listedQuests}
         {byCategory}
+        {categories}
+        {scopeCategoryId}
+        {scopeQuestlineId}
+        {scopeQuestlineOptions}
+        onScopeCategory={setScopeCategory}
+        onScopeQuestline={setScopeQuestline}
         bind:searchQuery
         bind:showAllQuests
         {selectedId}

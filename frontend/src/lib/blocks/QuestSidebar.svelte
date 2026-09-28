@@ -28,6 +28,12 @@
    *   onLineContextMenu: (event: MouseEvent, line: any) => void,
    *   onToggleCategory: (key: string) => void,
    *   onToggleLine: (catKey: string, lineKey: string) => void,
+   *   categories: any[],
+   *   scopeCategoryId: number | null,
+   *   scopeQuestlineId: number | null,
+   *   scopeQuestlineOptions: any[],
+   *   onScopeCategory: (id: number | null) => void,
+   *   onScopeQuestline: (id: number | null) => void,
    * }} */
   let {
     loading,
@@ -47,7 +53,22 @@
     onLineContextMenu,
     onToggleCategory,
     onToggleLine,
+    categories,
+    scopeCategoryId,
+    scopeQuestlineId,
+    scopeQuestlineOptions,
+    onScopeCategory,
+    onScopeQuestline,
   } = $props()
+
+  function onScopeCategoryChange(event) {
+    const v = event.currentTarget.value
+    onScopeCategory(v === '' ? null : Number(v))
+  }
+  function onScopeQuestlineChange(event) {
+    const v = event.currentTarget.value
+    onScopeQuestline(v === '' ? null : Number(v))
+  }
 
   function isCategoryOpen(key) {
     return categoryOpen[key] !== false
@@ -71,6 +92,32 @@
       <input type="checkbox" bind:checked={showAllQuests} />
       <span>Показывать завершённые</span>
     </label>
+    <div class="sidebar__scope">
+      <select
+        class="sidebar__scope-select"
+        value={scopeCategoryId ?? ''}
+        onchange={onScopeCategoryChange}
+        aria-label="Сузить до раздела"
+      >
+        <option value="">Все разделы</option>
+        {#each categories as cat (cat.id)}
+          <option value={cat.id}>{cat.label}</option>
+        {/each}
+      </select>
+      {#if scopeCategoryId != null}
+        <select
+          class="sidebar__scope-select"
+          value={scopeQuestlineId ?? ''}
+          onchange={onScopeQuestlineChange}
+          aria-label="Сузить до квестлайна"
+        >
+          <option value="">Весь раздел</option>
+          {#each scopeQuestlineOptions as line (line.id)}
+            <option value={line.id}>{line.title}</option>
+          {/each}
+        </select>
+      {/if}
+    </div>
   </div>
   <div class="sidebar__list" aria-label="Список квестов">
     {#if loading}
