@@ -12,6 +12,7 @@ from quests.config import DATA_DIR, HOST, PORT
 
 DEFAULT_PROXY = "http://127.0.0.1:12334"
 DEFAULT_API = f"http://{HOST}:{PORT}"
+DEFAULT_STT = "http://127.0.0.1:8766"
 
 
 @dataclass(frozen=True)
@@ -20,6 +21,7 @@ class TgSettings:
     user_ids: frozenset[int]
     proxy: str
     api_base: str
+    stt_base: str
     chats_path: str
     dedup_path: str
 
@@ -76,6 +78,11 @@ def build_settings(argv: list[str] | None = None) -> TgSettings:
         help=f"база локального Quests API (дефолт {DEFAULT_API})",
     )
     parser.add_argument(
+        "--stt",
+        default=(os.environ.get("QUESTS_STT") or DEFAULT_STT).rstrip("/"),
+        help=f"база сервиса STT (дефолт {DEFAULT_STT})",
+    )
+    parser.add_argument(
         "--users",
         default=os.environ.get("QUESTS_TG_USER_IDS") or "",
         help="whitelist Telegram user id через запятую (или QUESTS_TG_USER_IDS)",
@@ -117,6 +124,7 @@ def build_settings(argv: list[str] | None = None) -> TgSettings:
         user_ids=user_ids,
         proxy=proxy,
         api_base=str(ns.api).rstrip("/"),
+        stt_base=str(ns.stt).rstrip("/"),
         chats_path=str(DATA_DIR / "telegram_chats.json"),
         dedup_path=str(DATA_DIR / "telegram_notify.json"),
     )

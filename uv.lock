@@ -1700,13 +1700,16 @@ bot = [
     { name = "aiogram" },
     { name = "aiohttp" },
     { name = "aiohttp-socks" },
-    { name = "faster-whisper" },
 ]
 mcp = [
     { name = "mcp" },
 ]
 pdf = [
     { name = "weasyprint" },
+]
+stt = [
+    { name = "aiohttp" },
+    { name = "faster-whisper" },
 ]
 
 [package.dev-dependencies]
@@ -1720,16 +1723,17 @@ dev = [
 requires-dist = [
     { name = "aiogram", marker = "extra == 'bot'", specifier = ">=3.30.0" },
     { name = "aiohttp", marker = "extra == 'bot'", specifier = ">=3.9" },
+    { name = "aiohttp", marker = "extra == 'stt'", specifier = ">=3.9" },
     { name = "aiohttp-socks", marker = "extra == 'bot'", specifier = ">=0.11.0" },
     { name = "aiosqlite", specifier = ">=0.20" },
     { name = "alembic", specifier = ">=1.18.5" },
-    { name = "faster-whisper", marker = "extra == 'bot'", specifier = ">=1.2.1" },
+    { name = "faster-whisper", marker = "extra == 'stt'", specifier = ">=1.2.1" },
     { name = "mcp", marker = "extra == 'mcp'", specifier = ">=2.0.0" },
     { name = "python-dotenv", specifier = ">=1.2.2" },
     { name = "sqlmodel", specifier = ">=0.0.22" },
     { name = "weasyprint", marker = "extra == 'pdf'", specifier = ">=62.0" },
 ]
-provides-extras = ["bot", "mcp", "pdf"]
+provides-extras = ["bot", "mcp", "pdf", "stt"]
 
 [package.metadata.requires-dev]
 dev = [

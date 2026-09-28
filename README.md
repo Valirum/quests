@@ -36,6 +36,7 @@ sudo pacman -S gtk4 gtk4-layer-shell python-gobject
 | CLI | `./scripts/quests` / `go/bin/quests` | см. [`docs/cli.md`](docs/cli.md) |
 | Оверлей | `./scripts/run-overlay-smoke.sh` | или `python -m overlay` |
 | Telegram | `./scripts/run-telegram.sh` | HTTP-клиент к API |
+| STT (голос → текст) | `./scripts/run-stt.sh` | сайдкар для бота, http://127.0.0.1:8766, нужен для голосовых сообщений |
 | Шаблоны | UI «Шаблоны» / `/api/templates` | daily/weekly → инстансы-квесты |
 
 Оверлей (IPC):
