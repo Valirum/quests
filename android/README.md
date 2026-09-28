@@ -4,18 +4,13 @@
 service с ongoing-уведомлением, без полноценного overlay. Тот же REST API,
 что и десктопный HUD-оверлей на niri (см. note=3).
 
-Не собиралось и не запускалось в этой сессии — нет Android SDK/Gradle/adb в
-окружении, где писался код. Первая сборка и отладка — на твоей машине.
-
 ## Сборка
 
-Нужны JDK 17+, Android SDK (`ANDROID_HOME`), Gradle. Обёртки `gradlew` в
-репо нет — либо ставь системный `gradle` и гоняй им, либо один раз
-сгенерируй обёртку:
+Нужны JDK 17, Android SDK (`sdk.dir` в `local.properties` или `ANDROID_HOME`).
+`gradlew`/`gradle-wrapper.jar` уже в репо:
 
 ```bash
 cd android
-gradle wrapper --gradle-version 8.7
 ./gradlew assembleDebug
 ```
 
@@ -46,3 +41,30 @@ gradle wrapper --gradle-version 8.7
 - `POST_NOTIFICATIONS` runtime permission (Android 13+) запрашивается не
   сама — надо добавить `ActivityResultContracts.RequestPermission` в
   `MainActivity` перед стартом сервиса.
+
+## Релизы (CI, quest=197)
+
+`.github/workflows/android.yml` — пуш в `main` с изменениями в `android/**`
+(или ручной запуск) собирает подписанный `assembleRelease`, версия
+`versionCode` = номер запуска (`github.run_number`, всегда возрастает,
+руками трогать не надо), `versionName` — как в `app/build.gradle.kts`
+(бампается вручную при осмысленном релизе). APK публикуется как GitHub
+Release (`android-<versionName>-<run>`) и как build-артефакт.
+
+Подпись — отдельный release-ключ (не debug), передаётся через секреты
+репозитория (Settings → Secrets and variables → Actions):
+
+| Секрет | Что |
+|---|---|
+| `QUESTS_RELEASE_KEYSTORE_B64` | `base64 -w0 quests-release.jks` |
+| `QUESTS_RELEASE_KEYSTORE_PASSWORD` | пароль хранилища (PKCS12 → он же пароль ключа) |
+| `QUESTS_RELEASE_KEY_ALIAS` | алиас ключа в хранилище |
+| `QUESTS_RELEASE_KEY_PASSWORD` | пароль ключа (для PKCS12 = пароль хранилища) |
+
+Без ключа `assembleRelease` собирается локально и без CI (для ручной
+проверки), но выходит неподписанным — `signingConfig` подставляется только
+когда `QUESTS_RELEASE_KEYSTORE_PATH` в окружении.
+
+**Ключ бэкапить отдельно и не терять**: он определяет, что Android считает
+«тем же приложением» для обновлений. Потеря ключа = все, кто уже поставил
+APK, не смогут обновиться поверх — только переустановка.
