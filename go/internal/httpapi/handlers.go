@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/valirum/quests/go/internal/auth"
@@ -30,8 +31,14 @@ type Server struct {
 	// AuthRequired gates every /api/ route and /ws. Off only for a bootstrap
 	// instance with no accounts yet, bound to loopback.
 	AuthRequired bool
-	// SecureCookies marks the session cookie Secure (set when served over HTTPS).
+	// SecureCookies forces the session cookie Secure even when a request
+	// can't be detected as HTTPS (see requestIsHTTPS). Per-request detection
+	// already covers the gateway; this stays as a belt-and-suspenders switch.
 	SecureCookies bool
+	// loginLimiter throttles repeated failed /api/auth/login attempts.
+	// Lazily initialized on first use — see Server.limiter().
+	loginLimiterOnce sync.Once
+	loginLimiter     *loginLimiter
 	// InternalToken authenticates the server's own loopback calls (LLM assistant).
 	// Generated per process, never persisted.
 	InternalToken string
