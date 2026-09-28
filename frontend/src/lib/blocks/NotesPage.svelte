@@ -86,6 +86,13 @@
   let renamingId = $state(/** @type {number | null} */ (null))
   let renamingValue = $state('')
   let renameInputEl = $state(/** @type {HTMLInputElement | null} */ (null))
+  /** Drag-n-drop reparenting in the tree — only moves a note between parents,
+   * never touches sort order (that stays pinned → sort_order → id, same as
+   * byParent's own sort above). */
+  let dragId = $state(/** @type {number | null} */ (null))
+  /** String(id) of the row under the cursor, or 'root' for the list's empty
+   * background, or null. */
+  let dragOverKey = $state(/** @type {string | null} */ (null))
 
   let dirty = $derived(
     title !== saved.title ||
@@ -756,6 +763,95 @@
     }
   }
 
+  /** @param {number | null} targetId — null means "make it a root note" */
+  function canDropOn(targetId, draggedId = dragId) {
+    if (draggedId == null) return false
+    if (targetId === draggedId) return false
+    // target is a descendant of the dragged note — moving there would cycle it.
+    if (targetId != null && isUnder(targetId, draggedId)) return false
+    return true
+  }
+
+  /** @param {number} id @param {number | null} newParentId */
+  async function moveNoteTo(id, newParentId) {
+    const n = noteById(id)
+    if (!n) return
+    if ((n.parent_id ?? null) === newParentId) return
+    error = ''
+    try {
+      const savedRow = await updateNote(id, { parent_id: newParentId })
+      const pid = newParentId == null ? '' : String(newParentId)
+      if (id === selectedId) {
+        saved = { ...saved, parentId: pid }
+        parentId = pid
+        detail = savedRow
+        const draft = getNoteDraft(id)
+        if (draft) putNoteDraft(id, { ...draft, parentId: pid })
+      }
+      onChanged()
+    } catch (e) {
+      error = e.message || String(e)
+      toast(error, { kind: 'error' })
+    }
+  }
+
+  function onRowDragStart(event, id) {
+    if (renamingId != null) {
+      event.preventDefault()
+      return
+    }
+    dragId = id
+    event.dataTransfer.effectAllowed = 'move'
+    event.dataTransfer.setData('text/plain', String(id))
+  }
+
+  function onRowDragEnd() {
+    dragId = null
+    dragOverKey = null
+  }
+
+  function onRowDragOver(event, id) {
+    if (!canDropOn(id)) return
+    event.preventDefault()
+    event.stopPropagation()
+    event.dataTransfer.dropEffect = 'move'
+    dragOverKey = String(id)
+  }
+
+  function onRowDragLeave(event, id) {
+    if (dragOverKey === String(id)) dragOverKey = null
+  }
+
+  function onRowDrop(event, id) {
+    event.preventDefault()
+    event.stopPropagation()
+    const draggedId = dragId
+    dragId = null
+    dragOverKey = null
+    if (draggedId == null || !canDropOn(id, draggedId)) return
+    moveNoteTo(draggedId, id)
+  }
+
+  function onListDragOver(event) {
+    if (!canDropOn(null)) return
+    event.preventDefault()
+    event.dataTransfer.dropEffect = 'move'
+    dragOverKey = 'root'
+  }
+
+  function onListDragLeave(event) {
+    if (dragOverKey === 'root') dragOverKey = null
+  }
+
+  function onListDrop(event) {
+    event.preventDefault()
+    const draggedId = dragId
+    dragId = null
+    dragOverKey = null
+    if (draggedId == null || !canDropOn(null, draggedId)) return
+    moveNoteTo(draggedId, null)
+  }
+
   function requestDelete(id) {
     if (id == null) return
     deleteTargetId = id
@@ -819,7 +915,13 @@
         +
       </button>
     </div>
-    <div class="notes__list">
+    <div
+      class="notes__list"
+      class:notes__list--dragover={dragOverKey === 'root'}
+      ondragover={onListDragOver}
+      ondragleave={onListDragLeave}
+      ondrop={onListDrop}
+    >
       {#if notes.length === 0}
         <p class="empty">Пока пусто — это хранилище знания, не список дел.</p>
       {:else if roots.length === 0 && search}
@@ -849,8 +951,15 @@
                 class="notes__row"
                 class:notes__row--on={n.id === selectedId}
                 class:notes__row--pin={n.pinned}
+                class:notes__row--dragover={dragOverKey === String(n.id)}
+                draggable={n.id !== renamingId}
                 onclick={() => onSelect(n.id)}
                 oncontextmenu={(e) => openNoteMenu(e, n)}
+                ondragstart={(e) => onRowDragStart(e, n.id)}
+                ondragend={onRowDragEnd}
+                ondragover={(e) => onRowDragOver(e, n.id)}
+                ondragleave={(e) => onRowDragLeave(e, n.id)}
+                ondrop={(e) => onRowDrop(e, n.id)}
               >
                 <span class="notes__row-icon" style="--line-color: {n.color || '#9a9a9a'}">
                   <QuestlineIcon
@@ -1260,6 +1369,15 @@
   .notes__row--on {
     background: color-mix(in srgb, var(--color-fg, #e8e8e8) 6%, var(--color-bg-raised, #1a1a1a));
     border-left-color: var(--color-fg, #e8e8e8);
+  }
+
+  .notes__row--dragover {
+    background: color-mix(in srgb, var(--color-accent, #c9a227) 16%, transparent);
+    border-left-color: var(--color-accent, #c9a227);
+  }
+
+  .notes__list--dragover {
+    box-shadow: inset 0 0 0 1px var(--color-accent, #c9a227);
   }
 
   .notes__row-icon {
