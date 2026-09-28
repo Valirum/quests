@@ -4,12 +4,10 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"math/rand"
 	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
 	"github.com/valirum/quests/go/internal/auth"
 	"github.com/valirum/quests/go/internal/clamav"
@@ -94,7 +92,6 @@ func main() {
 	go schedule.RunMaintenanceLoop(ctx, st, hub, windows, checks)
 	go srv.RunProbes(ctx)
 	go schedule.RunBackupLoop(ctx, st, srv.WebDAV, cfg.DataDir, cfg.BackupInterval, cfg.BackupKeep, srv.Health)
-	go schedule.RunDelayedReminderLoop(ctx, st, hub, cfg.DelayedReminderInterval, rand.New(rand.NewSource(time.Now().UnixNano())))
 
 	hub.Publish("startup", events.PublishOpts{
 		Title:  "Quests",
