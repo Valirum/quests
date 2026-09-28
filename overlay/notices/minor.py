@@ -15,7 +15,6 @@ MINOR_CHANGE = {
     "step_progress": "Прогресс",
     "pin_changed": "Закрепление",
     "quest_updated": "Обновлено",
-    "quest_delayed_reminder": "Отложено — не забыть",
 }
 
 
