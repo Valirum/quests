@@ -128,9 +128,16 @@
    * whole form differs from `saved`), else its draft if one exists, else the
    * server's own `parent_id`. Lets picking a new parent move the row in the
    * sidebar immediately — parentMenuItems already excludes self/descendants,
-   * so this can't introduce a cycle. */
+   * so this can't introduce a cycle.
+   *
+   * Only trust `parentId` once it's actually loaded for this note
+   * (loadedId === selectedId) — right after switching notes, selectedId has
+   * already moved on but the async getNote() fetch hasn't landed yet, so
+   * `parentId` still holds the *previous* note's value. Using it anyway for
+   * that one tick drew the row at a wrong/stale spot that then snapped to
+   * the right one a moment later — the flash this was fixing. */
   function parentKeyOf(n) {
-    if (n.id === selectedId) return parentId === '' ? 'root' : parentId
+    if (n.id === selectedId && loadedId === selectedId) return parentId === '' ? 'root' : parentId
     const draft = noteDrafts[String(n.id)]
     if (draft) return draft.parentId === '' ? 'root' : draft.parentId
     return n.parent_id == null ? 'root' : String(n.parent_id)
