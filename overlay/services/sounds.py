@@ -22,6 +22,7 @@ CUE_FOLDERS = {
     "status_changed": "status_changed",
     "fallback": "fallback",
     "quest_updated": "fallback",
+    "quest_delayed_reminder": "fallback",
 }
 
 MAJOR_CUES = frozenset(

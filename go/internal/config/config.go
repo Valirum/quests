@@ -36,6 +36,10 @@ type Config struct {
 	// BackupKeep is how many snapshots to retain (oldest pruned first),
 	// both on disk and on WebDAV (when configured).
 	BackupKeep int
+
+	// DelayedReminderInterval is how often one "delayed" (отложено) quest is
+	// nudged via a toast. <=0 disables it.
+	DelayedReminderInterval time.Duration
 }
 
 func Load() Config {
@@ -100,22 +104,29 @@ func Load() Config {
 			backupKeep = n
 		}
 	}
+	delayedReminderInterval := 3 * 24 * time.Hour
+	if raw := strings.TrimSpace(os.Getenv("QUESTS_DELAYED_REMINDER_DAYS")); raw != "" {
+		if n, err := strconv.Atoi(raw); err == nil && n >= 0 {
+			delayedReminderInterval = time.Duration(n) * 24 * time.Hour
+		}
+	}
 	return Config{
-		AuthMode:       authMode,
-		SecureCookies:  secure,
-		Root:           root,
-		DataDir:        data,
-		DBPath:         filepath.Join(data, "quests.db"),
-		Host:           host,
-		Port:           port,
-		CORS:           cors,
-		WebDAVURL:      strings.TrimRight(strings.TrimSpace(os.Getenv("QUESTS_WEBDAV_URL")), "/"),
-		WebDAVUser:     strings.TrimSpace(os.Getenv("QUESTS_WEBDAV_USER")),
-		WebDAVPass:     os.Getenv("QUESTS_WEBDAV_PASS"),
-		ClamAVAddr:     strings.TrimSpace(os.Getenv("QUESTS_CLAMAV_ADDR")),
-		MaxUploadBytes: maxUpload,
-		BackupInterval: backupInterval,
-		BackupKeep:     backupKeep,
+		AuthMode:                authMode,
+		SecureCookies:           secure,
+		Root:                    root,
+		DataDir:                 data,
+		DBPath:                  filepath.Join(data, "quests.db"),
+		Host:                    host,
+		Port:                    port,
+		CORS:                    cors,
+		WebDAVURL:               strings.TrimRight(strings.TrimSpace(os.Getenv("QUESTS_WEBDAV_URL")), "/"),
+		WebDAVUser:              strings.TrimSpace(os.Getenv("QUESTS_WEBDAV_USER")),
+		WebDAVPass:              os.Getenv("QUESTS_WEBDAV_PASS"),
+		ClamAVAddr:              strings.TrimSpace(os.Getenv("QUESTS_CLAMAV_ADDR")),
+		MaxUploadBytes:          maxUpload,
+		BackupInterval:          backupInterval,
+		BackupKeep:              backupKeep,
+		DelayedReminderInterval: delayedReminderInterval,
 	}
 }
 
