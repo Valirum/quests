@@ -132,6 +132,11 @@
   let categoryOpen = $state(/** @type {Record<string, boolean>} */ ({}))
   /** Open state for questline subgroups: `${bucket}:${catKey}:${lineKey}` → boolean. */
   let lineOpen = $state(/** @type {Record<string, boolean>} */ ({}))
+  /** Sidebar "Отложено (N)" tab — collapsed by default. */
+  let delayedOpen = $state(false)
+  function toggleDelayed() {
+    delayedOpen = !delayedOpen
+  }
 
   let modalOpen = $state(false)
   let modalMode = $state(/** @type {'create' | 'edit'} */ ('create'))
@@ -265,6 +270,15 @@
   )
   let byCategory = $derived(
     groupQuestsByCategory(scopedQuests, categories, questlines),
+  )
+  /** "Отложено" — own sidebar tab, independent of showAllQuests/OPEN_STATUSES. */
+  let delayedQuests = $derived(
+    matchedQuests.filter((q) => {
+      if (q.status !== 'delayed') return false
+      if (scopeCategoryId != null && (q.category_id ?? null) !== scopeCategoryId) return false
+      if (scopeQuestlineId != null && q.questline_id !== scopeQuestlineId) return false
+      return true
+    }),
   )
   let selected = $derived(quests.find((q) => q.id === selectedId) ?? null)
   let attachments = $derived(flattenAttachmentIndex(attachmentIndex))
@@ -1245,6 +1259,9 @@
         {matchedQuests}
         {listedQuests}
         {byCategory}
+        {delayedQuests}
+        {delayedOpen}
+        onToggleDelayed={toggleDelayed}
         {categories}
         {scopeCategoryId}
         {scopeQuestlineId}
