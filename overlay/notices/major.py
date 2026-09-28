@@ -53,21 +53,35 @@ MAJOR_EYEBROW = {
 }
 
 
+# Top-center card, not a full-screen overlay: roughly a 2:1 (width:height)
+# rectangle so it stays noticeable without blocking the work area underneath
+# for the several seconds it's on screen. Exact proportion is a starting
+# point, expected to get tuned once it's actually on screen.
+MAJOR_MAX_TITLE_LINES = 3
+
+
 def _toast_wrap_width(window: Gtk.Window) -> int:
-    """Max content width for major toasts (~2/3 of the output, never past edges)."""
+    """Max content width for major toasts (~1/3 of the output, never past edges)."""
     mon = LayerShell.get_monitor(window)
     if mon is None:
         mons = list_monitors()
         mon = mons[0] if mons else None
     if mon is None:
-        return 960
+        return 480
     screen_w = max(1, int(mon.get_geometry().width))
     # Leave side margins so the card never touches the bezel.
-    return max(420, min((screen_w * 2) // 3, screen_w - 64))
+    return max(320, min(screen_w // 3, screen_w - 64))
 
 
-def _cap_wrap_label(lbl: Gtk.Label, width_px: int) -> None:
-    """Force wrap at ``width_px`` and keep natural width from exploding the layout."""
+def _cap_wrap_label(
+    lbl: Gtk.Label, width_px: int, *, max_lines: int = 0
+) -> None:
+    """Force wrap at ``width_px`` and keep natural width from exploding the layout.
+
+    ``max_lines`` bounds height independent of text length — a long quest
+    title must not be able to grow the card to fill the screen; past the
+    cap it ellipsizes instead of pushing the card taller.
+    """
     lbl.set_wrap(True)
     lbl.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
     lbl.set_size_request(width_px, -1)
@@ -86,6 +100,9 @@ def _cap_wrap_label(lbl: Gtk.Label, width_px: int) -> None:
         lbl.set_max_width_chars(avg)
     except Exception:
         pass
+    if max_lines > 0:
+        lbl.set_lines(max_lines)
+        lbl.set_ellipsize(Pango.EllipsizeMode.END)
 
 
 def _significance_key(event: dict) -> str:
@@ -173,29 +190,22 @@ class MajorHost:
         LayerShell.init_for_window(window)
         LayerShell.set_namespace(window, "quests-major")
         LayerShell.set_layer(window, LayerShell.Layer.OVERLAY)
-        for edge in (
-            LayerShell.Edge.TOP,
-            LayerShell.Edge.BOTTOM,
-            LayerShell.Edge.LEFT,
-            LayerShell.Edge.RIGHT,
-        ):
-            LayerShell.set_anchor(window, edge, True)
+        # Anchored to TOP only (not the full rectangle) — a layer-shell
+        # surface anchored to just one edge is centered along the other axis
+        # by the compositor, and the window sizes to its content instead of
+        # stretching full-screen. That's what turns this from a fullscreen
+        # overlay into a compact top-center card (quest=218): it no longer
+        # covers the work area underneath while it's on screen.
+        LayerShell.set_anchor(window, LayerShell.Edge.TOP, True)
+        LayerShell.set_margin(window, LayerShell.Edge.TOP, 24)
         LayerShell.set_keyboard_mode(window, LayerShell.KeyboardMode.NONE)
         LayerShell.set_exclusive_zone(window, -1)
 
         outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         outer.add_css_class("notice-root")
-        outer.set_hexpand(True)
-        outer.set_vexpand(True)
-        center = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-        center.set_halign(Gtk.Align.CENTER)
-        center.set_valign(Gtk.Align.CENTER)
-        center.set_hexpand(True)
-        center.set_vexpand(True)
         self._slot = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         self._slot.set_halign(Gtk.Align.CENTER)
-        center.append(self._slot)
-        outer.append(center)
+        outer.append(self._slot)
         window.set_child(outer)
         clickthrough(window)
         return window
@@ -245,13 +255,15 @@ class MajorHost:
         except Exception:
             pass
 
-        def major_label(text: str, css_class: str, *, wrap: bool = False) -> Gtk.Label:
+        def major_label(
+            text: str, css_class: str, *, wrap: bool = False, max_lines: int = 0
+        ) -> Gtk.Label:
             lbl = Gtk.Label(label=text, xalign=0.5)
             lbl.set_halign(Gtk.Align.CENTER)
             lbl.set_justify(Gtk.Justification.CENTER)
             lbl.add_css_class(css_class)
             if wrap:
-                _cap_wrap_label(lbl, content_w)
+                _cap_wrap_label(lbl, content_w, max_lines=max_lines)
             return lbl
 
         prefix, sig_word, suffix = major_eyebrow_parts(kind, sig)
@@ -272,7 +284,14 @@ class MajorHost:
         else:
             card.append(major_label(sig_word or kind, "major__eyebrow"))
 
-        card.append(major_label(event.get("title") or "—", "major__title", wrap=True))
+        card.append(
+            major_label(
+                event.get("title") or "—",
+                "major__title",
+                wrap=True,
+                max_lines=MAJOR_MAX_TITLE_LINES,
+            )
+        )
 
         description = (event.get("description") or "").strip()
         if description:
@@ -282,7 +301,14 @@ class MajorHost:
             rule.set_hexpand(False)
             rule.set_size_request(content_w, 2)
             card.append(rule)
-            card.append(major_label(description, "major__description", wrap=True))
+            card.append(
+                major_label(
+                    description,
+                    "major__description",
+                    wrap=True,
+                    max_lines=MAJOR_MAX_TITLE_LINES,
+                )
+            )
 
         detail = (event.get("detail") or "").strip()
         # Detail often duplicates the eyebrow («создано задание») — skip on majors.
