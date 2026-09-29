@@ -336,7 +336,7 @@
         >
           <span class="step__mark">{step.done ? '✓' : step.run_status === 'running' ? '▶' : '○'}</span>
           <span class="step__main">
-            <span class="step__title"><span class="strike" class:strike--done={step.done}>{step.title}</span></span>
+            <span class="step__title">{step.title}</span>
             {#if step.check_command}
               <span
                 class="step__auto"
@@ -558,7 +558,7 @@
             <h2
               class="detail__title"
               oncontextmenu={(e) => onQuestTitleContextMenu?.(e, selected)}
-            >{#key selected.id}<span class="strike" class:strike--done={selected.status === 'completed'}>{displayTitle}</span>{/key}</h2>
+            >{displayTitle}</h2>
             {@render questActions(selected)}
           </div>
           {@render questEyebrow(selected)}
@@ -603,7 +603,7 @@
           <h2
             class="detail__title"
             oncontextmenu={(e) => onQuestTitleContextMenu?.(e, selected)}
-          >{#key selected.id}<span class="strike" class:strike--done={selected.status === 'completed'}>{displayTitle}</span>{/key}</h2>
+          >{displayTitle}</h2>
           {@render questActions(selected)}
         </div>
         {@render questEyebrow(selected)}
