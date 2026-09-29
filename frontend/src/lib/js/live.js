@@ -8,6 +8,12 @@
 // this long means the socket is dead, not just quiet.
 const STALE_AFTER_MS = 70_000
 const WATCHDOG_INTERVAL_MS = 10_000
+// A CONNECTING socket that never fires open/error/close (seen on mobile
+// right after a refresh, mid network handover) can sit there well past any
+// sane connect time — the OS-level TCP timeout it's actually waiting on
+// runs much longer than a user will. Give a connect attempt this long,
+// then abandon it and retry ourselves.
+const CONNECT_TIMEOUT_MS = 8_000
 
 export function subscribeQuestEvents(onEvent, { onStatus } = {}) {
   let stopped = false
@@ -36,9 +42,20 @@ export function subscribeQuestEvents(onEvent, { onStatus } = {}) {
   const connect = () => {
     if (stopped) return
     setStatus('connecting')
-    socket = new WebSocket(wsUrl())
+    const ws = new WebSocket(wsUrl())
+    socket = ws
+
+    const connectTimeout = setTimeout(() => {
+      if (socket !== ws || ws.readyState !== WebSocket.CONNECTING) return
+      try {
+        ws.close()
+      } catch {
+        /* ignore */
+      }
+    }, CONNECT_TIMEOUT_MS)
 
     socket.addEventListener('open', () => {
+      clearTimeout(connectTimeout)
       attempt = 0
       lastMessageAt = Date.now()
       setStatus('live')
@@ -63,6 +80,7 @@ export function subscribeQuestEvents(onEvent, { onStatus } = {}) {
     })
 
     socket.addEventListener('close', () => {
+      clearTimeout(connectTimeout)
       setStatus('reconnect')
       schedule()
     })
