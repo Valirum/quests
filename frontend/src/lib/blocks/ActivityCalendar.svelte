@@ -235,17 +235,18 @@
   let todayKey = $derived(dayKey(new Date()))
 
   /**
-   * Timeline bars for selected day (full-height, overlapping).
-   * Completed/failed: bar ends at finish moment (actual load).
-   * Mark only at deadline (open) or finish (done/fail) when that falls on this day.
+   * Day board: one row per quest with a deadline window on this day,
+   * a concurrent-count load chart, no-window creates, and the event log.
    */
   let dayLoad = $derived.by(() => {
     if (!selectedKey) return null
     const { start: dayStart, end: dayEnd } = dayBounds(selectedKey)
     const dayMs = dayEnd.getTime() - dayStart.getTime()
 
+    /** @type {Set<number>} */
+    const onBoard = new Set()
     /** @type {any[]} */
-    const bars = []
+    const rows = []
     for (const q of quests) {
       const win = actualWindow(q)
       if (!win || q?.id == null) continue
@@ -272,14 +273,18 @@
       const left = (clipped.startMs - dayStart.getTime()) / dayMs
       const rawW = (clipped.endMs - clipped.startMs) / dayMs
       const width = clipped.point ? 0 : Math.max(rawW, 0.004)
+      const id = Number(q.id)
+      onBoard.add(id)
 
-      bars.push({
-        id: Number(q.id),
+      rows.push({
+        id,
         title: String(q.title || '?'),
         status,
         significance: sigKey(q),
         left,
         width,
+        startMs: clipped.startMs,
+        endMs: clipped.endMs,
         marker: markMs != null ? (markMs - dayStart.getTime()) / dayMs : null,
         markKind,
         point: clipped.point,
@@ -290,7 +295,49 @@
       })
     }
 
-    bars.sort((a, b) => a.left - b.left || b.width - a.width || a.id - b.id)
+    rows.sort(
+      (a, b) =>
+        a.left - b.left || b.width - a.width || a.id - b.id,
+    )
+
+    // Concurrent count at midpoints of LOAD_BUCKETS slots across the day.
+    const LOAD_BUCKETS = 48
+    /** @type {number[]} */
+    const load = new Array(LOAD_BUCKETS).fill(0)
+    for (let i = 0; i < LOAD_BUCKETS; i++) {
+      const t0 = dayStart.getTime() + (dayMs * i) / LOAD_BUCKETS
+      const t1 = dayStart.getTime() + (dayMs * (i + 1)) / LOAD_BUCKETS
+      const mid = (t0 + t1) / 2
+      let n = 0
+      for (const row of rows) {
+        if (row.point) {
+          if (row.startMs >= t0 && row.startMs < t1) n += 1
+        } else if (row.startMs <= mid && row.endMs > mid) {
+          n += 1
+        }
+      }
+      load[i] = n
+    }
+    const loadMax = Math.max(1, ...load)
+
+    /** Created today, no board row (load undefined — keep off the strip). */
+    /** @type {any[]} */
+    const noWindow = []
+    for (const q of quests) {
+      if (q?.id == null) continue
+      const id = Number(q.id)
+      if (onBoard.has(id)) continue
+      const created = parseApiDate(q.created_at)
+      if (!created || created < dayStart || created >= dayEnd) continue
+      noWindow.push({
+        id,
+        title: String(q.title || '?'),
+        status: String(q.status || 'active'),
+        significance: sigKey(q),
+        timeLabel: formatTime(created),
+      })
+    }
+    noWindow.sort((a, b) => a.timeLabel.localeCompare(b.timeLabel) || a.id - b.id)
 
     /** @type {any[]} */
     const events = []
@@ -344,13 +391,16 @@
     return {
       key: selectedKey,
       title: formatDayTitle(selectedKey),
-      bars,
+      rows,
+      load,
+      loadMax,
+      noWindow,
       events,
     }
   })
 
-  let hoveredBar = $derived(
-    dayLoad?.bars.find((b) => b.id === hoveredId) ?? null,
+  let hoveredRow = $derived(
+    dayLoad?.rows.find((b) => b.id === hoveredId) ?? null,
   )
 
   /**
@@ -576,64 +626,137 @@
       </header>
 
       <div class="day-load__body">
-        <div class="day-tl" aria-label="Полоска времени">
-          <div class="day-tl__hours" aria-hidden="true">
-            {#each HOUR_TICKS as h}
-              <span style:left="{(h / 24) * 100}%">{String(h).padStart(2, '0')}</span>
-            {/each}
+        <div class="day-board" aria-label="Доска дня" onmouseleave={() => (hoveredId = null)}>
+          <div class="day-board__axis" aria-hidden="true">
+            <div class="day-board__gutter"></div>
+            <div class="day-tl__hours">
+              {#each HOUR_TICKS as h}
+                <span style:left="{(h / 24) * 100}%">{String(h).padStart(2, '0')}</span>
+              {/each}
+            </div>
           </div>
-          <div
-            class="day-tl__track"
-            role="group"
-            aria-label={dayLoad.bars.length
-              ? `${dayLoad.bars.length} интервалов`
-              : 'Нет окон с дедлайном'}
-            onmouseleave={() => (hoveredId = null)}
-          >
-            {#each HOUR_TICKS as h}
-              <div class="day-tl__gridline" style:left="{(h / 24) * 100}%"></div>
-            {/each}
-            {#each dayLoad.bars as bar (bar.id)}
-              <button
-                type="button"
-                class="day-tl__bar"
-                class:day-tl__bar--point={bar.point}
-                class:day-tl__bar--from-prev={bar.fromPrev}
-                class:day-tl__bar--to-next={bar.toNext}
-                class:day-tl__bar--hover={hoveredId === bar.id}
-                data-sig={bar.significance}
-                data-status={bar.status}
-                style:left="{bar.left * 100}%"
-                style:width="{Math.max(bar.width * 100, bar.point ? 0.15 : 0.4)}%"
-                title={bar.tip}
-                onmouseenter={() => (hoveredId = bar.id)}
-                onclick={() => onSelectQuest?.(bar.id)}
-                oncontextmenu={(e) => openQuestMenu(e, bar.id)}
-              ></button>
-              {#if bar.marker != null}
-                <span
-                  class="day-tl__mark"
-                  class:day-tl__mark--hover={hoveredId === bar.id}
-                  data-sig={bar.significance}
-                  data-kind={bar.markKind}
-                  style:left="{bar.marker * 100}%"
-                  title={bar.tip}
-                  aria-hidden="true"
-                ></span>
-              {/if}
-            {/each}
-            {#if dayLoad.bars.length === 0}
-              <p class="day-tl__empty">Нет задач с окном/дедлайном в этот день</p>
-            {/if}
+
+          <div class="day-board__load" aria-label="Загруженность">
+            <div class="day-board__gutter day-board__gutter--muted">нагрузка</div>
+            <div
+              class="day-load-chart"
+              role="img"
+              aria-label="Одновременных окон: пик {dayLoad.loadMax}"
+            >
+              {#each HOUR_TICKS as h}
+                <div class="day-tl__gridline" style:left="{(h / 24) * 100}%"></div>
+              {/each}
+              <div class="day-load-chart__bars" aria-hidden="true">
+                {#each dayLoad.load as n, i (i)}
+                  <span
+                    class="day-load-chart__col"
+                    style:height="{n === 0 ? 0 : Math.max(8, (n / dayLoad.loadMax) * 100)}%"
+                    title="{n}"
+                  ></span>
+                {/each}
+              </div>
+            </div>
           </div>
+
+          {#if dayLoad.rows.length === 0}
+            <p class="day-tl__empty">Нет задач с окном/дедлайном в этот день</p>
+          {:else}
+            <div
+              class="day-board__rows"
+              role="list"
+              aria-label="{dayLoad.rows.length} квестов"
+            >
+              {#each dayLoad.rows as row (row.id)}
+                <div
+                  class="day-board__row"
+                  class:day-board__row--hover={hoveredId === row.id}
+                  role="listitem"
+                  onmouseenter={() => (hoveredId = row.id)}
+                >
+                  <button
+                    type="button"
+                    class="day-board__label"
+                    title={row.tip}
+                    onclick={() => onSelectQuest?.(row.id)}
+                    oncontextmenu={(e) => openQuestMenu(e, row.id)}
+                  >
+                    <span
+                      class="day-board__status"
+                      style:background={statusColor(row.status)}
+                      aria-hidden="true"
+                    ></span>
+                    <span class="day-board__title">{row.title}</span>
+                  </button>
+                  <div class="day-board__track">
+                    {#each HOUR_TICKS as h}
+                      <div class="day-tl__gridline" style:left="{(h / 24) * 100}%"></div>
+                    {/each}
+                    <button
+                      type="button"
+                      class="day-tl__bar day-board__bar"
+                      class:day-tl__bar--point={row.point}
+                      class:day-tl__bar--from-prev={row.fromPrev}
+                      class:day-tl__bar--to-next={row.toNext}
+                      class:day-tl__bar--hover={hoveredId === row.id}
+                      data-sig={row.significance}
+                      data-status={row.status}
+                      style:left="{row.left * 100}%"
+                      style:width="{Math.max(row.width * 100, row.point ? 0.35 : 0.4)}%"
+                      title={row.tip}
+                      onclick={() => onSelectQuest?.(row.id)}
+                      oncontextmenu={(e) => openQuestMenu(e, row.id)}
+                    ></button>
+                    {#if row.marker != null}
+                      <span
+                        class="day-tl__mark"
+                        class:day-tl__mark--hover={hoveredId === row.id}
+                        data-sig={row.significance}
+                        data-kind={row.markKind}
+                        style:left="{row.marker * 100}%"
+                        title={row.tip}
+                        aria-hidden="true"
+                      ></span>
+                    {/if}
+                  </div>
+                </div>
+              {/each}
+            </div>
+          {/if}
+
           <div class="day-tl__caption" aria-live="polite">
-            {#if hoveredBar}
-              {hoveredBar.caption}
+            {#if hoveredRow}
+              {hoveredRow.caption}
             {:else}
-              <span class="day-tl__caption-hint">наведите на область или событие</span>
+              <span class="day-tl__caption-hint">наведите на строку или событие</span>
             {/if}
           </div>
         </div>
+
+        {#if dayLoad.noWindow.length > 0}
+          <div class="day-nowin">
+            <h4 class="day-events__title">Без окна (выданы сегодня)</h4>
+            <ul class="day-nowin__list">
+              {#each dayLoad.noWindow as q (q.id)}
+                <li
+                  class="day-nowin__item"
+                  class:day-nowin__item--hover={hoveredId === q.id}
+                  onmouseenter={() => (hoveredId = q.id)}
+                  onmouseleave={() => (hoveredId = null)}
+                >
+                  <time class="day-events__time">{q.timeLabel}</time>
+                  <button
+                    type="button"
+                    class="day-events__quest"
+                    onclick={() => onSelectQuest?.(q.id)}
+                    oncontextmenu={(e) => openQuestMenu(e, q.id)}
+                  >
+                    {q.title}
+                  </button>
+                </li>
+              {/each}
+            </ul>
+          </div>
+        {/if}
 
         <div class="day-events">
           <h4 class="day-events__title">События дня</h4>
