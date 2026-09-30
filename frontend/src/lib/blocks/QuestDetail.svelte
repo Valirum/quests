@@ -2,6 +2,7 @@
   import Icon from '../ui/Icon.svelte'
   import QuestlineIcon from '../ui/QuestlineIcon.svelte'
   import MarkdownBody from '../ui/MarkdownBody.svelte'
+  import RefText from '../ui/RefText.svelte'
   import AttachmentsBlock from './AttachmentsBlock.svelte'
   import ContextMenu from '../ui/ContextMenu.svelte'
   import { formatLocal, localTimeZone } from '../js/time.js'
@@ -284,7 +285,7 @@
         >
           <span class="step__mark">{step.done ? '✓' : step.run_status === 'running' ? '▶' : '○'}</span>
           <span class="step__main">
-            <span class="step__title">{step.title}</span>
+            <RefText class="step__title" source={step.title} {labels} {onRef} />
             {#if step.check_command}
               <span
                 class="step__auto"
@@ -458,7 +459,9 @@
         </span>
         <div class="detail__line-text">
           <p class="detail__line-eyebrow">Квестлайн</p>
-          <h2 class="detail__line-title">{lineMeta.title}</h2>
+          <h2 class="detail__line-title">
+            <RefText source={lineMeta.title} {labels} {onRef} />
+          </h2>
         </div>
         <span class="detail__line-count">{lineQuests.length}</span>
       </header>
@@ -489,7 +492,7 @@
                   oncontextmenu={(e) => onQuestTitleContextMenu?.(e, q)}
                 >
                   <span class="detail__toc-num">{i + 1}</span>
-                  <span class="detail__toc-title">{q.title}</span>
+                  <RefText class="detail__toc-title" source={q.title} {labels} {onRef} />
                   {#if q.status !== 'active'}
                     <span class="status" style:color={statusColor(q.status)}>{q.status}</span>
                   {/if}
@@ -506,7 +509,9 @@
             <h2
               class="detail__title"
               oncontextmenu={(e) => onQuestTitleContextMenu?.(e, selected)}
-            >{selected.title}</h2>
+            >
+              <RefText source={selected.title} {labels} {onRef} />
+            </h2>
             {@render questActions(selected)}
           </div>
           {@render questEyebrow(selected)}
@@ -551,7 +556,9 @@
           <h2
             class="detail__title"
             oncontextmenu={(e) => onQuestTitleContextMenu?.(e, selected)}
-          >{selected.title}</h2>
+          >
+            <RefText source={selected.title} {labels} {onRef} />
+          </h2>
           {@render questActions(selected)}
         </div>
         {@render questEyebrow(selected)}

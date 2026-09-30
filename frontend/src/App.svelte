@@ -38,6 +38,7 @@
   import QuestlineModal from './lib/modals/QuestlineModal.svelte'
   import TemplatesModal from './lib/modals/TemplatesModal.svelte'
   import SecretsModal from './lib/modals/SecretsModal.svelte'
+  import TagsModal from './lib/modals/TagsModal.svelte'
   import SettingsModal from './lib/modals/SettingsModal.svelte'
   import ConfirmModal from './lib/modals/ConfirmModal.svelte'
   import ContextMenu from './lib/ui/ContextMenu.svelte'
@@ -154,6 +155,7 @@
   )
   let templatesOpen = $state(false)
   let secretsOpen = $state(false)
+  let tagsOpen = $state(false)
   let settingsOpen = $state(false)
   let assistantOpen = $state(false)
   let lineModalOpen = $state(false)
@@ -456,6 +458,10 @@
 
   function openSecrets() {
     secretsOpen = true
+  }
+
+  function openTags() {
+    tagsOpen = true
   }
 
   function openSettings() {
@@ -1286,7 +1292,7 @@
     const onKey = (event) => {
       if (event.key !== 'Escape') return
       if (view !== 'journal') return
-      if (modalOpen || lineModalOpen || templatesOpen || secretsOpen || settingsOpen) return
+      if (modalOpen || lineModalOpen || templatesOpen || secretsOpen || tagsOpen || settingsOpen) return
       if (deleteConfirmOpen || stepDeleteOpen || lineDeleteConfirmOpen || ctxOpen) return
       if (view === 'notes') {
         if (selectedNoteId == null) return
@@ -1327,6 +1333,7 @@
     onOpenSettings={openSettings}
     onOpenTemplates={openTemplates}
     onOpenSecrets={openSecrets}
+    onOpenTags={openTags}
     onOpenCreateQuestline={openCreateQuestline}
     onOpenCreateQuest={() => openCreate()}
     onOpenAssistant={() => (assistantOpen = true)}
@@ -1357,6 +1364,8 @@
     <div class="journal__calendar">
       <ActivityCalendar
         {quests}
+        labels={refLabels}
+        onRef={onJournalRef}
         onSelectQuest={selectQuestFromUi}
         onQuestContextMenu={(event, id) => {
           const quest = quests.find((q) => q.id === id)
@@ -1372,6 +1381,8 @@
         {questlines}
         bind:searchQuery
         {nowMs}
+        labels={refLabels}
+        onRef={onJournalRef}
         onSelectQuest={selectQuestFromUi}
         onLineContextMenu={openLineContextMenu}
         onQuestContextMenu={openQuestContextMenu}
@@ -1434,6 +1445,8 @@
         onLineContextMenu={openLineContextMenu}
         onToggleCategory={toggleCategory}
         onToggleLine={toggleLine}
+        labels={refLabels}
+        onRef={onJournalRef}
       />
       <QuestDetail
         {selected}
@@ -1530,6 +1543,8 @@
 />
 
 <SecretsModal open={secretsOpen} onClose={() => (secretsOpen = false)} />
+
+<TagsModal open={tagsOpen} onClose={() => (tagsOpen = false)} />
 
 <SettingsModal
   open={settingsOpen}

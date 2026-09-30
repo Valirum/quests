@@ -3,6 +3,7 @@
     WEEKDAY_LABELS,
     QUEST_SIGNIFICANCES,
     copyTemplate,
+    emitTemplate,
     createTemplate,
     deleteTemplate,
     listCategories,
@@ -30,6 +31,7 @@
   import ModalShell from './ModalShell.svelte'
   import ModalHead from './ModalHead.svelte'
   import ModalFoot from './ModalFoot.svelte'
+  import { toast } from '../js/toasts.svelte.js'
   import { untrack } from 'svelte'
 
   /** @type {{ open: boolean, quests?: any[], notes?: any[], attachments?: any[], onClose: () => void, onChanged: () => void }} */
@@ -409,6 +411,21 @@
     }
   }
 
+  /** @param {any} t @param {Event} [event] */
+  async function onEmit(t, event) {
+    event?.stopPropagation?.()
+    error = ''
+    try {
+      const q = await emitTemplate(t.id)
+      onChanged()
+      toast(`Эмит: «${q.title || t.title}»`, { kind: 'success' })
+    } catch (e) {
+      const msg = e.message || String(e)
+      error = msg
+      toast(msg, { kind: 'error' })
+    }
+  }
+
   async function confirmDelete() {
     if (!editing?.id) return
     deleting = true
@@ -486,6 +503,15 @@
                 <span class="tpl-row__meta">{rowMeta(t)}</span>
               </button>
               <div class="tpl-row__actions">
+                <button
+                  type="button"
+                  class="btn btn--ghost btn--icon"
+                  onclick={(e) => onEmit(t, e)}
+                  title="Эмитировать сейчас"
+                  aria-label="Эмитировать сейчас"
+                >
+                  <Icon name="renew" size={14} />
+                </button>
                 <button
                   type="button"
                   class="btn btn--ghost btn--icon"

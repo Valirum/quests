@@ -141,6 +141,11 @@ export function copyTemplate(id) {
   return request(`/api/templates/${id}/copy`, { method: 'POST' })
 }
 
+/** Force-materialize one quest from a template (manual emit for testing). */
+export function emitTemplate(id) {
+  return request(`/api/templates/${id}/emit`, { method: 'POST' })
+}
+
 /** Only the secret *names* — GET never returns values, see setTemplateSecret. */
 export async function listTemplateSecrets(templateId) {
   const { keys } = await request(`/api/templates/${templateId}/secrets`)

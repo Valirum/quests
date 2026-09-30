@@ -19,6 +19,7 @@
   import { toast, toastDone, toastProgress } from '../js/toasts.svelte.js'
   import Icon from '../ui/Icon.svelte'
   import MarkdownBody from '../ui/MarkdownBody.svelte'
+  import RefText from '../ui/RefText.svelte'
   import MentionTextarea from '../ui/MentionTextarea.svelte'
   import AttachmentsBlock from './AttachmentsBlock.svelte'
   import ConfirmModal from '../modals/ConfirmModal.svelte'
@@ -1051,7 +1052,7 @@
                       onblur={commitRename}
                     />
                   {:else}
-                    <span class="notes__row-title">{rowTitle(n)}</span>{#if rowDirty(n)}<span
+                    <RefText class="notes__row-title" source={rowTitle(n)} {labels} {onRef} />{#if rowDirty(n)}<span
                         class="notes__unsaved"
                         title="Несохранено">*</span>{/if}
                   {/if}
@@ -1168,7 +1169,7 @@
                 }}
                 title={i === crumbs.length - 1 ? 'Сменить родителя' : `Вложить в «${c.title}»`}
               >
-                {c.title}
+                <RefText source={c.title} {labels} {onRef} />
               </button>
             {/each}
           </nav>
@@ -1465,7 +1466,7 @@
     max-width: 100%;
   }
 
-  .notes__row-title {
+  :global(.notes__row-title) {
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;

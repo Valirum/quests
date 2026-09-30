@@ -12,6 +12,7 @@
    *   onOpenSettings: () => void,
    *   onOpenTemplates: () => void,
    *   onOpenSecrets: () => void,
+   *   onOpenTags: () => void,
    *   onOpenCreateQuestline: () => void,
    *   onOpenCreateQuest: () => void,
    *   onOpenAssistant: () => void,
@@ -26,6 +27,7 @@
     onOpenSettings,
     onOpenTemplates,
     onOpenSecrets,
+    onOpenTags,
     onOpenCreateQuestline,
     onOpenCreateQuest,
     onOpenAssistant,
@@ -70,6 +72,7 @@
       items.push(
         { id: 'templates', label: 'Шаблоны' },
         { id: 'secrets', label: 'Секреты' },
+        { id: 'tags', label: 'Теги' },
         { id: 'questline', label: 'Новый квестлайн' },
       )
     }
@@ -88,6 +91,7 @@
     else if (id === 'settings') onOpenSettings()
     else if (id === 'templates') onOpenTemplates()
     else if (id === 'secrets') onOpenSecrets()
+    else if (id === 'tags') onOpenTags()
     else if (id === 'questline') onOpenCreateQuestline()
   }
 
@@ -381,6 +385,10 @@
       <button type="button" class="btn" onclick={onOpenSecrets} aria-label="Секреты">
         <Icon name="key" />
         <span class="btn__text">Секреты</span>
+      </button>
+      <button type="button" class="btn" onclick={onOpenTags} aria-label="Теги">
+        <Icon name="pin" />
+        <span class="btn__text">Теги</span>
       </button>
       <button type="button" class="btn" onclick={onOpenCreateQuestline} aria-label="Новый квестлайн">
         <Icon name="flag" />

@@ -34,6 +34,7 @@ func (s *Server) registerParity(mux *http.ServeMux) {
 	mux.HandleFunc("PATCH /api/templates/{id}", s.patchTemplate)
 	mux.HandleFunc("DELETE /api/templates/{id}", s.deleteTemplate)
 	mux.HandleFunc("POST /api/templates/{id}/copy", s.copyTemplate)
+	mux.HandleFunc("POST /api/templates/{id}/emit", s.emitTemplate)
 	mux.HandleFunc("GET /api/templates/{id}/secrets", s.listTemplateSecrets)
 	mux.HandleFunc("PUT /api/templates/{id}/secrets/{key}", s.putTemplateSecret)
 	mux.HandleFunc("DELETE /api/templates/{id}/secrets/{key}", s.deleteTemplateSecret)
@@ -328,6 +329,31 @@ func (s *Server) copyTemplate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 201, row)
+}
+
+func (s *Server) emitTemplate(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil || id < 1 {
+		writeErr(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	qid, err := schedule.MaterializeTemplateManual(r.Context(), s.Store, s.Hub, id, timeutil.NowUTC(), nil)
+	if errors.Is(err, schedule.ErrTemplateNotFound) {
+		writeErr(w, http.StatusNotFound, "Template not found")
+		return
+	}
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	q, err := s.Store.GetQuest(r.Context(), qid)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	out := domain.ToQuestRead(q, timeutil.NowUTC())
+	out.Refs = s.resolveRefs(r, refs.Parse(q.Title+"\n"+q.Description))
+	writeJSON(w, http.StatusCreated, out)
 }
 
 func (s *Server) getHero(w http.ResponseWriter, r *http.Request) {

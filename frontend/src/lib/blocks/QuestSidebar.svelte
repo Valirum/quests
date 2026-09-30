@@ -1,5 +1,6 @@
 <script>
   import Icon from '../ui/Icon.svelte'
+  import RefText from '../ui/RefText.svelte'
   import QuestlineIcon from '../ui/QuestlineIcon.svelte'
   import {
     isQuestInactive,
@@ -37,6 +38,8 @@
    *   scopeQuestlineOptions: any[],
    *   onScopeCategory: (id: number | null) => void,
    *   onScopeQuestline: (id: number | null) => void,
+   *   labels?: Record<string, string>,
+   *   onRef?: (kind: string, id: number) => void,
    * }} */
   let {
     loading,
@@ -65,6 +68,8 @@
     scopeQuestlineOptions,
     onScopeCategory,
     onScopeQuestline,
+    labels = {},
+    onRef,
   } = $props()
 
   function onScopeCategoryChange(event) {
@@ -139,7 +144,7 @@
       oncontextmenu={(e) => onQuestContextMenu(e, q)}
     >
       <span class="quest-row__top">
-        <span class="quest-row__title">{q.title}</span>
+        <RefText class="quest-row__title" source={q.title} {labels} {onRef} />
         <span
           class="pin-btn"
           class:pin-btn--on={q.pinned}

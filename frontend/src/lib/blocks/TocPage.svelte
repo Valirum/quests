@@ -8,6 +8,7 @@
   } from '../js/api.js'
   import { groupQuestsByCategory } from '../js/questGroups.js'
   import { questTimer, significanceLabel, statusColor } from '../js/questFormat.js'
+  import RefText from '../ui/RefText.svelte'
 
   /** @type {{
    *   matchedQuests: any[],
@@ -15,6 +16,8 @@
    *   questlines: any[],
    *   searchQuery: string,
    *   nowMs: number,
+   *   labels?: Record<string, string>,
+   *   onRef?: (kind: string, id: number) => void,
    *   onSelectQuest: (id: number) => void,
    *   onLineContextMenu: (event: MouseEvent, line: any) => void,
    *   onQuestContextMenu: (event: MouseEvent, quest: any) => void,
@@ -25,6 +28,8 @@
     questlines = [],
     searchQuery = $bindable(''),
     nowMs,
+    labels = {},
+    onRef,
     onSelectQuest,
     onLineContextMenu,
     onQuestContextMenu,
@@ -186,7 +191,7 @@
                 oncontextmenu={(e) => onQuestContextMenu?.(e, q)}
               >
                 <span class="toc-quest__bullet" aria-hidden="true"></span>
-                <span class="toc-quest__title">{q.title}</span>
+                <RefText class="toc-quest__title" source={q.title} {labels} {onRef} />
                 <span class="toc-quest__leader" aria-hidden="true"></span>
                 {#if q.significance && q.significance !== 'common'}
                   <span class="toc-quest__sig">{significanceLabel(q)}</span>
@@ -210,7 +215,7 @@
                   oncontextmenu={(e) => onLineContextMenu?.(e, line)}
                 >
                   <QuestlineIcon icon={line.icon} iconUrl={line.icon_url} size="sm" />
-                  <span class="toc-line__title">{line.title}</span>
+                  <RefText class="toc-line__title" source={line.title} {labels} {onRef} />
                   <span class="toc-line__leader" aria-hidden="true"></span>
                   <span class="toc-line__count">{line.quests.length}</span>
                 </button>
@@ -385,11 +390,11 @@
     text-align: left;
   }
 
-  .toc-line__head:hover .toc-line__title {
+  .toc-line__head:hover :global(.toc-line__title) {
     color: var(--line-color, var(--color-accent));
   }
 
-  .toc-line__title {
+  :global(.toc-line__title) {
     font-family: var(--font-display);
     font-size: var(--text-lg);
     color: var(--color-fg);
@@ -451,23 +456,23 @@
     background: var(--color-sig-legendary);
   }
 
-  .toc-quest__title {
+  :global(.toc-quest__title) {
     font-size: var(--text-md);
     color: var(--color-fg-muted);
   }
 
-  .toc-quest[data-sig="uncommon"] .toc-quest__title {
+  .toc-quest[data-sig="uncommon"] :global(.toc-quest__title) {
     color: var(--color-sig-uncommon-on);
   }
-  .toc-quest[data-sig="epic"] .toc-quest__title {
+  .toc-quest[data-sig="epic"] :global(.toc-quest__title) {
     color: var(--color-sig-epic-on);
   }
-  .toc-quest[data-sig="legendary"] .toc-quest__title {
+  .toc-quest[data-sig="legendary"] :global(.toc-quest__title) {
     color: var(--color-sig-legendary-on);
     font-weight: 600;
   }
 
-  .toc-quest:hover .toc-quest__title {
+  .toc-quest:hover :global(.toc-quest__title) {
     color: var(--color-fg);
   }
 
@@ -526,7 +531,7 @@
     animation: toc-timer-pulse 1.4s ease-in-out infinite;
   }
 
-  .toc-quest[data-timer-tone="red"] .toc-quest__title {
+  .toc-quest[data-timer-tone="red"] :global(.toc-quest__title) {
     animation: toc-title-jitter 2.2s ease-in-out infinite;
   }
 
@@ -573,7 +578,7 @@
       align-self: flex-start;
       margin-top: 0.55em;
     }
-    .toc-quest__title {
+    :global(.toc-quest__title) {
       flex: 1 1 auto;
       min-width: 0;
     }
@@ -590,7 +595,7 @@
   }
   @media (prefers-reduced-motion: reduce) {
     .toc-quest__timer[data-tone="red"],
-    .toc-quest[data-timer-tone="red"] .toc-quest__title {
+    .toc-quest[data-timer-tone="red"] :global(.toc-quest__title) {
       animation: none;
     }
   }

@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math/rand"
 	"os"
@@ -923,4 +924,163 @@ func applyPoolQuestDescription(tmplDesc, poolDesc string) string {
 		return poolDesc
 	}
 	return tmplDesc
+}
+
+// ErrTemplateNotFound is returned by MaterializeTemplateManual when id is missing.
+var ErrTemplateNotFound = errors.New("template not found")
+
+func loadTemplateRow(ctx context.Context, st *store.Store, id int64) (templateRow, error) {
+	var t templateRow
+	var pinned, enabled, automated int
+	err := st.DB.QueryRowContext(ctx, `
+		SELECT id, title, description, pinned, sort_order, duration_seconds, freq, weekdays,
+			enabled, timezone, deadline_time, significance, emit_mode, emit_chance,
+			emit_window_start, emit_window_end, emit_pool_command, emit_pool_pick,
+			reward_attrs, category_id, questline_id, automated
+		FROM questtemplate WHERE id = ?`, id).Scan(
+		&t.ID, &t.Title, &t.Description, &pinned, &t.SortOrder, &t.DurationSeconds, &t.Freq, &t.Weekdays,
+		&enabled, &t.Timezone, &t.DeadlineTime, &t.Significance, &t.EmitMode, &t.EmitChance,
+		&t.EmitWindowStart, &t.EmitWindowEnd, &t.EmitPoolCommand, &t.EmitPoolPick,
+		&t.RewardAttrs, &t.CategoryID, &t.QuestlineID, &automated,
+	)
+	if err == sql.ErrNoRows {
+		return templateRow{}, ErrTemplateNotFound
+	}
+	if err != nil {
+		return templateRow{}, err
+	}
+	t.Pinned = pinned != 0
+	t.Enabled = enabled != 0
+	t.Automated = automated != 0
+	return t, nil
+}
+
+// MaterializeTemplateManual creates one quest from a template immediately (GUI
+// testing). It skips weekday schedule, the daily period_key slot, surprise
+// chance/window rolls, and emit-pool time gates. Each call uses period_key
+// manual-<unix> so repeated emits never collide. When emit_pool_command is set
+// it still runs once for that key; an empty pool or command error falls back to
+// template steps instead of inserting a failed quest like the scheduler does.
+func MaterializeTemplateManual(ctx context.Context, st *store.Store, hub *events.Hub, templateID int64, now time.Time, rng *rand.Rand) (int64, error) {
+	if rng == nil {
+		rng = rand.New(rand.NewSource(time.Now().UnixNano()))
+	}
+	if now.IsZero() {
+		now = timeutil.NowUTC()
+	}
+	tmpl, err := loadTemplateRow(ctx, st, templateID)
+	if err != nil {
+		return 0, err
+	}
+	tzName := tmpl.Timezone
+	if tzName == "" {
+		tzName = defaultTZ()
+	}
+	loc, err := time.LoadLocation(tzName)
+	if err != nil {
+		loc, _ = time.LoadLocation(defaultTZ())
+		if loc == nil {
+			loc = time.UTC
+		}
+	}
+	localNow := now.In(loc)
+	key := fmt.Sprintf("manual-%d", now.Unix())
+
+	emitMode := strings.ToLower(strings.TrimSpace(tmpl.EmitMode))
+	var deadline *time.Time
+	var duration *int
+	if emitMode == "surprise" || emitMode == "random" || emitMode == "chance" {
+		deadline, duration = surpriseDeadline(tmpl, now)
+	} else {
+		deadline, duration = fixedDeadline(tmpl, localNow, loc)
+	}
+
+	usePool := tmpl.EmitPoolCommand.Valid && strings.TrimSpace(tmpl.EmitPoolCommand.String) != ""
+	var poolRollID int64
+	var poolQuestDesc string
+	var steps []domain.Step
+	if usePool {
+		items, rollID, _, perr := resolveEmitPool(ctx, st, tmpl, key, now, rng)
+		if perr != nil {
+			return 0, perr
+		}
+		poolRollID = rollID
+		if len(items) == 0 {
+			steps, err = loadTemplateSteps(ctx, st, tmpl, rng)
+			if err != nil {
+				return 0, err
+			}
+		} else {
+			steps = stepsFromPoolItems(items)
+			poolQuestDesc = questDescriptionFromPool(items)
+		}
+	} else {
+		steps, err = loadTemplateSteps(ctx, st, tmpl, rng)
+		if err != nil {
+			return 0, err
+		}
+	}
+
+	desc := applyPoolQuestDescription(tmpl.Description, poolQuestDesc)
+	q := domain.Quest{
+		Title:           tmpl.Title,
+		Description:     desc,
+		Status:          domain.StatusActive,
+		Significance:    domain.Significance(tmpl.Significance),
+		Pinned:          tmpl.Pinned,
+		SortOrder:       tmpl.SortOrder,
+		DeadlineAt:      deadline,
+		DurationSeconds: duration,
+		CreatedAt:       now,
+		UpdatedAt:       now,
+		Automated:       tmpl.Automated,
+		Steps:           steps,
+	}
+	if tmpl.Significance == "" {
+		q.Significance = domain.SigCommon
+	}
+	if tmpl.RewardAttrs.Valid {
+		s := tmpl.RewardAttrs.String
+		q.RewardAttrs = &s
+	}
+	if tmpl.CategoryID.Valid {
+		v := tmpl.CategoryID.Int64
+		q.CategoryID = &v
+	}
+	if tmpl.QuestlineID.Valid {
+		v := tmpl.QuestlineID.Int64
+		q.QuestlineID = &v
+	}
+	tid := tmpl.ID
+	q.TemplateID = &tid
+	pk := key
+	q.PeriodKey = &pk
+
+	createdQ, err := st.CreateQuestAppeared(ctx, q)
+	if err != nil {
+		return 0, err
+	}
+	if err := st.CopyTemplateTagsToQuest(ctx, tmpl.ID, createdQ.ID); err != nil {
+		return 0, err
+	}
+	if usePool && poolRollID != 0 {
+		_, _ = st.DB.ExecContext(ctx, `
+			UPDATE templateemitroll SET outcome = 'materialized', updated_at = ? WHERE id = ?`,
+			timeutil.ToDBUTC(now), poolRollID)
+	}
+	qid := createdQ.ID
+	if hub != nil {
+		hub.Publish("quest_appeared", events.PublishOpts{
+			QuestID:      &qid,
+			Title:        createdQ.Title,
+			Description:  createdQ.Description,
+			Detail:       "Ручной эмит (" + key + ")",
+			Toast:        true,
+			Source:       "system",
+			Significance: string(createdQ.Significance),
+			Automated:    createdQ.Automated,
+			Sound:        strPtr("quest_created"),
+		})
+	}
+	return qid, nil
 }

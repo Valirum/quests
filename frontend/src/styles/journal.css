@@ -2349,11 +2349,13 @@
     font-weight: 600;
   }
 
-  .md a {
+  .md a,
+  .md-ref {
     color: var(--color-accent, #c9a227);
   }
 
-  .md a:hover {
+  .md a:hover,
+  .md-ref:hover {
     text-decoration: underline;
   }
 

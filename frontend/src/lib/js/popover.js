@@ -14,6 +14,7 @@ const EDGE = 8
  * @param {HTMLElement} anchor
  * @param {HTMLElement} pop
  * @param {{ gap?: number, matchWidth?: boolean, align?: 'start' | 'end' }} [opts]
+ * @returns {'below' | 'above'}
  */
 export function placePopover(anchor, pop, { gap = 4, matchWidth = false, align = 'start' } = {}) {
   const r = anchor.getBoundingClientRect()
@@ -25,9 +26,14 @@ export function placePopover(anchor, pop, { gap = 4, matchWidth = false, align =
   let left = align === 'end' ? r.right - pw : r.left
   left = Math.max(EDGE, Math.min(left, vw - pw - EDGE))
   let top = r.bottom + gap
-  if (top + ph > vh - EDGE && r.top - gap - ph >= EDGE) top = r.top - gap - ph
+  let placement = /** @type {'below' | 'above'} */ ('below')
+  if (top + ph > vh - EDGE && r.top - gap - ph >= EDGE) {
+    top = r.top - gap - ph
+    placement = 'above'
+  }
   pop.style.left = `${Math.round(left)}px`
   pop.style.top = `${Math.round(Math.max(EDGE, top))}px`
+  return placement
 }
 
 /**

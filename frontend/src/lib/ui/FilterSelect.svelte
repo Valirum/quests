@@ -20,6 +20,7 @@
   let triggerEl = $state(/** @type {HTMLButtonElement | null} */ (null))
   let popEl = $state(/** @type {HTMLDivElement | null} */ (null))
   let listEl = $state(/** @type {HTMLUListElement | null} */ (null))
+  let popPlacement = $state(/** @type {'below' | 'above'} */ ('below'))
 
   let allOn = $derived(options.length > 0 && options.every((o) => selected.has(o.id)))
 
@@ -32,7 +33,9 @@
   })
 
   function place() {
-    if (open && triggerEl && popEl) placePopover(triggerEl, popEl, { matchWidth: true })
+    if (open && triggerEl && popEl) {
+      popPlacement = placePopover(triggerEl, popEl, { matchWidth: true, gap: -1 })
+    }
   }
 
   async function openList() {
@@ -114,6 +117,9 @@
     bind:this={triggerEl}
     type="button"
     class="fsel__btn"
+    class:fsel__btn--open={open}
+    class:fsel__btn--below={open && popPlacement === 'below'}
+    class:fsel__btn--above={open && popPlacement === 'above'}
     aria-haspopup="listbox"
     aria-expanded={open}
     aria-label="{label}: {summary}"
@@ -126,7 +132,13 @@
 </div>
 
 {#if open}
-  <div bind:this={popEl} class="fsel__pop" data-own-escape>
+  <div
+    bind:this={popEl}
+    class="fsel__pop"
+    class:fsel__pop--below={popPlacement === 'below'}
+    class:fsel__pop--above={popPlacement === 'above'}
+    data-own-escape
+  >
     <ul
       bind:this={listEl}
       class="fsel__list"
@@ -224,10 +236,24 @@
     cursor: pointer;
   }
 
-  .fsel__btn:focus-visible,
-  .fsel__pop:focus-within {
-    outline: 1px solid var(--color-accent, #c9a227);
+  .fsel__btn:focus-visible {
+    outline: 1px solid var(--color-border-strong, #4a4a4a);
     outline-offset: 1px;
+  }
+
+  .fsel__btn--open {
+    border-color: var(--color-border-strong, #4a4a4a);
+    z-index: 81;
+  }
+
+  .fsel__btn--open.fsel__btn--below {
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 0;
+  }
+
+  .fsel__btn--open.fsel__btn--above {
+    border-top-left-radius: 0;
+    border-top-right-radius: 0;
   }
 
   .fsel__list:focus {
@@ -258,9 +284,20 @@
     padding: 0.25rem;
     overflow: auto;
     border: 1px solid var(--color-border-strong, #4a4a4a);
-    border-radius: var(--radius-lg, 12px);
+    border-radius: var(--radius-md, 4px);
     background: var(--color-bg-raised, #1a1a1a);
     box-shadow: 0 10px 28px color-mix(in srgb, #000 40%, transparent);
+    outline: none;
+  }
+
+  .fsel__pop--below {
+    border-top-left-radius: 0;
+    border-top-right-radius: 0;
+  }
+
+  .fsel__pop--above {
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 0;
   }
 
   .fsel__list {

@@ -4,9 +4,16 @@
   import { QUEST_STATUS_LABELS } from '../js/api.js'
   import { statusColor } from '../js/questFormat.js'
   import Icon from '../ui/Icon.svelte'
+  import RefText from '../ui/RefText.svelte'
 
-  /** @type {{ quests?: any[], onSelectQuest?: (id: number) => void, onQuestContextMenu?: (event: MouseEvent, id: number) => void }} */
-  let { quests = [], onSelectQuest, onQuestContextMenu } = $props()
+  /** @type {{
+   *   quests?: any[],
+   *   labels?: Record<string, string>,
+   *   onRef?: (kind: string, id: number) => void,
+   *   onSelectQuest?: (id: number) => void,
+   *   onQuestContextMenu?: (event: MouseEvent, id: number) => void,
+   * }} */
+  let { quests = [], labels = {}, onRef, onSelectQuest, onQuestContextMenu } = $props()
 
   /** @param {MouseEvent} event @param {number} id */
   function openQuestMenu(event, id) {
@@ -564,7 +571,7 @@
                         style:background={statusColor(item.status)}
                         aria-hidden="true"
                       ></span>
-                      <span class="cal-card__title">{item.title}</span>
+                      <RefText class="cal-card__title" source={item.title} {labels} {onRef} />
                       <span class="cal-card__time">{item.timeLabel}</span>
                     </button>
                   {/each}
@@ -685,7 +692,7 @@
                       style:background={statusColor(row.status)}
                       aria-hidden="true"
                     ></span>
-                    <span class="day-board__title">{row.title}</span>
+                    <RefText class="day-board__title" source={row.title} {labels} {onRef} />
                   </button>
                   <div class="day-board__track">
                     {#each HOUR_TICKS as h}
@@ -750,7 +757,7 @@
                     onclick={() => onSelectQuest?.(q.id)}
                     oncontextmenu={(e) => openQuestMenu(e, q.id)}
                   >
-                    {q.title}
+                    <RefText source={q.title} {labels} {onRef} />
                   </button>
                 </li>
               {/each}
@@ -787,7 +794,7 @@
                     onclick={() => onSelectQuest?.(Number(ev.quest.id))}
                     oncontextmenu={(e) => openQuestMenu(e, Number(ev.quest.id))}
                   >
-                    {ev.quest.title || '?'}
+                    <RefText source={ev.quest.title || '?'} {labels} {onRef} />
                   </button>
                 </li>
               {/each}

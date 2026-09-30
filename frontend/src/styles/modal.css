@@ -159,6 +159,19 @@
   outline-offset: 1px;
 }
 
+/* TagField: one border on .tag-field__chips only — inner input is borderless. */
+.modal .tag-field__chips :is(input, textarea, select) {
+  width: auto;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.modal .tag-field__input:focus-visible {
+  outline: none;
+}
+
 .modal :is(input, textarea, select):disabled {
   opacity: 0.5;
   cursor: not-allowed;
