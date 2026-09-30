@@ -400,33 +400,33 @@
     </button>
   </div>
   {#snippet fullActions()}
-    <button type="button" class="btn" onclick={onOpenAssistant} aria-label="Командная строка журнала">
+    <button type="button" class="btn" title="Команда" aria-label="Командная строка журнала">
       <Icon name="terminal" />
       <span class="btn__text">Команда</span>
     </button>
-    <button type="button" class="btn" onclick={onOpenSettings} aria-label="Настройки">
+    <button type="button" class="btn" title="Настройки" aria-label="Настройки">
       <Icon name="settings" />
       <span class="btn__text">Настройки</span>
     </button>
     {#if view === 'journal' || view === 'toc' || view === 'notes'}
-      <button type="button" class="btn" onclick={onOpenTemplates} aria-label="Шаблоны периодики">
+      <button type="button" class="btn" title="Шаблоны" aria-label="Шаблоны периодики">
         <Icon name="repeat" />
         <span class="btn__text">Шаблоны</span>
       </button>
-      <button type="button" class="btn" onclick={onOpenSecrets} aria-label="Секреты">
+      <button type="button" class="btn" title="Секреты" aria-label="Секреты">
         <Icon name="key" />
         <span class="btn__text">Секреты</span>
       </button>
-      <button type="button" class="btn" onclick={onOpenTags} aria-label="Теги">
+      <button type="button" class="btn" title="Теги" aria-label="Теги">
         <Icon name="pin" />
         <span class="btn__text">Теги</span>
       </button>
-      <button type="button" class="btn" onclick={onOpenCreateQuestline} aria-label="Новый квестлайн">
+      <button type="button" class="btn" title="Квестлайн" aria-label="Новый квестлайн">
         <Icon name="flag" />
         <span class="btn__text">Квестлайн</span>
       </button>
     {/if}
-    <button type="button" class="btn btn--accent" onclick={onOpenCreateQuest} aria-label="Новый квест">
+    <button type="button" class="btn btn--accent" title="Новый квест" aria-label="Новый квест">
       <Icon name="add" />
       <span class="btn__text">Новый квест</span>
     </button>
@@ -437,30 +437,48 @@
     class:header-actions--icons={actionsMode !== 'full'}
     bind:this={actionsEl}
   >
-    <button type="button" class="btn" onclick={onOpenAssistant} aria-label="Командная строка журнала">
+    <button
+      type="button"
+      class="btn"
+      title="Команда"
+      onclick={onOpenAssistant}
+      aria-label="Командная строка журнала"
+    >
       <Icon name="terminal" />
       <span class="btn__text">Команда</span>
     </button>
     {#if showSettingsBtn}
-      <button type="button" class="btn" onclick={onOpenSettings} aria-label="Настройки">
+      <button type="button" class="btn" title="Настройки" onclick={onOpenSettings} aria-label="Настройки">
         <Icon name="settings" />
         <span class="btn__text">Настройки</span>
       </button>
     {/if}
     {#if showLowBtns}
-      <button type="button" class="btn" onclick={onOpenTemplates} aria-label="Шаблоны периодики">
+      <button
+        type="button"
+        class="btn"
+        title="Шаблоны"
+        onclick={onOpenTemplates}
+        aria-label="Шаблоны периодики"
+      >
         <Icon name="repeat" />
         <span class="btn__text">Шаблоны</span>
       </button>
-      <button type="button" class="btn" onclick={onOpenSecrets} aria-label="Секреты">
+      <button type="button" class="btn" title="Секреты" onclick={onOpenSecrets} aria-label="Секреты">
         <Icon name="key" />
         <span class="btn__text">Секреты</span>
       </button>
-      <button type="button" class="btn" onclick={onOpenTags} aria-label="Теги">
+      <button type="button" class="btn" title="Теги" onclick={onOpenTags} aria-label="Теги">
         <Icon name="pin" />
         <span class="btn__text">Теги</span>
       </button>
-      <button type="button" class="btn" onclick={onOpenCreateQuestline} aria-label="Новый квестлайн">
+      <button
+        type="button"
+        class="btn"
+        title="Квестлайн"
+        onclick={onOpenCreateQuestline}
+        aria-label="Новый квестлайн"
+      >
         <Icon name="flag" />
         <span class="btn__text">Квестлайн</span>
       </button>
@@ -469,6 +487,7 @@
       <button
         type="button"
         class="btn btn--overflow"
+        title="Ещё"
         onclick={openMenu}
         aria-haspopup="menu"
         aria-expanded={menuOpen}
@@ -477,7 +496,13 @@
         <Icon name="more" />
       </button>
     {/if}
-    <button type="button" class="btn btn--accent" onclick={onOpenCreateQuest} aria-label="Новый квест">
+    <button
+      type="button"
+      class="btn btn--accent"
+      title="Новый квест"
+      onclick={onOpenCreateQuest}
+      aria-label="Новый квест"
+    >
       <Icon name="add" />
       <span class="btn__text">Новый квест</span>
     </button>

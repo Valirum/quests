@@ -328,27 +328,31 @@
     font-size: var(--text-sm, 0.875rem);
   }
 
-  /* Beat .modal input { width:100% } — color must not eat the label. */
+  /* Beat .modal input { width:100% } — label fills; color is ~#rrggbb. */
   .tag-row :global(input.tag-row__label) {
-    flex: 0 0 4.5rem;
+    flex: 1 1 auto;
     box-sizing: border-box;
-    width: 4.5rem;
-    min-width: 4.5rem;
-    max-width: 4.5rem;
+    width: auto;
+    min-width: 3rem;
+    max-width: none;
     height: 1.9rem;
     padding: 0.2rem 0.4rem;
   }
 
   .tag-row :global(input.tag-row__color) {
-    flex: 0 0 5.5rem;
+    flex: 0 0 auto;
     box-sizing: border-box;
-    width: 5.5rem;
-    min-width: 5.5rem;
-    max-width: 5.5rem;
+    width: calc(7ch + 1.25rem);
+    min-width: calc(7ch + 1.25rem);
+    max-width: calc(7ch + 1.25rem);
     height: 1.9rem;
-    padding: 0.2rem 0.4rem;
+    padding: 0.2rem 0.45rem;
     font-family: var(--font-mono, monospace);
     font-size: var(--text-xs, 0.75rem);
+  }
+
+  .tag-row :global(.btn) {
+    flex: none;
   }
 
   .add-row {
