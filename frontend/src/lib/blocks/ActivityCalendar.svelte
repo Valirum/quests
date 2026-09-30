@@ -5,8 +5,15 @@
   import { statusColor } from '../js/questFormat.js'
   import Icon from '../ui/Icon.svelte'
 
-  /** @type {{ quests?: any[], onSelectQuest?: (id: number) => void }} */
-  let { quests = [], onSelectQuest } = $props()
+  /** @type {{ quests?: any[], onSelectQuest?: (id: number) => void, onQuestContextMenu?: (event: MouseEvent, id: number) => void }} */
+  let { quests = [], onSelectQuest, onQuestContextMenu } = $props()
+
+  /** @param {MouseEvent} event @param {number} id */
+  function openQuestMenu(event, id) {
+    event.preventDefault()
+    event.stopPropagation()
+    onQuestContextMenu?.(event, id)
+  }
 
   const WEEKDAYS = ['пн', 'вт', 'ср', 'чт', 'пт', 'сб', 'вс']
   const HOUR_TICKS = [0, 6, 12, 18, 24]
@@ -500,6 +507,7 @@
                       data-status={item.status}
                       title={item.title}
                       onclick={() => onSelectQuest?.(item.id)}
+                      oncontextmenu={(e) => openQuestMenu(e, item.id)}
                     >
                       <span
                         class="cal-card__status"
@@ -600,6 +608,7 @@
                 title={bar.tip}
                 onmouseenter={() => (hoveredId = bar.id)}
                 onclick={() => onSelectQuest?.(bar.id)}
+                oncontextmenu={(e) => openQuestMenu(e, bar.id)}
               ></button>
               {#if bar.marker != null}
                 <span
@@ -653,6 +662,7 @@
                     type="button"
                     class="day-events__quest"
                     onclick={() => onSelectQuest?.(Number(ev.quest.id))}
+                    oncontextmenu={(e) => openQuestMenu(e, Number(ev.quest.id))}
                   >
                     {ev.quest.title || '?'}
                   </button>

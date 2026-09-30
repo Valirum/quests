@@ -1,7 +1,7 @@
 """Style-pack loader for overlay (HUD + major/minor notices).
 
 Swap packs: QUESTS_STYLE_PACK=<id>, overlay.json, or apply_style_pack().
-Built-ins: fantasy, cyberpunk, gruvbox, nord, rose, ember, ink, ocean.
+Built-ins: fantasy, cyberpunk, gruvbox, nord, rose, ember, ink, ocean, quiet.
 CSS hot-reload: reload_pack_module + CssProvider.load_from_string.
 """
 
@@ -84,6 +84,10 @@ def pack_meta(name: str | None = None) -> dict:
         "font_body": getattr(mod, "FONT_BODY", "serif"),
         "passthrough_bg_rgb": (r, g, b),
         "passthrough_radius": int(getattr(mod, "PASSTHROUGH_RADIUS", 8)),
+        "hud_pad_y": int(getattr(mod, "HUD_PAD_Y", 12)),
+        "hud_pad_x": int(getattr(mod, "HUD_PAD_X", 14)),
+        "hud_min_width": int(getattr(mod, "HUD_MIN_WIDTH", 280)),
+        "major_pad_x": int(getattr(mod, "MAJOR_PAD_X", 48)),
     }
 
 
@@ -98,6 +102,8 @@ def build_passthrough_css(
     meta = pack_meta(name)
     r, g, b = meta["passthrough_bg_rgb"]
     radius = int(meta.get("passthrough_radius") or 8)
+    hud_pad = f"{int(meta.get('hud_pad_y') or 12)}px {int(meta.get('hud_pad_x') or 14)}px"
+    hud_min = int(meta.get("hud_min_width") or 280)
     a = max(0.0, min(1.0, float(alpha)))
     ta = max(0.0, min(1.0, float(text_alpha)))
     mode_key = "full" if str(mode).strip().lower() in {"full", "panel", "solid"} else "chips"
@@ -115,8 +121,8 @@ window.hud-window--passthrough {{
   border-radius: {radius}px;
 }}
 .hud:not(.hud--interactive) {{
-  padding: 12px 14px;
-  min-width: 280px;
+  padding: {hud_pad};
+  min-width: {hud_min}px;
 }}
 .hud:not(.hud--interactive) .hud-chip {{
   background-color: transparent;

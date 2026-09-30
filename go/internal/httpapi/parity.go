@@ -90,6 +90,7 @@ func (s *Server) createQuestline(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
+	s.publishSilent("questline_created", questlineTitle(row), map[string]any{"questline_id": row["id"]})
 	writeJSON(w, 201, row)
 }
 
@@ -109,11 +110,22 @@ func (s *Server) patchQuestline(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
+	s.publishSilent("questline_updated", questlineTitle(row), map[string]any{"questline_id": id})
 	writeJSON(w, 200, row)
 }
 
 func (s *Server) deleteQuestline(w http.ResponseWriter, r *http.Request) {
 	id, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	row, err := s.Store.GetQuestline(r.Context(), id)
+	if errors.Is(err, store.ErrNotFound) {
+		writeErr(w, 404, "Questline not found")
+		return
+	}
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	title := questlineTitle(row)
 	s.purgeOwnerAttachments(r.Context(), ownerQuestline, id)
 	if err := s.Store.DeleteQuestline(r.Context(), id, s.DataDir); err != nil {
 		if errors.Is(err, store.ErrNotFound) {
@@ -123,7 +135,13 @@ func (s *Server) deleteQuestline(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
+	s.publishSilent("questline_deleted", title, map[string]any{"questline_id": id})
 	w.WriteHeader(204)
+}
+
+func questlineTitle(row map[string]any) string {
+	title, _ := row["title"].(string)
+	return title
 }
 
 func questlineCustomIcon(row map[string]any) string {
@@ -199,6 +217,7 @@ func (s *Server) postQuestlineIcon(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
+	s.publishSilent("questline_updated", questlineTitle(row), map[string]any{"questline_id": id})
 	writeJSON(w, 200, row)
 }
 
@@ -213,6 +232,7 @@ func (s *Server) deleteQuestlineIcon(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
+	s.publishSilent("questline_updated", questlineTitle(row), map[string]any{"questline_id": id})
 	writeJSON(w, 200, row)
 }
 

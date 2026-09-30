@@ -381,7 +381,7 @@
 
   <div class="block">
     <h3 class="block__label">Вложения</h3>
-    <AttachmentsBlock ownerType="quest" ownerId={q.id} />
+    <AttachmentsBlock ownerType="quest" ownerId={q.id} onOpenOwner={onRef} />
   </div>
 
   {#if linkedNotes.length}
@@ -464,7 +464,7 @@
 
       <div class="detail__line-attach">
         <h3 class="block__label">Вложения квестлайна</h3>
-        <AttachmentsBlock ownerType="questline" ownerId={selected.questline_id} />
+        <AttachmentsBlock ownerType="questline" ownerId={selected.questline_id} onOpenOwner={onRef} />
       </div>
 
       {#if lineQuests.length > 1}

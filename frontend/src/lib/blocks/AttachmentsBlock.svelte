@@ -1,5 +1,6 @@
 <script>
   import Icon from '../ui/Icon.svelte'
+  import ContextMenu from '../ui/ContextMenu.svelte'
   import {
     deleteAttachment,
     listAttachments,
@@ -7,14 +8,16 @@
     uploadAttachment,
     attachmentDownloadUrl,
   } from '../js/api.js'
+  import { copyText } from '../js/clipboard.js'
+  import { toast } from '../js/toasts.svelte.js'
   import {
     peekAttachmentList,
     setAttachmentList,
     onAttachmentLiveInvalidate,
   } from '../js/attachmentCache.js'
 
-  /** @type {{ ownerType: 'quest' | 'questline' | 'note', ownerId: number }} */
-  let { ownerType, ownerId } = $props()
+  /** @type {{ ownerType: 'quest' | 'questline' | 'note', ownerId: number, onOpenOwner?: (kind: string, id: number) => void }} */
+  let { ownerType, ownerId, onOpenOwner } = $props()
 
   /** @type {any[]} */
   let items = $state([])
@@ -26,6 +29,76 @@
   let commentDraft = $state({})
   /** @type {number | null} */
   let commentBusy = $state(null)
+  let ctxOpen = $state(false)
+  let ctxX = $state(0)
+  let ctxY = $state(0)
+  let ctxAtt = $state(/** @type {any | null} */ (null))
+
+  let ctxItems = $derived.by(() => {
+    const a = ctxAtt
+    if (!a) return []
+    /** @type {{ id: string, label?: string, sep?: boolean, danger?: boolean, disabled?: boolean }[]} */
+    const items = [
+      { id: 'download', label: 'Скачать', disabled: a.available === false },
+    ]
+    if (onOpenOwner) items.push({ id: 'open', label: 'Открыть владельца' })
+    items.push(
+      { id: 'copy-id', label: `Копировать attachment=${a.id}` },
+      { id: 'sep-danger', sep: true },
+      { id: 'delete', label: 'Удалить', danger: true },
+    )
+    return items
+  })
+
+  /** @param {MouseEvent} event @param {any} a */
+  function openAttMenu(event, a) {
+    const target = event.target
+    if (target instanceof Element && target.closest('a, button, input, textarea')) return
+    event.preventDefault()
+    event.stopPropagation()
+    ctxAtt = a
+    ctxX = event.clientX
+    ctxY = event.clientY
+    ctxOpen = true
+  }
+
+  function downloadAtt(a) {
+    const link = document.createElement('a')
+    link.href = attachmentDownloadUrl(ownerType, ownerId, a.id)
+    link.download = a.filename || ''
+    link.rel = 'noopener'
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+  }
+
+  async function onAttSelect(action) {
+    const a = ctxAtt
+    if (!a) return
+    if (action === 'download') {
+      if (a.available === false) return
+      downloadAtt(a)
+      return
+    }
+    if (action === 'open') {
+      onOpenOwner?.(ownerType, Number(ownerId))
+      return
+    }
+    if (action === 'copy-id') {
+      try {
+        const text = `attachment=${a.id}`
+        await copyText(text)
+        toast(`Скопировано ${text}`, { kind: 'success', ttl: 1600 })
+      } catch (e) {
+        toast(e?.message || String(e), { kind: 'error' })
+      }
+      return
+    }
+    if (action === 'delete') {
+      await remove(a)
+      if (!error) toast('Вложение удалено', { kind: 'success' })
+    }
+  }
 
   function draftsFrom(rows) {
     const drafts = /** @type {Record<number, string>} */ ({})
@@ -176,7 +249,11 @@
     <ul class="attach__list">
       {#each items as a (a.id)}
         {@const unavailable = a.available === false}
-        <li class="attach__row" class:attach__row--off={unavailable}>
+        <li
+          class="attach__row"
+          class:attach__row--off={unavailable}
+          oncontextmenu={(e) => openAttMenu(e, a)}
+        >
           <span class="attach__file">
             <span class="attach__name">{a.filename}</span>
             <span class="attach__meta">
@@ -261,3 +338,12 @@
     />
   </div>
 </div>
+
+<ContextMenu
+  open={ctxOpen}
+  x={ctxX}
+  y={ctxY}
+  items={ctxItems}
+  onSelect={onAttSelect}
+  onClose={() => (ctxOpen = false)}
+/>

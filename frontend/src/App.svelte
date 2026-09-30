@@ -4,6 +4,7 @@
   import { cubicOut } from 'svelte/easing'
   import {
     deleteQuest,
+    deleteQuestStep,
     deleteQuestline,
     listCategories,
     listQuestlines,
@@ -12,6 +13,9 @@
     listAllAttachments,
     updateQuest,
     updateQuestStep,
+    QUEST_STATUSES,
+    QUEST_STATUS_LABELS,
+    QUEST_SIGNIFICANCES,
     fetchHealth,
     fetchAuthState,
     logout as apiLogout,
@@ -24,7 +28,10 @@
   import { OPEN_STATUSES } from './lib/js/questFormat.js'
   import { groupQuestsByCategory } from './lib/js/questGroups.js'
   import { copyText } from './lib/js/clipboard.js'
-  import { statusToastLabel, toast } from './lib/js/toasts.svelte.js'
+    import { statusToastLabel, toast, toastDone, toastProgress } from './lib/js/toasts.svelte.js'
+  import { localTimeZone } from './lib/js/time.js'
+  import { downloadQuestMarkdown, downloadQuestPdf } from './lib/js/questExport.js'
+  import { downloadQuestPdfSimple } from './lib/js/questPdf.js'
   import ActionAssistantModal from './lib/modals/ActionAssistantModal.svelte'
   import QuestModal from './lib/modals/QuestModal.svelte'
   import StepModal from './lib/modals/StepModal.svelte'
@@ -163,7 +170,12 @@
   let lineDeleting = $state(false)
   let deleting = $state(false)
   let deleteConfirmOpen = $state(false)
+  let stepDeleteOpen = $state(false)
+  let stepDeleteBusy = $state(false)
+  /** @type {{ questId: number, stepId: number, title: string } | null} */
+  let stepDelete = $state(null)
   let statusBusy = $state(false)
+  let questPdfBusy = false
   let pinBusyId = $state(/** @type {number | null} */ (null))
   let stepBusyId = $state(/** @type {number | null} */ (null))
   let stepEditId = $state(/** @type {number | null} */ (null))
@@ -210,21 +222,62 @@
         { id: 'sep-copy', sep: true },
         { id: 'add', label: 'Добавить квест' },
         { id: 'edit', label: 'Редактировать' },
+        { id: 'icon', label: 'Иконка' },
+        { id: 'sep-danger', sep: true },
         { id: 'delete', label: 'Удалить', danger: true },
       ]
     }
     if (ctxKind === 'quest') {
+      const quest = quests.find((q) => q.id === ctxQuestId)
+      const status = quest?.status
+      const significance = quest?.significance || 'common'
+      /** @type {{ id: string, label?: string, sep?: boolean, checked?: boolean }[]} */
+      const delayChildren = [
+        { id: 'delay-15', label: '15 мин' },
+        { id: 'delay-30', label: '30 мин' },
+        { id: 'delay-60', label: '60 мин' },
+        { id: 'delay-90', label: '90 мин' },
+        { id: 'delay-120', label: '120 мин' },
+      ]
+      if (status === 'delayed') {
+        delayChildren.push(
+          { id: 'sep-undelay', sep: true },
+          { id: 'status:active', label: 'Вернуть в активные' },
+        )
+      }
       return [
         { id: 'copy-id', label: `Копировать quest=${ctxQuestId}` },
         { id: 'sep-copy', sep: true },
         { id: 'edit', label: 'Редактировать' },
-        { id: 'sep-delay', sep: true },
-        { id: 'delay-15', label: 'Отложить на 15 мин' },
-        { id: 'delay-30', label: 'Отложить на 30 мин' },
-        { id: 'delay-60', label: 'Отложить на 60 мин' },
-        { id: 'sep-status', sep: true },
-        { id: 'complete', label: 'Выполнено' },
-        { id: 'fail', label: 'Провалено' },
+        { id: 'sep-groups', sep: true },
+        {
+          id: 'status',
+          label: 'Изменить статус',
+          children: QUEST_STATUSES.map((s) => ({
+            id: `status:${s}`,
+            label: QUEST_STATUS_LABELS[s] || s,
+            checked: s === status,
+          })),
+        },
+        { id: 'delay', label: 'Отложить', children: delayChildren },
+        {
+          id: 'sig',
+          label: 'Значимость',
+          children: QUEST_SIGNIFICANCES.map((s) => ({
+            id: `sig:${s.id}`,
+            label: s.label,
+            checked: s.id === significance,
+          })),
+        },
+        {
+          id: 'export',
+          label: 'Экспорт',
+          children: [
+            { id: 'export-md', label: 'Markdown (.md)' },
+            { id: 'export-pdf', label: 'PDF' },
+            { id: 'export-pdf-simple', label: 'PDF (просто)' },
+          ],
+        },
         { id: 'sep-danger', sep: true },
         { id: 'delete', label: 'Удалить', danger: true },
       ]
@@ -232,21 +285,32 @@
     if (ctxKind === 'step') {
       const found = findStepRef(ctxStepId)
       const total = Math.max(1, Number(found?.step?.progress_total) || 1)
-      /** @type {{ id: string, label?: string, sep?: boolean, danger?: boolean }[]} */
+      /** @type {{ id: string, label?: string, sep?: boolean, danger?: boolean, children?: { id: string, label?: string, sep?: boolean }[] }[]} */
       const items = [{ id: 'copy-id', label: `Копировать step=${ctxStepId}` }]
       if (total > 1) {
+        items.push({
+          id: 'progress',
+          label: 'Прогресс',
+          children: [
+            { id: 'inc', label: '+1' },
+            { id: 'dec', label: '−1' },
+            { id: 'sep-done', sep: true },
+            { id: 'complete', label: 'Выполнить' },
+            { id: 'reset', label: 'Обнулить' },
+          ],
+        })
+      } else {
         items.push(
-          { id: 'sep-bump', sep: true },
-          { id: 'inc', label: '+1' },
-          { id: 'dec', label: '−1' },
+          { id: 'sep-done', sep: true },
+          { id: 'complete', label: 'Выполнить' },
+          { id: 'reset', label: 'Обнулить' },
         )
       }
       items.push(
-        { id: 'sep-done', sep: true },
-        { id: 'complete', label: 'Выполнить' },
-        { id: 'reset', label: 'Обнулить' },
         { id: 'sep-edit', sep: true },
         { id: 'edit', label: 'Редактировать' },
+        { id: 'sep-danger', sep: true },
+        { id: 'delete', label: 'Удалить шаг', danger: true },
       )
       return items
     }
@@ -489,7 +553,7 @@
       })
       return
     }
-    if (action === 'edit') {
+    if (action === 'edit' || action === 'icon') {
       openEditQuestline(line)
       return
     }
@@ -536,6 +600,46 @@
     }
   }
 
+  async function patchQuestSignificance(quest, significance) {
+    if (!quest || statusBusy) return
+    if (significance === (quest.significance || 'common')) return
+    statusBusy = true
+    error = ''
+    try {
+      const saved = await updateQuest(quest.id, { significance })
+      applyQuest(saved)
+      const label = QUEST_SIGNIFICANCES.find((s) => s.id === significance)?.label || significance
+      toast(`Значимость: ${label}`, { kind: 'success' })
+    } catch (e) {
+      error = e.message || String(e)
+      toast(error, { kind: 'error' })
+    } finally {
+      statusBusy = false
+    }
+  }
+
+  async function exportQuestFromMenu(quest, mode) {
+    if (!quest || questPdfBusy) return
+    if (mode === 'md') {
+      downloadQuestMarkdown(quest)
+      toast('Markdown сохранён', { kind: 'success' })
+      return
+    }
+    questPdfBusy = true
+    const tid = 'pdf-quest'
+    toastProgress(tid, 'Генерация PDF…')
+    try {
+      if (mode === 'simple') await downloadQuestPdfSimple(quest)
+      else await downloadQuestPdf(quest, { labels: refLabels, tzLabel: localTimeZone() })
+      toastDone(tid, 'PDF сохранён')
+    } catch (e) {
+      console.error(e)
+      toastDone(tid, e?.message || 'Не удалось сохранить PDF', 'error')
+    } finally {
+      questPdfBusy = false
+    }
+  }
+
   function onQuestContextSelect(action) {
     if (action === 'copy-id') {
       copyIdToClipboard('quest', ctxQuestId)
@@ -547,24 +651,30 @@
       openEdit(quest)
       return
     }
-    if (action === 'delay-15') {
-      postponeQuest(quest, 15)
+    if (action.startsWith('delay-')) {
+      const minutes = Number(action.slice('delay-'.length))
+      if (minutes > 0) postponeQuest(quest, minutes)
       return
     }
-    if (action === 'delay-30') {
-      postponeQuest(quest, 30)
+    if (action.startsWith('status:')) {
+      const status = action.slice('status:'.length)
+      if (status && status !== quest.status) patchQuestStatus(quest, status)
       return
     }
-    if (action === 'delay-60') {
-      postponeQuest(quest, 60)
+    if (action.startsWith('sig:')) {
+      patchQuestSignificance(quest, action.slice('sig:'.length))
       return
     }
-    if (action === 'complete') {
-      patchQuestStatus(quest, 'completed')
+    if (action === 'export-md') {
+      exportQuestFromMenu(quest, 'md')
       return
     }
-    if (action === 'fail') {
-      patchQuestStatus(quest, 'failed')
+    if (action === 'export-pdf') {
+      exportQuestFromMenu(quest, 'rich')
+      return
+    }
+    if (action === 'export-pdf-simple') {
+      exportQuestFromMenu(quest, 'simple')
       return
     }
     if (action === 'delete') {
@@ -615,6 +725,33 @@
       stepModalQuestId = questId
       stepModalStep = step
       stepModalOpen = true
+      return
+    }
+    if (action === 'delete') {
+      stepDelete = {
+        questId,
+        stepId: step.id,
+        title: step.title || `step=${step.id}`,
+      }
+      stepDeleteOpen = true
+    }
+  }
+
+  async function confirmDeleteStep() {
+    if (!stepDelete || stepDeleteBusy) return
+    stepDeleteBusy = true
+    error = ''
+    try {
+      await deleteQuestStep(stepDelete.questId, stepDelete.stepId)
+      stepDeleteOpen = false
+      stepDelete = null
+      await load({ silent: true })
+      toast('Шаг удалён', { kind: 'success' })
+    } catch (e) {
+      error = e.message || String(e)
+      toast(error, { kind: 'error' })
+    } finally {
+      stepDeleteBusy = false
     }
   }
 
@@ -1141,7 +1278,7 @@
       if (event.key !== 'Escape') return
       if (view !== 'journal') return
       if (modalOpen || lineModalOpen || templatesOpen || secretsOpen || settingsOpen) return
-      if (deleteConfirmOpen || lineDeleteConfirmOpen || ctxOpen) return
+      if (deleteConfirmOpen || stepDeleteOpen || lineDeleteConfirmOpen || ctxOpen) return
       if (view === 'notes') {
         if (selectedNoteId == null) return
         event.preventDefault()
@@ -1209,7 +1346,14 @@
     </div>
   {:else if view === 'calendar'}
     <div class="journal__calendar">
-      <ActivityCalendar {quests} onSelectQuest={selectQuestFromUi} />
+      <ActivityCalendar
+        {quests}
+        onSelectQuest={selectQuestFromUi}
+        onQuestContextMenu={(event, id) => {
+          const quest = quests.find((q) => q.id === id)
+          if (quest) openQuestContextMenu(event, quest)
+        }}
+      />
     </div>
   {:else if view === 'toc'}
     <div class="journal__toc">
@@ -1249,6 +1393,7 @@
         selectedId={selectedAttachmentId}
         onSelect={(id) => selectAttachmentFromUi(id)}
         onOpenOwner={onJournalRef}
+        onChanged={() => load({ silent: true })}
       />
     </div>
   {:else}
@@ -1414,6 +1559,20 @@
     if (!deleting) deleteConfirmOpen = false
   }}
   onConfirm={confirmDeleteSelected}
+/>
+
+<ConfirmModal
+  open={stepDeleteOpen}
+  title="Удалить шаг?"
+  message={stepDelete ? `Удалить шаг «${stepDelete.title}»?` : ''}
+  busy={stepDeleteBusy}
+  onCancel={() => {
+    if (!stepDeleteBusy) {
+      stepDeleteOpen = false
+      stepDelete = null
+    }
+  }}
+  onConfirm={confirmDeleteStep}
 />
 
 <ConfirmModal

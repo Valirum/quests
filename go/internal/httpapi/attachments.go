@@ -362,6 +362,11 @@ func (s *Server) postAttachment(w http.ResponseWriter, r *http.Request, ownerTyp
 	out["available"] = true
 	out["source_updated"] = false
 	out["last_modified"] = nil
+	s.publishSilent("attachment_created", a.Filename, map[string]any{
+		"attachment_id": a.ID,
+		"owner_type":    a.OwnerType,
+		"owner_id":      a.OwnerID,
+	})
 	writeJSON(w, 201, out)
 }
 
@@ -455,6 +460,11 @@ func (s *Server) patchAttachment(w http.ResponseWriter, r *http.Request, ownerTy
 		writeErr(w, 500, err.Error())
 		return
 	}
+	s.publishSilent("attachment_updated", updated.Filename, map[string]any{
+		"attachment_id": updated.ID,
+		"owner_type":    updated.OwnerType,
+		"owner_id":      updated.OwnerID,
+	})
 	writeJSON(w, 200, store.AttachmentToRead(updated))
 }
 
@@ -480,5 +490,10 @@ func (s *Server) deleteAttachment(w http.ResponseWriter, r *http.Request, ownerT
 			fmt.Printf("attachment %d: file left on webdav: %v\n", a.ID, err)
 		}
 	}
+	s.publishSilent("attachment_deleted", a.Filename, map[string]any{
+		"attachment_id": a.ID,
+		"owner_type":    a.OwnerType,
+		"owner_id":      a.OwnerID,
+	})
 	w.WriteHeader(204)
 }

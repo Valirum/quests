@@ -326,14 +326,19 @@ def _append_quest_section(
     if interactive:
         section.append(_rule())
 
+    show_progress = True
+    try:
+        from overlay.stylepacks import _load_pack, active_pack
+
+        show_progress = bool(getattr(_load_pack(active_pack()), "SHOW_STEP_PROGRESS", True))
+    except Exception:
+        show_progress = True
     for step in quest.steps:
-        section.append(
-            _hud_row(
-                _chip(step.progress, "quest-progress"),
-                _chip(step.title, "quest-title"),
-                extra_classes=("quest",),
-            )
-        )
+        chips = []
+        if show_progress:
+            chips.append(_chip(step.progress, "quest-progress"))
+        chips.append(_chip(step.title, "quest-title"))
+        section.append(_hud_row(*chips, extra_classes=("quest",)))
 
     root.append(section)
 

@@ -50,6 +50,35 @@ class PackTheme:
     afk_legendary: tuple[int, int, int] = (250, 189, 47)
     letter_spacing_title: str = "0.04em"
     uppercase_section: bool = True
+    # Geometry. Defaults are the historical modern pack, so existing themes
+    # keep their size. A pack overrides these instead of forking the CSS.
+    hud_pad_y: int = 12
+    hud_pad_x: int = 14
+    hud_min_width: int = 280
+    title_pt: int = 13
+    section_pt: int = 11
+    heading_pt: int = 10
+    quest_pt: int = 11
+    progress_pt: int = 9
+    major_title_pt: int = 44
+    major_eyebrow_pt: int = 22
+    major_pad_y: int = 36
+    major_pad_x: int = 48
+    major_pad_bottom: int = 40
+    major_desc_pt: int = 24
+    major_tracking: str = "0.18em"
+    chip_text_shadow: bool = True
+    # bar = 1px + heavy 3px, hairline = 1px, none = hidden
+    section_rule: str = "bar"
+    # What the HUD and the major toast include. Defaults keep the gaming look.
+    show_significance: bool = True
+    show_major_body: bool = True
+    show_step_progress: bool = True
+    afk_glow: bool = True
+    # Quest names only. Empty keeps font_display on those labels.
+    font_quest: str = ""
+    # Step lines. Empty keeps fg, so other packs stay as they are.
+    step: str = ""
 
 
 def _rgba(hex_color: str, alpha: float) -> str:
@@ -76,6 +105,42 @@ def build_modern_css(t: PackTheme) -> str:
     rad_btn = max(2, rad // 2)
     section_transform = "uppercase" if t.uppercase_section else "none"
     section_tracking = "0.12em" if t.uppercase_section else "0.04em"
+    toast_transform = section_transform
+    hud_pad = f"{int(t.hud_pad_y)}px {int(t.hud_pad_x)}px"
+    hud_min = int(t.hud_min_width)
+    major_pad = f"{int(t.major_pad_y)}px {int(t.major_pad_x)}px {int(t.major_pad_bottom)}px"
+    chip_shadow = (
+        "text-shadow:\n    0 0 3px rgba(0, 0, 0, 0.9),\n    0 1px 2px rgba(0, 0, 0, 0.85);"
+        if t.chip_text_shadow
+        else "text-shadow: none;"
+    )
+    major_shadow = (
+        "text-shadow:\n    0 0 4px rgba(0, 0, 0, 0.9),\n    0 1px 3px rgba(0, 0, 0, 0.85);"
+        if t.chip_text_shadow
+        else "text-shadow: none;"
+    )
+    rule = (t.section_rule or "bar").strip().lower()
+    if rule == "none":
+        rule_h, rule_w, rule_heavy_h, rule_heavy_w, rule_margin = 0, 0, 0, 0, "0"
+    elif rule == "hairline":
+        rule_h, rule_w, rule_heavy_h, rule_heavy_w, rule_margin = 1, 120, 1, 120, "2px 0 4px"
+    else:
+        rule_h, rule_w, rule_heavy_h, rule_heavy_w, rule_margin = 1, 160, 3, 200, "2px 0 6px"
+    quest_font = t.font_quest or t.font_display
+    step_color = t.step or t.fg
+    flat_type = ""
+    if not t.chip_text_shadow:
+        flat_type = """
+.hud label,
+.hud button,
+.hud .title,
+.hud .section-title,
+.hud .section-heading,
+.hud .quest-title,
+.hud .quest-progress {
+  text-shadow: none;
+}
+"""
 
     return f"""
 window {{
@@ -103,8 +168,8 @@ box.hud {{
 }}
 
 box.hud.hud--interactive {{
-  padding: 12px 14px;
-  min-width: 280px;
+  padding: {hud_pad};
+  min-width: {hud_min}px;
 }}
 
 .hud-chip {{
@@ -112,10 +177,9 @@ box.hud.hud--interactive {{
   border: none;
   border-radius: {rad_sm}px;
   padding: 2px 7px;
-  text-shadow:
-    0 0 3px rgba(0, 0, 0, 0.9),
-    0 1px 2px rgba(0, 0, 0, 0.85);
+  {chip_shadow}
 }}
+{flat_type}
 
 .hud--interactive .hud-chip {{
   background-color: transparent;
@@ -140,15 +204,15 @@ box.hud.hud--interactive {{
 .title {{
   color: {t.title};
   font-family: {t.font_display};
-  font-size: 13pt;
+  font-size: {int(t.title_pt)}pt;
   font-weight: 700;
   letter-spacing: {t.letter_spacing_title};
 }}
 
 .section-title {{
   color: {t.section};
-  font-family: {t.font_display};
-  font-size: 11pt;
+  font-family: {quest_font};
+  font-size: {int(t.section_pt)}pt;
   font-weight: 700;
   letter-spacing: 0.06em;
 }}
@@ -156,7 +220,7 @@ box.hud.hud--interactive {{
 .section-heading {{
   color: {t.accent};
   font-family: {t.font_display};
-  font-size: 10pt;
+  font-size: {int(t.heading_pt)}pt;
   font-weight: 700;
   letter-spacing: {section_tracking};
   text-transform: {section_transform};
@@ -168,8 +232,8 @@ box.hud.hud--interactive {{
   border-radius: 0;
   padding: 0;
   color: {t.section};
-  font-family: {t.font_display};
-  font-size: 11pt;
+  font-family: {quest_font};
+  font-size: {int(t.section_pt)}pt;
   font-weight: 700;
   letter-spacing: 0.06em;
 }}
@@ -185,15 +249,15 @@ box.hud.hud--interactive {{
 }}
 
 .section-rule {{
-  min-height: 1px;
-  min-width: 160px;
+  min-height: {rule_h}px;
+  min-width: {rule_w}px;
   background-color: {_rgba(t.accent, 0.45)};
-  margin: 2px 0 6px;
+  margin: {rule_margin};
 }}
 
 .section-rule--heavy {{
-  min-height: 3px;
-  min-width: 200px;
+  min-height: {rule_heavy_h}px;
+  min-width: {rule_heavy_w}px;
   background-color: {_rgba(t.section, 0.7)};
   margin: 4px 0;
 }}
@@ -405,13 +469,13 @@ button.hud-drag:selected {{
 }}
 
 .quest-title {{
-  color: {t.fg};
-  font-size: 11pt;
+  color: {step_color};
+  font-size: {int(t.quest_pt)}pt;
 }}
 
 .quest-progress {{
   color: {_rgba(t.fg, 0.92)};
-  font-size: 9pt;
+  font-size: {int(t.progress_pt)}pt;
   font-feature-settings: "tnum";
 }}
 
@@ -428,19 +492,17 @@ button.hud-drag:selected {{
   background-color: {_rgb_tuple(t.bg_rgb, 0.42)};
   border: none;
   border-radius: {rad}px;
-  padding: 36px 48px 40px;
+  padding: {major_pad};
   font-family: {t.font_toast};
-  text-shadow:
-    0 0 4px rgba(0, 0, 0, 0.9),
-    0 1px 3px rgba(0, 0, 0, 0.85);
+  {major_shadow}
 }}
 
 .major__eyebrow {{
   font-family: {t.font_toast};
-  font-size: 22pt;
+  font-size: {int(t.major_eyebrow_pt)}pt;
   font-weight: 700;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
+  letter-spacing: {t.major_tracking};
+  text-transform: {toast_transform};
   color: {_rgba(t.section, 0.95)};
   margin-bottom: 0;
 }}
@@ -483,7 +545,7 @@ button.hud-drag:selected {{
 
 .major__title {{
   font-family: {t.font_toast};
-  font-size: 44pt;
+  font-size: {int(t.major_title_pt)}pt;
   font-weight: 700;
   color: {t.fg};
 }}
@@ -496,7 +558,7 @@ button.hud-drag:selected {{
 }}
 
 .major__description {{
-  font-size: 24pt;
+  font-size: {int(t.major_desc_pt)}pt;
   line-height: 1.45;
   color: {_rgba(t.fg, 0.88)};
 }}
@@ -527,7 +589,7 @@ button.hud-drag:selected {{
 .minor__change {{
   font-size: 9pt;
   letter-spacing: 0.06em;
-  text-transform: uppercase;
+  text-transform: {toast_transform};
   color: {_rgba(t.section, 0.9)};
   margin-top: 4px;
 }}
@@ -667,4 +729,13 @@ def export_pack_globals(theme: PackTheme) -> dict:
         "MINOR_FADE_IN_MS": theme.minor_fade_in_ms,
         "MINOR_FADE_OUT_MS": theme.minor_fade_out_ms,
         "MINOR_HOLD_MS": theme.minor_hold_ms,
+        "SHOW_SIGNIFICANCE": theme.show_significance,
+        "SHOW_MAJOR_BODY": theme.show_major_body,
+        "SHOW_STEP_PROGRESS": theme.show_step_progress,
+        "AFK_GLOW": theme.afk_glow,
+        "MAJOR_PAD_X": int(theme.major_pad_x),
+        "SECTION_RULE": theme.section_rule,
+        "HUD_PAD_Y": int(theme.hud_pad_y),
+        "HUD_PAD_X": int(theme.hud_pad_x),
+        "HUD_MIN_WIDTH": int(theme.hud_min_width),
     }

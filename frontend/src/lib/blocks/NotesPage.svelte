@@ -661,13 +661,21 @@
     exportMenuOpen = true
   }
 
-  async function onExportSelect(action) {
-    if (selectedId == null || exportBusy) return
-    const payload = {
-      id: selectedId,
-      title: title.trim() || detail?.title || `note=${selectedId}`,
-      description,
-    }
+  async function exportNoteById(id, action) {
+    if (id == null || exportBusy) return
+    const n = noteById(id)
+    const payload =
+      id === selectedId
+        ? {
+            id,
+            title: title.trim() || detail?.title || n?.title || `note=${id}`,
+            description,
+          }
+        : {
+            id,
+            title: n?.title || `note=${id}`,
+            description: n?.description || '',
+          }
     exportBusy = true
     error = ''
     try {
@@ -697,6 +705,10 @@
     }
   }
 
+  function onExportSelect(action) {
+    exportNoteById(selectedId, action)
+  }
+
   let exportMenuItems = $derived([
     { id: 'md', label: 'Markdown (.md)' },
     { id: 'pdf', label: exportBusy ? 'PDF…' : 'PDF' },
@@ -704,22 +716,55 @@
 
   let ctxNote = $derived(ctxNoteId == null ? null : noteById(ctxNoteId))
 
+  function moveTargets(note) {
+    /** @type {{ id: string, label?: string, sep?: boolean, checked?: boolean }[]} */
+    const items = []
+    if (note?.parent_id != null) {
+      items.push({ id: 'move-up', label: 'На уровень вверх' })
+    }
+    items.push({
+      id: 'move:root',
+      label: 'Корень',
+      checked: note?.parent_id == null,
+    })
+    let listed = false
+    for (const n of notes) {
+      if (n.id === note?.id) continue
+      if (note?.id != null && isUnder(n.id, note.id)) continue
+      if (!listed) {
+        items.push({ id: 'sep-move', sep: true })
+        listed = true
+      }
+      items.push({
+        id: `move:${n.id}`,
+        label: n.title || `note=${n.id}`,
+        checked: note?.parent_id === n.id,
+      })
+    }
+    return items
+  }
+
   let ctxItems = $derived.by(() => {
     if (ctxNoteId == null) return []
-    const items = [
+    return [
       { id: 'copy-id', label: `Копировать note=${ctxNoteId}` },
       { id: 'sep-copy', sep: true },
       { id: 'rename', label: 'Переименовать' },
       { id: 'add-child', label: 'Добавить дочернюю' },
+      { id: 'move', label: 'Переместить', children: moveTargets(ctxNote) },
+      {
+        id: 'export',
+        label: 'Экспорт',
+        children: [
+          { id: 'export-md', label: 'Markdown (.md)' },
+          { id: 'export-pdf', label: exportBusy ? 'PDF…' : 'PDF' },
+        ],
+      },
+      { id: 'sep-icon', sep: true },
+      { id: 'icon', label: 'Иконка' },
+      { id: 'sep-danger', sep: true },
+      { id: 'delete', label: 'Удалить', danger: true },
     ]
-    if (ctxNote?.parent_id != null) {
-      items.push({ id: 'move-up', label: 'На уровень вверх' })
-    }
-    items.push({ id: 'sep-icon', sep: true })
-    items.push({ id: 'icon', label: 'Иконка' })
-    items.push({ id: 'sep-danger', sep: true })
-    items.push({ id: 'delete', label: 'Удалить', danger: true })
-    return items
   })
 
   function openNoteMenu(event, note) {
@@ -748,15 +793,16 @@
     }
   }
 
-  async function moveNoteUp(id) {
+  async function reparentNote(id, nextParent) {
     const n = noteById(id)
-    if (!n?.parent_id) return
-    const parent = noteById(n.parent_id)
-    const next = parent?.parent_id ?? null
+    if (!n) return
+    const current = n.parent_id ?? null
+    if (current === nextParent) return
+    if (nextParent != null && (nextParent === id || isUnder(nextParent, id))) return
     error = ''
     try {
-      const savedRow = await updateNote(id, { parent_id: next })
-      const pid = next == null ? '' : String(next)
+      const savedRow = await updateNote(id, { parent_id: nextParent })
+      const pid = nextParent == null ? '' : String(nextParent)
       if (id === selectedId) {
         saved = { ...saved, parentId: pid }
         parentId = pid
@@ -768,6 +814,13 @@
     } catch (e) {
       error = e.message || String(e)
     }
+  }
+
+  async function moveNoteUp(id) {
+    const n = noteById(id)
+    if (!n?.parent_id) return
+    const parent = noteById(n.parent_id)
+    await reparentNote(id, parent?.parent_id ?? null)
   }
 
   /** @param {number | null} targetId — null means "make it a root note" */
@@ -879,6 +932,19 @@
     }
     if (action === 'move-up') {
       await moveNoteUp(id)
+      return
+    }
+    if (action.startsWith('move:')) {
+      const raw = action.slice('move:'.length)
+      await reparentNote(id, raw === 'root' ? null : Number(raw))
+      return
+    }
+    if (action === 'export-md') {
+      await exportNoteById(id, 'md')
+      return
+    }
+    if (action === 'export-pdf') {
+      await exportNoteById(id, 'pdf')
       return
     }
     if (action === 'icon') {
@@ -1209,7 +1275,7 @@
       {#if selectedId}
         <div class="block notes__attach">
           <h3 class="block__label">Вложения</h3>
-          <AttachmentsBlock ownerType="note" ownerId={selectedId} />
+          <AttachmentsBlock ownerType="note" ownerId={selectedId} onOpenOwner={onRef} />
         </div>
       {/if}
     {/if}

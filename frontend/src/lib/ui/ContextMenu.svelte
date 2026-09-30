@@ -2,15 +2,29 @@
   import { tick } from 'svelte'
 
   /**
-   * @typedef {{ id: string, label?: string, danger?: boolean, sep?: boolean }} CtxItem
+   * @typedef {{
+   *   id: string,
+   *   label?: string,
+   *   danger?: boolean,
+   *   sep?: boolean,
+   *   checked?: boolean,
+   *   disabled?: boolean,
+   *   children?: CtxItem[],
+   * }} CtxItem
    * @type {{ open: boolean, x: number, y: number, items: CtxItem[], onSelect: (id: string) => void, onClose: () => void }}
    */
   let { open = false, x = 0, y = 0, items = [], onSelect, onClose } = $props()
 
   let menuEl = $state(/** @type {HTMLDivElement | null} */ (null))
+  let subEl = $state(/** @type {HTMLDivElement | null} */ (null))
   let posX = $state(0)
   let posY = $state(0)
   let placed = $state(false)
+  let subX = $state(0)
+  let subY = $state(0)
+  let subPlaced = $state(false)
+  /** @type {{ id: string, items: CtxItem[], left: number, right: number, top: number } | null} */
+  let branch = $state(null)
 
   const PAD = 8
 
@@ -33,9 +47,66 @@
     placed = true
   }
 
+  /**
+   * @param {CtxItem} item
+   * @param {HTMLElement} el
+   */
+  function openBranch(item, el) {
+    if (!item.children?.length) return
+    if (branch?.id === item.id) return
+    const rect = el.getBoundingClientRect()
+    subPlaced = false
+    branch = {
+      id: item.id,
+      items: item.children,
+      left: rect.left,
+      right: rect.right,
+      top: rect.top,
+    }
+  }
+
+  function placeSub() {
+    const el = subEl
+    const anchor = branch
+    if (!el || !anchor) return
+    const { width, height } = el.getBoundingClientRect()
+    const vw = window.innerWidth
+    const vh = window.innerHeight
+    let left = anchor.right - 6
+    let top = anchor.top
+    if (left + width > vw - PAD) left = anchor.left - width + 6
+    if (left < PAD) left = PAD
+    if (left + width > vw - PAD) left = Math.max(PAD, vw - width - PAD)
+    if (top + height > vh - PAD) top = vh - height - PAD
+    if (top < PAD) top = PAD
+    subX = left
+    subY = top
+    subPlaced = true
+  }
+
+  /**
+   * @param {CtxItem} item
+   * @param {HTMLElement} el
+   * @param {boolean} inSub
+   */
+  function onRowEnter(item, el, inSub) {
+    if (item.sep || item.disabled) return
+    if (!inSub && item.children?.length) openBranch(item, el)
+    else if (!inSub) branch = null
+  }
+
+  /** @param {CtxItem} item */
+  function pick(item) {
+    if (item.sep || item.disabled || item.children?.length) return
+    onSelect(item.id)
+    onClose()
+  }
+
   $effect(() => {
     if (!open) {
       placed = false
+      branch = null
+      subPlaced = false
       return
     }
     const ax = x
@@ -44,6 +115,7 @@
     posX = ax
     posY = ay
     placed = false
+    branch = null
     let cancelled = false
     tick().then(() => {
       if (cancelled) return
@@ -60,6 +132,29 @@
     return () => {
       cancelled = true
       window.removeEventListener('resize', onResize)
+    }
+  })
+
+  $effect(() => {
+    if (!open || !branch) {
+      subPlaced = false
+      return
+    }
+    void branch.id
+    void branch.items.length
+    let cancelled = false
+    tick().then(() => {
+      if (cancelled) return
+      if (!subEl) {
+        requestAnimationFrame(() => {
+          if (!cancelled) placeSub()
+        })
+        return
+      }
+      placeSub()
+    })
+    return () => {
+      cancelled = true
     }
   })
 
@@ -85,6 +180,45 @@
   })
 </script>
 
+{#snippet rows(list, inSub)}
+  {#each list as item (item.id)}
+    {#if item.sep}
+      <div class="ctx-menu__sep" role="separator"></div>
+    {:else if item.children?.length && !inSub}
+      <button
+        type="button"
+        class="ctx-menu__item ctx-menu__item--branch"
+        class:ctx-menu__item--open={branch?.id === item.id}
+        role="menuitem"
+        aria-haspopup="menu"
+        aria-expanded={branch?.id === item.id}
+        onmouseenter={(e) => onRowEnter(item, e.currentTarget, false)}
+        onclick={(e) => openBranch(item, e.currentTarget)}
+      >
+        <span class="ctx-menu__label">{item.label}</span>
+        <span class="ctx-menu__chev" aria-hidden="true">›</span>
+      </button>
+    {:else}
+      <button
+        type="button"
+        class="ctx-menu__item"
+        class:ctx-menu__item--danger={item.danger}
+        class:ctx-menu__item--disabled={item.disabled}
+        role={item.checked == null ? 'menuitem' : 'menuitemradio'}
+        aria-checked={item.checked == null ? undefined : item.checked}
+        disabled={item.disabled}
+        onmouseenter={(e) => onRowEnter(item, e.currentTarget, inSub)}
+        onclick={() => pick(item)}
+      >
+        <span class="ctx-menu__label">{item.label}</span>
+        {#if item.checked}
+          <span class="ctx-menu__mark" aria-hidden="true">✓</span>
+        {/if}
+      </button>
+    {/if}
+  {/each}
+{/snippet}
+
 {#if open}
   <div
     bind:this={menuEl}
@@ -93,25 +227,19 @@
     style="left: {posX}px; top: {posY}px"
     role="menu"
   >
-    {#each items as item (item.id)}
-      {#if item.sep}
-        <div class="ctx-menu__sep" role="separator"></div>
-      {:else}
-        <button
-          type="button"
-          class="ctx-menu__item"
-          class:ctx-menu__item--danger={item.danger}
-          role="menuitem"
-          onclick={() => {
-            onSelect(item.id)
-            onClose()
-          }}
-        >
-          {item.label}
-        </button>
-      {/if}
-    {/each}
+    {@render rows(items, false)}
   </div>
+  {#if branch}
+    <div
+      bind:this={subEl}
+      class="ctx-menu ctx-menu--sub"
+      class:ctx-menu--placed={subPlaced}
+      style="left: {subX}px; top: {subY}px"
+      role="menu"
+    >
+      {@render rows(branch.items, true)}
+    </div>
+  {/if}
 {/if}
 
 <style>
@@ -119,6 +247,7 @@
     position: fixed;
     z-index: 80;
     min-width: 11.5rem;
+    max-width: min(22rem, calc(100vw - 16px));
     max-height: calc(100vh - 16px);
     overflow-y: auto;
     padding: 0.25rem;
@@ -131,6 +260,10 @@
     pointer-events: none;
   }
 
+  .ctx-menu--sub {
+    z-index: 81;
+  }
+
   .ctx-menu--placed {
     opacity: 1;
     visibility: visible;
@@ -138,7 +271,10 @@
   }
 
   .ctx-menu__item {
-    display: block;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
     width: 100%;
     border: 0;
     background: transparent;
@@ -151,7 +287,15 @@
     border-radius: var(--radius-md, 4px);
   }
 
-  .ctx-menu__item:hover {
+  .ctx-menu__label {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .ctx-menu__item:hover,
+  .ctx-menu__item--open {
     background: var(--color-bg-hover, #2a2a2a);
   }
 
@@ -161,6 +305,19 @@
 
   .ctx-menu__item--danger:hover {
     background: color-mix(in srgb, var(--color-danger, #b54a3a) 14%, transparent);
+  }
+
+  .ctx-menu__item--disabled,
+  .ctx-menu__item--disabled:hover {
+    opacity: 0.45;
+    background: transparent;
+    cursor: default;
+  }
+
+  .ctx-menu__chev,
+  .ctx-menu__mark {
+    flex: none;
+    opacity: 0.6;
   }
 
   .ctx-menu__sep {

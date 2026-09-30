@@ -424,6 +424,22 @@ func (s *Server) publishNote(kind string, n store.Note) {
 	})
 }
 
+// publishSilent wakes journal tabs (they reload on any quests_changed) without
+// a HUD toast or sound. Same contract as note events.
+func (s *Server) publishSilent(kind, title string, extra map[string]any) {
+	if s.Hub == nil {
+		return
+	}
+	silent := ""
+	s.Hub.Publish(kind, events.PublishOpts{
+		Title:  title,
+		Toast:  false,
+		Source: "api",
+		Sound:  &silent,
+		Extra:  extra,
+	})
+}
+
 func noteJSONInt64(v any) *int64 {
 	if v == nil {
 		return nil

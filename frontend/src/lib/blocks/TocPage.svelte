@@ -1,6 +1,5 @@
 <script>
-  import FilterSlider from '../ui/FilterSlider.svelte'
-  import Icon from '../ui/Icon.svelte'
+  import FilterSelect from '../ui/FilterSelect.svelte'
   import QuestlineIcon from '../ui/QuestlineIcon.svelte'
   import {
     QUEST_SIGNIFICANCES,
@@ -31,19 +30,12 @@
     onQuestContextMenu,
   } = $props()
 
-  /** @param {Set<string>} set @param {string} id */
-  function toggleIn(set, id) {
-    const next = new Set(set)
-    if (next.has(id)) next.delete(id)
-    else next.add(id)
-    return next
-  }
+  const defaultStatus = () => new Set(['active', 'expired'])
+  const defaultSig = () => new Set(QUEST_SIGNIFICANCES.map((s) => s.id))
 
-  let statusFilter = $state(new Set(['active', 'expired']))
-  let sigFilter = $state(new Set(QUEST_SIGNIFICANCES.map((s) => s.id)))
+  let statusFilter = $state(defaultStatus())
+  let sigFilter = $state(defaultSig())
   let catTouched = $state(false)
-  /** Phone only: the three filter rows sit behind a toggle (CSS keeps them always shown on wider screens). */
-  let filtersOpen = $state(false)
   let catFilter = $state(new Set(['none']))
 
   let catSelected = $derived(
@@ -91,6 +83,27 @@
     groupQuestsByCategory(listed, categories, questlines),
   )
 
+  /** @param {Set<string>} a @param {Set<string>} b */
+  function setsEqual(a, b) {
+    if (a.size !== b.size) return false
+    for (const id of a) if (!b.has(id)) return false
+    return true
+  }
+
+  let allCatIds = $derived(new Set(['none', ...categories.map((c) => String(c.id))]))
+  let filtersDirty = $derived(
+    !setsEqual(statusFilter, defaultStatus()) ||
+      !setsEqual(sigFilter, defaultSig()) ||
+      !setsEqual(catSelected, allCatIds),
+  )
+
+  function resetFilters() {
+    statusFilter = defaultStatus()
+    sigFilter = defaultSig()
+    catTouched = false
+    catFilter = new Set(['none'])
+  }
+
   function selectLine(line) {
     const first = line.quests?.[0]
     if (first) onSelectQuest(first.id)
@@ -99,36 +112,6 @@
 
 <div class="toc">
   <div class="toc__tools">
-    <div class="toc__filters" class:toc__filters--open={filtersOpen} id="toc-filters">
-      <FilterSlider
-        label="Раздел"
-        wrap
-        options={catOptions}
-        selected={catSelected}
-        onToggle={(id) => {
-          catFilter = toggleIn(catSelected, id)
-          catTouched = true
-        }}
-      />
-      <FilterSlider
-        label="Статус"
-        wrap
-        options={statusOptions}
-        selected={statusFilter}
-        onToggle={(id) => {
-          statusFilter = toggleIn(statusFilter, id)
-        }}
-      />
-      <FilterSlider
-        label="Значимость"
-        wrap
-        options={sigOptions}
-        selected={sigFilter}
-        onToggle={(id) => {
-          sigFilter = toggleIn(sigFilter, id)
-        }}
-      />
-    </div>
     <div class="toc__search-row">
       <input
         class="toc__search"
@@ -137,25 +120,50 @@
         bind:value={searchQuery}
         aria-label="Поиск по названию, разделу, квестлайну, описанию, шагам"
       />
-      <button
-        type="button"
-        class="btn btn--icon toc__filters-toggle"
-        class:toc__filters-toggle--on={filtersOpen}
-        aria-expanded={filtersOpen}
-        aria-controls="toc-filters"
-        aria-label="Фильтры"
-        title="Фильтры"
-        onclick={() => (filtersOpen = !filtersOpen)}
-      >
-        <Icon name="filter" />
-      </button>
+    </div>
+    <div class="toc__filters">
+      <FilterSelect
+        label="Раздел"
+        options={catOptions}
+        selected={catSelected}
+        onChange={(next) => {
+          catFilter = next
+          catTouched = true
+        }}
+      />
+      <FilterSelect
+        label="Статус"
+        options={statusOptions}
+        selected={statusFilter}
+        onChange={(next) => {
+          statusFilter = next
+        }}
+      />
+      <FilterSelect
+        label="Значимость"
+        options={sigOptions}
+        selected={sigFilter}
+        onChange={(next) => {
+          sigFilter = next
+        }}
+      />
+      {#if filtersDirty}
+        <button type="button" class="toc__reset" onclick={resetFilters}>Сбросить</button>
+      {/if}
     </div>
   </div>
 
   <div class="toc__scroll">
     <div class="toc__content">
     {#if byCategory.length === 0}
-      <p class="toc__empty">Ничего не найдено</p>
+      <p class="toc__empty">
+        Ничего не найдено
+        {#if filtersDirty}
+          <button type="button" class="toc__reset toc__reset--empty" onclick={resetFilters}>
+            Сбросить фильтры
+          </button>
+        {/if}
+      </p>
     {:else}
       {#each byCategory as g (g.key)}
         <section class="chapter">
@@ -263,14 +271,6 @@
   .toc__search-row {
     display: flex;
     justify-content: center;
-    gap: var(--space-2, 0.5rem);
-  }
-  .toc__filters-toggle {
-    display: none;
-  }
-  .toc__filters-toggle--on {
-    color: var(--color-accent);
-    border-color: var(--color-accent);
   }
   .toc__search:focus {
     outline: 1px solid var(--color-accent);
@@ -278,16 +278,35 @@
   }
 
   .toc__filters {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: flex-end;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    align-items: end;
     gap: var(--space-2, 0.5rem);
     min-width: 0;
   }
 
-  .toc__filters > :global(.opt-group) {
-    flex: 1 1 auto;
-    min-width: 12rem;
+  .toc__reset {
+    justify-self: end;
+    grid-column: 1 / -1;
+    padding: 0.2rem 0.15rem;
+    border: 0;
+    background: transparent;
+    color: var(--color-fg-muted, #9a9a9a);
+    font-family: var(--font-ui, sans-serif);
+    font-size: var(--text-sm, 0.875rem);
+    cursor: pointer;
+  }
+
+  .toc__reset:hover,
+  .toc__reset:focus-visible {
+    color: var(--color-fg, #e8e8e8);
+  }
+
+  .toc__reset--empty {
+    justify-self: auto;
+    grid-column: auto;
+    padding: 0.35rem 0;
+    color: var(--color-accent, #c9a227);
   }
 
   .toc__scroll {
@@ -302,6 +321,10 @@
   }
 
   .toc__empty {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.6rem;
     color: var(--color-fg-muted);
     font-family: var(--font-body);
     padding: var(--space-6, 2rem) 0;
@@ -521,43 +544,34 @@
     97% { transform: translate(0, 0); }
   }
 
-  /* Phone: the three filter rows ate ~40% of the screen before the first
-     quest — fold them behind a toggle beside the search, trim the desktop
-     gutters, and keep each row's meta (status, progress) on one line so
-     the title is what wraps. */
+  /* Phone: one column so each axis name and its value stay readable.
+     The closed controls are short, so they stay in the header instead of
+     behind a toggle. Quest meta stays on one line; the title wraps. */
   @media (max-width: 600px) {
     .toc__tools {
       padding: var(--space-2, 0.5rem) var(--space-4, 1rem);
     }
     .toc__search {
-      flex: 1 1 auto;
-      width: auto;
+      width: 100%;
       min-width: 0;
-    }
-    .toc__filters-toggle {
-      display: inline-flex;
-      flex-shrink: 0;
-    }
-    /* Search + toggle stay on top so the toggle doesn't jump down when
-       the filters open above it. */
-    .toc__search-row {
-      order: -1;
     }
     .toc__filters {
-      display: none;
+      grid-template-columns: minmax(0, 1fr);
     }
-    .toc__filters--open {
-      display: flex;
-    }
-    .toc__filters > :global(.opt-group) {
-      flex-basis: 100%;
-      min-width: 0;
+    .toc__reset {
+      justify-self: stretch;
+      min-height: 2.5rem;
+      text-align: center;
     }
     .toc__content {
       padding: var(--space-4, 1rem);
     }
     .toc-quests {
       padding-left: var(--space-3, 0.75rem);
+    }
+    .toc-quest__bullet {
+      align-self: flex-start;
+      margin-top: 0.55em;
     }
     .toc-quest__title {
       flex: 1 1 auto;

@@ -133,7 +133,7 @@
       class="quest-row"
       class:quest-row--active={q.id === selectedId}
       class:quest-row--pinned={q.pinned}
-      class:quest-row--inactive={isQuestInactive(q)}
+      class:quest-row--inactive={isQuestInactive(q) && q.status !== 'delayed'}
       onclick={() => onSelect(q.id)}
       oncontextmenu={(e) => onQuestContextMenu(e, q)}
     >

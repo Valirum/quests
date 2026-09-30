@@ -167,19 +167,28 @@ def _afk_glow_css(
 """
 
 
-def major_eyebrow_parts(kind: str, significance: str) -> tuple[str, str, str]:
-    """Prefix, colored significance word, suffix for major eyebrow."""
+def major_eyebrow_parts(
+    kind: str, significance: str, *, show_significance: bool = True
+) -> tuple[str, str, str]:
+    """Prefix, colored significance word, suffix for major eyebrow.
+
+    When the pack hides significance, the phrase stays and the rarity word drops:
+    «Завершено задание» instead of «Завершено легендарное задание».
+    """
     word = SIGNIFICANCE_LABEL_RU.get(significance, SIGNIFICANCE_LABEL_RU["common"])
-    if kind in {"quest_created", "quest_appeared"}:
-        return "Получено ", word, " задание"
-    if kind == "quest_started":
-        return "Началось ", word, " задание"
-    if kind == "quest_completed":
-        return "Завершено ", word, " задание"
-    if kind == "quest_failed":
-        return "Провалено ", word, " задание"
-    if kind == "quest_expired":
-        return "Просрочено ", word, " задание"
+    phrases = {
+        "quest_created": ("Получено ", " задание"),
+        "quest_appeared": ("Получено ", " задание"),
+        "quest_started": ("Началось ", " задание"),
+        "quest_completed": ("Завершено ", " задание"),
+        "quest_failed": ("Провалено ", " задание"),
+        "quest_expired": ("Просрочено ", " задание"),
+    }
+    if kind in phrases:
+        prefix, suffix = phrases[kind]
+        if not show_significance:
+            return "", f"{prefix.strip()} {suffix.strip()}", ""
+        return prefix, word, suffix
     return "", MAJOR_EYEBROW.get(kind, kind), ""
 
 
@@ -246,8 +255,13 @@ class MajorHost:
         # container's own size_request is what actually bounds it. Labels
         # inside defer to this via max_width_chars(1) in _cap_wrap_label.
         card.set_size_request(wrap_w, -1)
-        # Card CSS padding is ~48px each side in style packs.
-        content_w = max(360, wrap_w - 96)
+        pack = _load_pack(active_pack())
+        show_sig = bool(getattr(pack, "SHOW_SIGNIFICANCE", True))
+        show_body = bool(getattr(pack, "SHOW_MAJOR_BODY", True))
+        afk_glow = bool(getattr(pack, "AFK_GLOW", True))
+        pad_x = int(getattr(pack, "MAJOR_PAD_X", 48))
+        # Card CSS padding is ~48px each side in the historical packs.
+        content_w = max(280, wrap_w - pad_x * 2)
 
         width_css = Gtk.CssProvider()
         try:
@@ -278,8 +292,10 @@ class MajorHost:
                 _cap_wrap_label(lbl, content_w, max_lines=max_lines)
             return lbl
 
-        prefix, sig_word, suffix = major_eyebrow_parts(kind, sig)
-        if prefix or suffix:
+        prefix, sig_word, suffix = major_eyebrow_parts(
+            kind, sig, show_significance=show_sig
+        )
+        if show_sig and (prefix or suffix):
             brow = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
             brow.set_halign(Gtk.Align.CENTER)
             brow.set_hexpand(False)
@@ -306,7 +322,7 @@ class MajorHost:
         )
 
         description = (event.get("description") or "").strip()
-        if description:
+        if show_body and description:
             rule = Gtk.Box()
             rule.add_css_class("major__rule")
             rule.set_halign(Gtk.Align.CENTER)
@@ -435,5 +451,6 @@ class MajorHost:
 
             GLib.timeout_add(hold, after_hold)
 
-        schedule_afk_border_alert()
+        if afk_glow:
+            schedule_afk_border_alert()
         animate_opacity(card, 0.0, 1.0, fade_in, done=after_in)
