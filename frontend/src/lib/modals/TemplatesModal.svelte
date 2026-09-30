@@ -7,6 +7,7 @@
     deleteTemplate,
     listCategories,
     listQuestlines,
+    listTags,
     listTemplates,
     updateTemplate,
   } from '../js/api.js'
@@ -23,6 +24,7 @@
   import DurationInput from '../ui/DurationInput.svelte'
   import StepsEditor from '../ui/StepsEditor.svelte'
   import SuggestChip from '../ui/SuggestChip.svelte'
+  import TagField from '../ui/TagField.svelte'
   import { buildSuggestIndex } from '../js/suggest.js'
   import ConfirmModal from './ConfirmModal.svelte'
   import ModalShell from './ModalShell.svelte'
@@ -45,6 +47,10 @@
 
   let title = $state('')
   let description = $state('')
+  /** @type {{ id: number, slug: string, label: string, color?: string }[]} */
+  let tagCatalog = $state([])
+  /** @type {{ id: number, slug: string, label: string, color?: string }[]} */
+  let selectedTags = $state([])
   let pinned = $state(false)
   let significance = $state('common')
   let enabled = $state(true)
@@ -238,6 +244,7 @@
     }
     ;({ hours: durationHours, minutes: durationMinutes } = secondsToParts(t?.duration_seconds))
     steps = t?.steps?.length ? t.steps.map((s) => templateStepDraft(s)) : [templateStepDraft()]
+    selectedTags = Array.isArray(t?.tags) ? t.tags.map((x) => ({ ...x })) : []
     // A new template starts at its schedule; an existing one reads fine
     // from the one-line summary.
     secSchedule = !t
@@ -250,14 +257,16 @@
     loading = true
     error = ''
     try {
-      const [tpls, cats, lines] = await Promise.all([
+      const [tpls, cats, lines, tags] = await Promise.all([
         listTemplates({}),
         listCategories(),
         listQuestlines(),
+        listTags(),
       ])
       templates = tpls
       categories = Array.isArray(cats) ? cats : []
       questlines = Array.isArray(lines) ? lines : []
+      tagCatalog = Array.isArray(tags) ? tags : []
     } catch (e) {
       error = e.message || String(e)
       templates = []
@@ -323,6 +332,7 @@
       emit_pool_pick: Math.max(0, Number.isFinite(Number(emitPoolPick)) ? Number(emitPoolPick) : 1),
       category_id: categoryId === '' ? null : Number(categoryId),
       questline_id: questlineId === '' ? null : Number(questlineId),
+      tag_ids: selectedTags.map((t) => t.id),
       steps: templateStepsPayload(steps),
     }
     if (isSurprise) {
@@ -522,6 +532,20 @@
           {attachments}
           rows={2}
           placeholder="@название — квест, заметка, файл, шаг, квестлайн"
+        />
+      </div>
+
+      <div class="field">
+        <span class="label">Теги</span>
+        <TagField
+          catalog={tagCatalog}
+          value={selectedTags}
+          {title}
+          {description}
+          {quests}
+          enabled={view === 'create' || view === 'edit'}
+          onChange={(tags) => (selectedTags = tags)}
+          onCatalog={(tags) => (tagCatalog = tags)}
         />
       </div>
 

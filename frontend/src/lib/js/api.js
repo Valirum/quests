@@ -196,6 +196,66 @@ export function listCategories() {
   return request('/api/categories')
 }
 
+export function listTags(q = '') {
+  const qs = q ? `?q=${encodeURIComponent(q)}` : ''
+  return request(`/api/tags${qs}`)
+}
+
+/** Create tag; on slug conflict returns the existing tag (409 body). */
+export async function createTag(payload) {
+  const res = await fetch(`${BASE}/api/tags`, {
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+  if (res.status === 401) {
+    if (onUnauthorized) onUnauthorized()
+    throw new UnauthorizedError()
+  }
+  const text = await res.text()
+  let data = null
+  if (text) {
+    try {
+      data = JSON.parse(text)
+    } catch {
+      const msg = `HTTP ${res.status}: ${text.slice(0, 200)}`
+      toast(msg, { kind: 'error' })
+      throw new Error(msg)
+    }
+  }
+  if (res.status === 409 && data) return data
+  if (!res.ok) {
+    const detail = data?.detail ?? res.statusText
+    const msg = typeof detail === 'string' ? detail : JSON.stringify(detail)
+    toast(msg, { kind: 'error' })
+    throw new Error(msg)
+  }
+  return data
+}
+
+export function updateTag(id, payload) {
+  return request(`/api/tags/${id}`, { method: 'PATCH', body: JSON.stringify(payload) })
+}
+
+export function deleteTag(id) {
+  return request(`/api/tags/${id}`, { method: 'DELETE' })
+}
+
+export function setQuestTags(questId, tagIds) {
+  return request(`/api/quests/${questId}/tags`, {
+    method: 'PUT',
+    body: JSON.stringify({ tag_ids: tagIds }),
+  })
+}
+
+export function setTemplateTags(templateId, tagIds) {
+  return request(`/api/templates/${templateId}/tags`, {
+    method: 'PUT',
+    body: JSON.stringify({ tag_ids: tagIds }),
+  })
+}
+
 export function listQuestlines() {
   return request('/api/questlines')
 }

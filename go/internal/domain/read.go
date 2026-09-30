@@ -39,6 +39,7 @@ type QuestRead struct {
 	RemainingSeconds *int         `json:"remaining_seconds"`
 	TimerTone        *string      `json:"timer_tone"`
 	Urgent           bool         `json:"urgent"`
+	Tags             []Tag        `json:"tags"`
 	// Refs is populated only for a single-quest fetch (see Server.getQuest) —
 	// resolving note=N/attachment=N/... mentions for every row in a list
 	// response would be an N+1 query fan-out nobody needs there.
@@ -121,6 +122,10 @@ func ToQuestRead(q Quest, now time.Time) QuestRead {
 		RemainingSeconds: rem,
 		TimerTone:        tone,
 		Urgent:           urgent,
+		Tags:             q.Tags,
+	}
+	if out.Tags == nil {
+		out.Tags = []Tag{}
 	}
 	out.Steps = make([]StepRead, 0, len(q.Steps))
 	for _, s := range q.Steps {

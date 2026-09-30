@@ -693,6 +693,48 @@
     text-align: left;
     color: inherit;
     cursor: pointer;
+    position: relative;
+  }
+
+  /* Paper bookmarks on the row’s right edge — overlay, don’t steal title width. */
+  .quest-row__tags {
+    position: absolute;
+    top: 0.2rem;
+    right: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 2px;
+    pointer-events: none;
+    z-index: 1;
+  }
+
+  .quest-row__tag {
+    display: block;
+    box-sizing: border-box;
+    max-width: 5.5rem;
+    padding: 0.12rem 0.38rem 0.12rem 0.5rem;
+    border-radius: 0 2px 2px 0;
+    font-family: var(--font-ui, sans-serif);
+    font-size: 0.6rem;
+    font-weight: 500;
+    line-height: 1.15;
+    letter-spacing: 0.01em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: color-mix(in srgb, var(--tag, #9a9a9a) 18%, var(--color-fg, #e8e8e8));
+    background: color-mix(in srgb, var(--tag, #9a9a9a) 62%, var(--color-bg-raised, #1a1a1a));
+    box-shadow:
+      -1px 0 0 color-mix(in srgb, var(--tag, #9a9a9a) 35%, transparent),
+      -2px 1px 3px color-mix(in srgb, var(--color-bg, #121212) 55%, transparent);
+    /* Tucked left tip — the part that goes into the “book”. */
+    clip-path: polygon(0.4rem 0, 100% 0, 100% 100%, 0.4rem 100%, 0 50%);
+  }
+
+  /* Only grow for stacked bookmarks; title keeps normal row padding. */
+  .quest-row:has(.quest-row__tags) {
+    min-height: calc(0.5rem + var(--tag-n, 1) * 1rem);
   }
 
   .quest-subgroup__body > .quest-row {
@@ -1797,6 +1839,22 @@
     font-family: var(--font-ui, sans-serif);
     font-size: 0.72rem;
     letter-spacing: 0.02em;
+    color: var(--color-fg-muted, #9a9a9a);
+  }
+
+  .detail__tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem;
+    margin: 0.35rem 0 0;
+  }
+
+  .detail__tag {
+    padding: 0.08rem 0.4rem;
+    border: 1px solid color-mix(in srgb, var(--tag, #9a9a9a) 40%, var(--color-border, #333));
+    border-radius: 3px;
+    font-family: var(--font-mono, monospace);
+    font-size: 0.68rem;
     color: var(--color-fg-muted, #9a9a9a);
   }
 

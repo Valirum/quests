@@ -258,6 +258,13 @@
       <span class="progress">{frac}</span>
     {/if}
   </p>
+  {#if q.tags?.length}
+    <p class="detail__tags">
+      {#each q.tags as t (t.id)}
+        <span class="detail__tag" style:--tag={t.color || '#9a9a9a'}>{t.slug}</span>
+      {/each}
+    </p>
+  {/if}
 {/snippet}
 
 {#snippet stepList(q)}

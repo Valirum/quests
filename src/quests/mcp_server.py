@@ -83,6 +83,10 @@ server = MCPServer(
         "category='health', questline='Сайт Рефкул'). "
         "Steps may include check_command, run_mode=poll|once, wait_previous. "
         "To create a new questline (project/theme container) use create_questline. "
+        "Tags (work-surface labels like frontend/api/mcp): list_tags first; "
+        "create_tag only if nothing suitable exists; set_quest_tags / tag_ids on "
+        "create_quest to attach (max 5). Prefer label ≤6 chars (front, api, infra) — "
+        "sidebar bookmarks; abbreviate freely. Do not invent near-duplicate slugs. "
         "To create a knowledge page use create_note (title, markdown "
         "description, optional parent_id for the notes tree). "
         "Quest/step/note `description` is markdown in the journal (lists, links, "
@@ -623,6 +627,119 @@ def get_inactive_context(questline: str | int | None = None) -> dict[str, Any]:
 @server.tool(description="List all questlines (id, title, category, color, …).")
 def list_questlines() -> list[dict[str, Any]]:
     return _api_get("/api/questlines") or []
+
+
+@server.tool(
+    description=(
+        "List tags — flat work-surface labels (frontend, api, mcp…). "
+        "Optional q filters by slug/label substring. Always call this before "
+        "create_tag; prefer attaching an existing tag."
+    )
+)
+def list_tags(q: str | None = None) -> list[dict[str, Any]]:
+    query: dict[str, Any] = {}
+    if q:
+        query["q"] = q
+    return _api_get("/api/tags", query or None) or []
+
+
+@server.tool(
+    description=(
+        "Create a tag (POST /api/tags). Prefer list_tags first and reuse. "
+        "slug is the canon (normalized lower/hyphen); label is the sidebar bookmark "
+        "text — keep ≤6 chars when possible (frontend→front, infrastructure→infra); "
+        "slug may stay longer. label defaults to slug; color optional hex (otherwise "
+        "random). Duplicate slug → existing tag returned."
+    )
+)
+def create_tag(
+    slug: str | None = None,
+    label: str | None = None,
+    color: str | None = None,
+) -> dict[str, Any]:
+    body: dict[str, Any] = {}
+    if slug is not None:
+        body["slug"] = slug
+    if label is not None:
+        body["label"] = label
+    if color is not None:
+        body["color"] = color
+    if not body.get("slug") and not body.get("label"):
+        raise ValueError("slug or label required")
+    return _api_create_tag(body)
+
+
+def _api_create_tag(body: dict[str, Any]) -> dict[str, Any]:
+    """POST /api/tags; 409 body is the existing tag (reuse)."""
+    url = f"{API_BASE}/api/tags"
+    headers = {"Accept": "application/json", "Content-Type": "application/json"}
+    token = (os.environ.get("QUESTS_API_TOKEN") or "").strip()
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    req = urllib.request.Request(
+        url, data=json.dumps(body).encode("utf-8"), headers=headers, method="POST"
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            raw = resp.read()
+            return json.loads(raw.decode("utf-8")) if raw else {}
+    except urllib.error.HTTPError as e:
+        raw = e.read().decode("utf-8", errors="replace")
+        if e.code == 409:
+            try:
+                return json.loads(raw)
+            except json.JSONDecodeError:
+                pass
+        detail = raw
+        try:
+            parsed = json.loads(raw)
+            detail = parsed.get("detail", detail)
+        except json.JSONDecodeError:
+            pass
+        raise RuntimeError(f"API {e.code}: {detail}") from e
+
+
+@server.tool(
+    description=(
+        "Replace tags on a quest (PUT /api/quests/{id}/tags). Pass tag_ids "
+        "and/or tags (slugs/labels); max 5. Empty list clears. Prefer list_tags "
+        "to resolve ids first."
+    )
+)
+def set_quest_tags(
+    quest_id: int,
+    tag_ids: list[int] | None = None,
+    tags: list[str] | None = None,
+) -> list[dict[str, Any]]:
+    body: dict[str, Any] = {}
+    if tag_ids is not None:
+        body["tag_ids"] = [int(x) for x in tag_ids]
+    if tags is not None:
+        body["tags"] = list(tags)
+    if "tag_ids" not in body and "tags" not in body:
+        body["tag_ids"] = []
+    return _api("PUT", f"/api/quests/{int(quest_id)}/tags", body=body) or []
+
+
+@server.tool(
+    description=(
+        "Replace tags on a template (PUT /api/templates/{id}/tags). Copied onto "
+        "materialized quests. Same shape as set_quest_tags."
+    )
+)
+def set_template_tags(
+    template_id: int,
+    tag_ids: list[int] | None = None,
+    tags: list[str] | None = None,
+) -> list[dict[str, Any]]:
+    body: dict[str, Any] = {}
+    if tag_ids is not None:
+        body["tag_ids"] = [int(x) for x in tag_ids]
+    if tags is not None:
+        body["tags"] = list(tags)
+    if "tag_ids" not in body and "tags" not in body:
+        body["tag_ids"] = []
+    return _api("PUT", f"/api/templates/{int(template_id)}/tags", body=body) or []
 
 
 @server.tool(
@@ -1236,7 +1353,9 @@ def delete_note(note_id: int) -> dict[str, Any]:
         "`description` (and each step's description) is markdown rendered in the "
         "journal — lists, links, inline `code`, emphasis. Title is plain text. "
         "Passing questline "
-        "makes the quest inherit that questline's category. quiet=true skips overlay toasts."
+        "makes the quest inherit that questline's category. "
+        "tag_ids: optional list of existing tag ids (max 5); use list_tags / "
+        "create_tag first. quiet=true skips overlay toasts."
     )
 )
 def create_quest(
@@ -1251,6 +1370,7 @@ def create_quest(
     category: str | None = None,
     questline: str | None = None,
     steps: list[dict[str, Any]] | None = None,
+    tag_ids: list[int] | None = None,
     automated: bool | None = None,
     quiet: bool = True,
 ) -> dict[str, Any]:
@@ -1283,9 +1403,10 @@ def create_quest(
             body["category_id"] = cat_id
     if steps:
         body["steps"] = [_step_body(s) for s in steps]
+    if tag_ids is not None:
+        body["tag_ids"] = [int(x) for x in tag_ids]
     q = _api("POST", "/api/quests", query=_tool_query(quiet=quiet), body=body)
     return _quest_mutation_result(q)
-
 
 @server.tool(
     description=(
@@ -1434,7 +1555,8 @@ def add_step(
         "(e.g. archive when blocked / needs clarification). Also title, description "
         "(markdown in the journal), "
         "pinned, significance, sort_order, deadline_at, duration_seconds, "
-        "category_id, questline_id (null to detach), automated. quiet=true skips overlay toasts."
+        "category_id, questline_id (null to detach), automated, tag_ids (replace all, max 5). "
+        "quiet=true skips overlay toasts."
     )
 )
 def update_quest(
@@ -1451,6 +1573,7 @@ def update_quest(
     questline_id: int | None = None,
     clear_questline: bool = False,
     automated: bool | None = None,
+    tag_ids: list[int] | None = None,
     quiet: bool = True,
 ) -> dict[str, Any]:
     body: dict[str, Any] = {}
@@ -1483,6 +1606,8 @@ def update_quest(
         body["questline_id"] = int(questline_id)
     if automated is not None:
         body["automated"] = bool(automated)
+    if tag_ids is not None:
+        body["tag_ids"] = [int(x) for x in tag_ids]
     if not body:
         raise ValueError("provide at least one field to update")
     q = _api(
@@ -1492,7 +1617,6 @@ def update_quest(
         body=body,
     )
     return _quest_mutation_result(q)
-
 
 @server.tool(
     description=(

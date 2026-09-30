@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"strconv"
 	"strings"
 
@@ -70,6 +71,21 @@ func (s *Store) ListTemplates(ctx context.Context, enabled *bool) ([]TemplateRea
 			}
 		}
 	}
+	ids := make([]int64, len(out))
+	for i := range out {
+		ids[i] = out[i]["id"].(int64)
+	}
+	tagMap, err := s.loadTagsForTemplates(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+	for i := range out {
+		tags := tagMap[out[i]["id"].(int64)]
+		if tags == nil {
+			tags = []domain.Tag{}
+		}
+		out[i]["tags"] = tags
+	}
 	return out, nil
 }
 
@@ -124,6 +140,15 @@ func (s *Store) GetTemplate(ctx context.Context, id int64) (TemplateRead, error)
 			tr["emit_pool_last_outcome"] = outcome
 		}
 	}
+	tagMap, err := s.loadTagsForTemplates(ctx, []int64{id})
+	if err != nil {
+		return nil, err
+	}
+	tags := tagMap[id]
+	if tags == nil {
+		tags = []domain.Tag{}
+	}
+	tr["tags"] = tags
 	return tr, nil
 }
 
@@ -174,6 +199,9 @@ func (s *Store) CreateTemplate(ctx context.Context, body map[string]any) (Templa
 	if err := s.replaceTemplateSteps(ctx, tid, body["steps"]); err != nil {
 		return nil, err
 	}
+	if err := s.applyTemplateTagIDs(ctx, tid, body); err != nil {
+		return nil, err
+	}
 	return s.GetTemplate(ctx, tid)
 }
 
@@ -219,6 +247,15 @@ func (s *Store) UpdateTemplate(ctx context.Context, id int64, body map[string]an
 	}
 	if _, ok := body["steps"]; ok {
 		if err := s.replaceTemplateSteps(ctx, id, body["steps"]); err != nil {
+			return nil, err
+		}
+	}
+	if _, ok := body["tag_ids"]; ok {
+		if err := s.applyTemplateTagIDs(ctx, id, body); err != nil {
+			return nil, err
+		}
+	} else if _, ok := body["tags"]; ok {
+		if err := s.applyTemplateTagIDs(ctx, id, body); err != nil {
 			return nil, err
 		}
 	}
@@ -268,7 +305,64 @@ func (s *Store) CopyTemplate(ctx context.Context, id int64) (TemplateRead, error
 	delete(src, "id")
 	delete(src, "created_at")
 	delete(src, "updated_at")
+	// Keep tags so CreateTemplate can re-link via applyTemplateTagIDs.
 	return s.CreateTemplate(ctx, src)
+}
+
+func (s *Store) applyTemplateTagIDs(ctx context.Context, templateID int64, body map[string]any) error {
+	ids, ok, err := parseTagIDsFromBody(body)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return nil
+	}
+	return s.SetTemplateTags(ctx, templateID, ids)
+}
+
+func parseTagIDsFromBody(body map[string]any) ([]int64, bool, error) {
+	if raw, ok := body["tag_ids"]; ok {
+		ids, err := coerceInt64Slice(raw)
+		return ids, true, err
+	}
+	if raw, ok := body["tags"]; ok {
+		// Accept [{id:…}, …] from GetTemplate round-trip / CopyTemplate.
+		b, _ := json.Marshal(raw)
+		var tags []struct {
+			ID int64 `json:"id"`
+		}
+		if err := json.Unmarshal(b, &tags); err != nil {
+			return nil, true, err
+		}
+		ids := make([]int64, 0, len(tags))
+		for _, t := range tags {
+			if t.ID != 0 {
+				ids = append(ids, t.ID)
+			}
+		}
+		return ids, true, nil
+	}
+	return nil, false, nil
+}
+
+func coerceInt64Slice(raw any) ([]int64, error) {
+	b, err := json.Marshal(raw)
+	if err != nil {
+		return nil, err
+	}
+	var ids []int64
+	if err := json.Unmarshal(b, &ids); err == nil {
+		return ids, nil
+	}
+	var floats []float64
+	if err := json.Unmarshal(b, &floats); err != nil {
+		return nil, fmt.Errorf("tag_ids must be an array of integers")
+	}
+	out := make([]int64, len(floats))
+	for i, f := range floats {
+		out[i] = int64(f)
+	}
+	return out, nil
 }
 
 func (s *Store) replaceTemplateSteps(ctx context.Context, tid int64, raw any) error {

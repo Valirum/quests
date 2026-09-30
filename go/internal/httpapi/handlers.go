@@ -78,6 +78,7 @@ func (s *Server) Handler() http.Handler {
 	s.registerNotes(mux)
 	s.registerPDF(mux)
 	s.registerParity(mux)
+	s.registerTags(mux)
 	s.registerLLMActions(mux)
 	s.mountSPA(mux)
 	return s.cors(s.requireAuth(mux))
@@ -311,6 +312,17 @@ func (s *Server) createQuest(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	if body.TagIDs != nil {
+		if err := s.Store.SetQuestTags(r.Context(), created.ID, body.TagIDs); err != nil {
+			writeTagErr(w, err)
+			return
+		}
+		created, err = s.Store.GetQuest(r.Context(), created.ID)
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+	}
 	quiet, source := s.publishOpts(r)
 	qid := created.ID
 	s.Hub.Publish("quest_created", events.PublishOpts{
@@ -460,6 +472,22 @@ func (s *Server) patchQuest(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+	if v, ok := raw["tag_ids"]; ok {
+		var ids []int64
+		if err := json.Unmarshal(v, &ids); err != nil {
+			writeErr(w, http.StatusBadRequest, "invalid tag_ids")
+			return
+		}
+		if err := s.Store.SetQuestTags(r.Context(), updated.ID, ids); err != nil {
+			writeTagErr(w, err)
+			return
+		}
+		updated, err = s.Store.GetQuest(r.Context(), updated.ID)
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
 	}
 	if updated.Status != beforeStatus {
 		_ = s.Store.ApplyQuestStatusRewards(r.Context(), updated, updated.Status)

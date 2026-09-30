@@ -134,6 +134,7 @@
       class:quest-row--active={q.id === selectedId}
       class:quest-row--pinned={q.pinned}
       class:quest-row--inactive={isQuestInactive(q) && q.status !== 'delayed'}
+      style:--tag-n={q.tags?.length || 0}
       onclick={() => onSelect(q.id)}
       oncontextmenu={(e) => onQuestContextMenu(e, q)}
     >
@@ -154,6 +155,13 @@
           <Icon name={q.pinned ? 'pin-filled' : 'pin'} size={14} />
         </span>
       </span>
+      {#if q.tags?.length}
+        <span class="quest-row__tags" aria-hidden="true">
+          {#each q.tags as t (t.id)}
+            <span class="quest-row__tag" style:--tag={t.color || '#9a9a9a'}>{t.label || t.slug}</span>
+          {/each}
+        </span>
+      {/if}
       {#if q.significance && q.significance !== 'common'}
         <span class="quest-row__sig" data-sig={q.significance}>{significanceLabel(q)}</span>
       {/if}

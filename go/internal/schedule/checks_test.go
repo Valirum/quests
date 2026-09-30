@@ -85,6 +85,23 @@ CREATE TABLE metricledger (
 	quest_id INTEGER,
 	reason TEXT
 );
+CREATE TABLE tag (
+	id INTEGER PRIMARY KEY,
+	slug TEXT NOT NULL UNIQUE,
+	label TEXT NOT NULL,
+	color TEXT NOT NULL DEFAULT '#9a9a9a',
+	created_at DATETIME NOT NULL
+);
+CREATE TABLE quest_tag (
+	quest_id INTEGER NOT NULL,
+	tag_id INTEGER NOT NULL,
+	PRIMARY KEY (quest_id, tag_id)
+);
+CREATE TABLE template_tag (
+	template_id INTEGER NOT NULL,
+	tag_id INTEGER NOT NULL,
+	PRIMARY KEY (template_id, tag_id)
+);
 `
 
 func openChecksDB(t *testing.T) *store.Store {

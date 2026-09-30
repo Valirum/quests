@@ -30,6 +30,14 @@ type Category struct {
 	Color     string `json:"color"`
 }
 
+// Tag is a cross-cutting work-surface label (frontend, api, mcp…).
+type Tag struct {
+	ID    int64  `json:"id"`
+	Slug  string `json:"slug"`
+	Label string `json:"label"`
+	Color string `json:"color"`
+}
+
 const (
 	RunModePoll = "poll"
 	RunModeOnce = "once"
@@ -87,6 +95,7 @@ type Quest struct {
 	QuestlineUpdatedAt *time.Time
 
 	Steps []Step
+	Tags  []Tag
 }
 
 type StepCreate struct {
@@ -127,6 +136,7 @@ type QuestCreate struct {
 	QuestlineID     *int64       `json:"questline_id"`
 	Automated       bool         `json:"automated"`
 	Steps           []StepCreate `json:"steps"`
+	TagIDs          []int64      `json:"tag_ids"`
 }
 
 func ClampStep(s *Step) {

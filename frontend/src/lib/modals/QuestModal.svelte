@@ -11,6 +11,7 @@
     deleteQuestStep,
     listCategories,
     listQuestlines,
+    listTags,
   } from '../js/api.js'
   import {
     defaultLocalDeadlineParts,
@@ -30,6 +31,7 @@
   import DurationInput from '../ui/DurationInput.svelte'
   import StepsEditor from '../ui/StepsEditor.svelte'
   import SuggestChip from '../ui/SuggestChip.svelte'
+  import TagField from '../ui/TagField.svelte'
   import { buildSuggestIndex } from '../js/suggest.js'
   import ConfirmModal from './ConfirmModal.svelte'
   import ModalShell from './ModalShell.svelte'
@@ -66,6 +68,10 @@
   let categories = $state([])
   /** @type {{ id: number, title: string, category_id?: number | null, color?: string }[]} */
   let questlines = $state([])
+  /** @type {{ id: number, slug: string, label: string, color?: string }[]} */
+  let tagCatalog = $state([])
+  /** @type {{ id: number, slug: string, label: string, color?: string }[]} */
+  let selectedTags = $state([])
   /** Local date YYYY-MM-DD + 24h clock. */
   let deadlineDate = $state('')
   let deadlineHour = $state('12')
@@ -188,6 +194,7 @@
     ;({ hours: durationHours, minutes: durationMinutes } = secondsToParts(q?.duration_seconds))
 
     steps = q?.steps?.length ? q.steps.map((s) => questStepDraft(s)) : [questStepDraft()]
+    selectedTags = Array.isArray(q?.tags) ? q.tags.map((t) => ({ ...t })) : []
     secProps = false
     secDeadline = false
     secSteps = true
@@ -203,10 +210,11 @@
       deleting = false
       deleteConfirmOpen = false
       resetFromQuest(mode === 'edit' ? quest : null)
-      Promise.all([listCategories(), listQuestlines()])
-        .then(([cats, lines]) => {
+      Promise.all([listCategories(), listQuestlines(), listTags()])
+        .then(([cats, lines, tags]) => {
           categories = Array.isArray(cats) ? cats : []
           questlines = Array.isArray(lines) ? lines : []
+          tagCatalog = Array.isArray(tags) ? tags : []
           if (mode === 'create' && defaults?.questline_id != null) {
             applyQuestline(String(defaults.questline_id))
           }
@@ -214,6 +222,7 @@
         .catch(() => {
           categories = []
           questlines = []
+          tagCatalog = []
         })
     })
   })
@@ -262,6 +271,7 @@
         sort_order: Number(sortOrder) || 0,
         category_id: categoryId === '' ? null : Number(categoryId),
         questline_id: questlineId === '' ? null : Number(questlineId),
+        tag_ids: selectedTags.map((t) => t.id),
         deadline_at,
       }
       if (!deadline_at) {
@@ -336,6 +346,20 @@
         {attachments}
         rows={3}
         placeholder="@название — квест, заметка, файл, шаг, квестлайн"
+      />
+    </div>
+
+    <div class="field">
+      <span class="label">Теги</span>
+      <TagField
+        catalog={tagCatalog}
+        value={selectedTags}
+        {title}
+        {description}
+        {quests}
+        enabled={open}
+        onChange={(tags) => (selectedTags = tags)}
+        onCatalog={(tags) => (tagCatalog = tags)}
       />
     </div>
 

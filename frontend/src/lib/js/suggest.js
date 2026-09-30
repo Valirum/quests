@@ -66,12 +66,13 @@ function cosine(a, b) {
 }
 
 /**
- * @param {any[]} quests — anything with title/description/questline_id/category_id
+ * @param {any[]} quests — anything with title/description/questline_id/category_id/tags
  */
 export function buildSuggestIndex(quests) {
   const docs = (quests || []).map((q) => ({
     questline: q.questline_id ?? null,
     category: q.category_id ?? null,
+    tags: Array.isArray(q.tags) ? q.tags : [],
     tf: termCounts(q.title, q.description),
   }))
   const df = new Map()
@@ -111,6 +112,36 @@ export function nearestVote(index, query, target, k = SUGGEST_DEFAULTS.k) {
     if (w > weight) [leader, weight] = [label, w]
   }
   return { id: leader, share: total ? weight / total : 0, sim: top[0].s }
+}
+
+/**
+ * Rank tags from k nearest quests. Returns [{tag, score}] above minSim, excluding
+ * already-selected slugs. Score = sum of neighbour similarities carrying that tag.
+ */
+export function suggestTags(index, query, { excludeSlugs = [], k = SUGGEST_DEFAULTS.k, minSim = SUGGEST_DEFAULTS.minSim, limit = 5 } = {}) {
+  if (!index?.n) return []
+  const q = vectorize(termCounts(query.title, query.description), index.df, index.n)
+  if (!q.size) return []
+  const top = index.docs
+    .map((d) => ({ d, s: cosine(q, d.vec) }))
+    .filter((x) => x.s >= minSim)
+    .sort((a, b) => b.s - a.s)
+    .slice(0, k)
+  if (!top.length) return []
+  const ex = new Set((excludeSlugs || []).map((s) => String(s).toLowerCase()))
+  /** @type {Map<number, { tag: any, score: number }>} */
+  const votes = new Map()
+  for (const { d, s } of top) {
+    for (const tag of d.tags || []) {
+      if (!tag?.id || ex.has(String(tag.slug || '').toLowerCase())) continue
+      const cur = votes.get(tag.id)
+      if (cur) cur.score += s
+      else votes.set(tag.id, { tag, score: s })
+    }
+  }
+  return [...votes.values()]
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit)
 }
 
 /**

@@ -268,6 +268,9 @@ func MaterializeDue(ctx context.Context, st *store.Store, hub *events.Hub, now t
 		if err != nil {
 			return created, err
 		}
+		if err := st.CopyTemplateTagsToQuest(ctx, tmpl.ID, createdQ.ID); err != nil {
+			return created, err
+		}
 		if surpriseRollID.Valid {
 			_, _ = st.DB.ExecContext(ctx, `
 				UPDATE templateemitroll SET outcome = 'materialized', updated_at = ? WHERE id = ?`,

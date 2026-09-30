@@ -121,6 +121,9 @@ func (s *Store) ListQuests(ctx context.Context, f ListFilter) ([]domain.Quest, e
 		}
 		out[i].Steps = steps
 	}
+	if err := s.attachTagsToQuests(ctx, out); err != nil {
+		return nil, err
+	}
 	return out, nil
 }
 
@@ -147,7 +150,11 @@ func (s *Store) GetQuest(ctx context.Context, id int64) (domain.Quest, error) {
 		return domain.Quest{}, err
 	}
 	quest.Steps = steps
-	return quest, nil
+	qs := []domain.Quest{quest}
+	if err := s.attachTagsToQuests(ctx, qs); err != nil {
+		return domain.Quest{}, err
+	}
+	return qs[0], nil
 }
 
 type rowScanner interface {
