@@ -221,36 +221,55 @@ systemctl --user restart quests-telegram.service   # если включён
 
 ---
 
-## 7. Бэкапы БД и восстановление
+## 7. Бэкапы БД / вложений и восстановление
 
 Сервер сам раз в `QUESTS_BACKUP_INTERVAL_HOURS` часов (по умолчанию 24) снимает
-консистентный снепшот `quests.db` (`VACUUM INTO`, WAL-safe) в `<data>/backups/`
-и, если настроен WebDAV (см. `QUESTS_WEBDAV_URL` выше), заливает его туда же
-в `/backups/`. Ротация — `QUESTS_BACKUP_KEEP` последних (по умолчанию 14),
-список ведётся в таблице `backuplog` самой БД, а не листингом WebDAV.
-Статус последнего бэкапа — чип **backup** в `GET /api/health`.
+консистентный снепшот `quests.db` (`VACUUM INTO`, WAL-safe) в `<data>/backups/`,
+собирает рядом `quests-…-attachments.tar.zst` по путям из **этого** снимка
+(GET с WebDAV), и:
 
-Восстановление — руками, через WebDAV напрямую (без бэкенда, ему для этого
-не нужно быть живым):
+1. если настроен WebDAV — заливает `.db` в `/backups/` на том же WebDAV;
+2. если заданы `QUESTS_BACKUP_REMOTE_HOST` + `QUESTS_BACKUP_REMOTE_DIR` — пушит
+   пару (`.db` + `.tar.zst`) по SFTP на ПК (ключ `QUESTS_BACKUP_REMOTE_KEY`,
+   порт `QUESTS_BACKUP_REMOTE_PORT`, по умолчанию 22).
+
+Ротация — `QUESTS_BACKUP_KEEP` последних пар (по умолчанию 14), список в
+таблице `backuplog`. Если ПК выключен, локальные файлы остаются в
+`data/backups/`, `remote_uploaded=0`, следующий тик сначала дожимает pending.
+Статус — чип **backup** в `GET /api/health` (`webdav=` / `remote=`).
+
+### Восстановление БД (как раньше)
 
 ```bash
-# посмотреть, какие бэкапы есть на WebDAV
+# список на WebDAV
 curl -s -u "$QUESTS_WEBDAV_USER:$QUESTS_WEBDAV_PASS" \
-  -X PROPFIND -H "Depth: 1" "$QUESTS_WEBDAV_URL/backups/" | grep -o '<D:href>[^<]*' 
+  -X PROPFIND -H "Depth: 1" "$QUESTS_WEBDAV_URL/backups/" | grep -o '<D:href>[^<]*'
 
-# скачать конкретный снепшот
+# скачать снепшот
 curl -s -u "$QUESTS_WEBDAV_USER:$QUESTS_WEBDAV_PASS" \
   -o quests-restore.db "$QUESTS_WEBDAV_URL/backups/quests-20260927-030000-123456789.db"
 
-# остановить сервер, подменить файл, поднять обратно
 systemctl --user stop quests-server.service    # или: docker compose stop quests-api
-cp quests-restore.db ~/Quests/data/quests.db   # путь — см. QUESTS_DATA_DIR / docker volume
-systemctl --user start quests-server.service   # или: docker compose start quests-api
+cp quests-restore.db ~/Quests/data/quests.db
+systemctl --user start quests-server.service
 ```
 
-Локальная копия последнего бэкапа лежит и на самом сервере в `data/backups/`
-(её же берёт `VACUUM INTO`) — если WebDAV недоступен, можно скопировать
-оттуда напрямую без curl.
+Локальная копия последнего бэкапа лежит и на самом сервере в `data/backups/`.
+
+### Восстановление вложений с ПК
+
+Пара на ПК: `{REMOTE_DIR}/quests-…​.db` + `{REMOTE_DIR}/quests-…​-attachments.tar.zst`.
+После подмены БД распаковать архив в корень WebDAV с сохранением путей
+(`attachments/quest-N/…`):
+
+```bash
+# с ПК или со staging сервера
+tar -I zstd -tf quests-…-attachments.tar.zst   # проверить пути
+tar -I zstd -xf quests-…-attachments.tar.zst -C /path/to/webdav/root
+```
+
+Либо PUT каждый файл обратно через WebDAV API / `curl --upload-file`.
+Согласованность: брать `.db` и `.tar.zst` с **одним** timestamp.
 
 ---
 

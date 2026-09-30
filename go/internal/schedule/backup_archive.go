@@ -1,0 +1,168 @@
+package schedule
+
+import (
+	"archive/tar"
+	"context"
+	"database/sql"
+	"fmt"
+	"io"
+	"log"
+	"os"
+	"path"
+	"strings"
+	"time"
+
+	"github.com/klauspost/compress/zstd"
+	_ "modernc.org/sqlite"
+
+	"github.com/valirum/quests/go/internal/webdav"
+)
+
+// attachmentsArchiveName derives the sidecar archive name from the DB snapshot
+// filename (quests-….db → quests-…-attachments.tar.zst).
+func attachmentsArchiveName(dbFilename string) string {
+	base := strings.TrimSuffix(dbFilename, ".db")
+	if base == dbFilename || base == "" {
+		base = dbFilename
+	}
+	return base + "-attachments.tar.zst"
+}
+
+// listSnapshotWebDAVPaths opens the VACUUM INTO file read-only and returns
+// every webdav_path referenced by attachment metadata in that snapshot.
+func listSnapshotWebDAVPaths(snapshotPath string) ([]string, error) {
+	dsn := "file:" + snapshotPath + "?mode=ro"
+	db, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+	db.SetMaxOpenConns(1)
+
+	// Tables may be absent on ancient snapshots — treat as no attachments.
+	var n int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='attachment'`).Scan(&n); err != nil || n == 0 {
+		return nil, nil
+	}
+
+	rows, err := db.Query(`
+		SELECT webdav_path FROM attachment WHERE webdav_path IS NOT NULL AND webdav_path != ''
+		UNION
+		SELECT webdav_path FROM attachment_revision WHERE webdav_path IS NOT NULL AND webdav_path != ''
+		ORDER BY 1`)
+	if err != nil {
+		// attachment_revision may be missing on older schemas.
+		rows, err = db.Query(`
+			SELECT webdav_path FROM attachment
+			WHERE webdav_path IS NOT NULL AND webdav_path != ''
+			ORDER BY 1`)
+		if err != nil {
+			return nil, err
+		}
+	}
+	defer rows.Close()
+
+	var out []string
+	seen := map[string]struct{}{}
+	for rows.Next() {
+		var p string
+		if err := rows.Scan(&p); err != nil {
+			return nil, err
+		}
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		if _, ok := seen[p]; ok {
+			continue
+		}
+		seen[p] = struct{}{}
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
+// buildAttachmentsArchive writes a zstd-compressed tar of every WebDAV object
+// listed in the DB snapshot. Missing objects (404) are skipped with a log line.
+// Returns bytes written (compressed file size).
+func buildAttachmentsArchive(ctx context.Context, wd *webdav.Client, snapshotDBPath, archivePath string) (int64, error) {
+	paths, err := listSnapshotWebDAVPaths(snapshotDBPath)
+	if err != nil {
+		return 0, fmt.Errorf("list snapshot paths: %w", err)
+	}
+
+	f, err := os.Create(archivePath)
+	if err != nil {
+		return 0, err
+	}
+	defer f.Close()
+
+	zw, err := zstd.NewWriter(f)
+	if err != nil {
+		return 0, err
+	}
+	tw := tar.NewWriter(zw)
+
+	for _, davPath := range paths {
+		if err := ctx.Err(); err != nil {
+			_ = tw.Close()
+			_ = zw.Close()
+			return 0, err
+		}
+		body, err := wd.Get(ctx, davPath)
+		if err != nil {
+			if err == webdav.ErrNotFound {
+				log.Printf("backup: attachments skip missing %s", davPath)
+				continue
+			}
+			_ = tw.Close()
+			_ = zw.Close()
+			return 0, fmt.Errorf("get %s: %w", davPath, err)
+		}
+		data, readErr := io.ReadAll(body)
+		body.Close()
+		if readErr != nil {
+			_ = tw.Close()
+			_ = zw.Close()
+			return 0, fmt.Errorf("read %s: %w", davPath, readErr)
+		}
+		name := path.Clean("/" + strings.TrimPrefix(davPath, "/"))
+		if name == "/" || name == "." {
+			name = path.Base(davPath)
+		} else {
+			name = strings.TrimPrefix(name, "/")
+		}
+		hdr := &tar.Header{
+			Name:    name,
+			Mode:    0o644,
+			Size:    int64(len(data)),
+			ModTime: time.Now().UTC(),
+		}
+		if err := tw.WriteHeader(hdr); err != nil {
+			_ = tw.Close()
+			_ = zw.Close()
+			return 0, err
+		}
+		if _, err := tw.Write(data); err != nil {
+			_ = tw.Close()
+			_ = zw.Close()
+			return 0, err
+		}
+	}
+
+	if err := tw.Close(); err != nil {
+		_ = zw.Close()
+		return 0, err
+	}
+	if err := zw.Close(); err != nil {
+		return 0, err
+	}
+	if err := f.Close(); err != nil {
+		return 0, err
+	}
+	info, err := os.Stat(archivePath)
+	if err != nil {
+		return 0, err
+	}
+	return info.Size(), nil
+}

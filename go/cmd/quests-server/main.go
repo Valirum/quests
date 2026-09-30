@@ -96,7 +96,12 @@ func main() {
 	checks := schedule.NewCheckRunner(st, hub)
 	go schedule.RunMaintenanceLoop(ctx, st, hub, windows, checks)
 	go srv.RunProbes(ctx)
-	go schedule.RunBackupLoop(ctx, st, srv.WebDAV, cfg.DataDir, cfg.BackupInterval, cfg.BackupKeep, srv.Health)
+	go schedule.RunBackupLoop(ctx, st, srv.WebDAV, cfg.DataDir, cfg.BackupInterval, cfg.BackupKeep, schedule.BackupRemote{
+		Host: cfg.BackupRemoteHost,
+		Dir:  cfg.BackupRemoteDir,
+		Key:  cfg.BackupRemoteKey,
+		Port: cfg.BackupRemotePort,
+	}, srv.Health)
 
 	hub.Publish("startup", events.PublishOpts{
 		Title:  "Quests",

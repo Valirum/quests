@@ -2,6 +2,8 @@ package main
 
 import (
 	"bufio"
+	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"os"
@@ -14,6 +16,10 @@ import (
 	"github.com/valirum/quests/go/internal/auth"
 	"github.com/valirum/quests/go/internal/config"
 	"github.com/valirum/quests/go/internal/db"
+	"github.com/valirum/quests/go/internal/health"
+	"github.com/valirum/quests/go/internal/schedule"
+	"github.com/valirum/quests/go/internal/store"
+	"github.com/valirum/quests/go/internal/webdav"
 )
 
 const adminUsage = `quests-server admin commands (run on the host holding quests.db):
@@ -24,6 +30,7 @@ const adminUsage = `quests-server admin commands (run on the host holding quests
   quests-server token add <name>         mint an API token for a headless client
   quests-server token ls                 list active API tokens
   quests-server token rm <id>            revoke an API token
+  quests-server backup-now               run one DB+attachments backup tick now
 
 Passwords are never taken from argv or env, so they stay out of shell history.
 `
@@ -35,7 +42,7 @@ func runAdmin(args []string) bool {
 		return false
 	}
 	switch args[0] {
-	case "useradd", "passwd", "users", "token":
+	case "useradd", "passwd", "users", "token", "backup-now":
 	case "help", "-h", "--help":
 		fmt.Print(adminUsage)
 		return true
@@ -50,6 +57,12 @@ func runAdmin(args []string) bool {
 		fatal("db: %v", err)
 	}
 	defer sqlDB.Close()
+
+	if args[0] == "backup-now" {
+		runBackupNow(cfg, sqlDB)
+		return true
+	}
+
 	st := &auth.Store{DB: sqlDB}
 
 	switch args[0] {
@@ -96,6 +109,34 @@ func runAdmin(args []string) bool {
 		runTokenCmd(st, args[1:])
 	}
 	return true
+}
+
+func runBackupNow(cfg config.Config, sqlDB *sql.DB) {
+	st := &store.Store{DB: sqlDB}
+	wd := webdav.New(cfg.WebDAVURL, cfg.WebDAVUser, cfg.WebDAVPass)
+	remote := schedule.NewSFTPRemote(schedule.BackupRemote{
+		Host: cfg.BackupRemoteHost,
+		Dir:  cfg.BackupRemoteDir,
+		Key:  cfg.BackupRemoteKey,
+		Port: cfg.BackupRemotePort,
+	})
+	reg := health.New()
+	if err := schedule.RunBackupOnce(context.Background(), st, wd, cfg.DataDir, cfg.BackupKeep, remote, reg); err != nil {
+		fatal("backup: %v", err)
+	}
+	snap := reg.Snapshot()
+	detail := ""
+	if p, ok := snap["backup"].(map[string]any); ok {
+		if d, ok := p["detail"].(string); ok {
+			detail = d
+		}
+	}
+	if detail == "" {
+		detail = "ok"
+	}
+	fmt.Printf("backup-now: %s\n", detail)
+	fmt.Printf("  remote configured=%v host=%q dir=%q\n",
+		remote.Configured(), cfg.BackupRemoteHost, cfg.BackupRemoteDir)
 }
 
 func runTokenCmd(st *auth.Store, args []string) {

@@ -34,8 +34,15 @@ type Config struct {
 	// BackupInterval is how often a DB snapshot is taken. <=0 disables it.
 	BackupInterval time.Duration
 	// BackupKeep is how many snapshots to retain (oldest pruned first),
-	// both on disk and on WebDAV (when configured).
+	// both on disk and on WebDAV / remote PC (when configured).
 	BackupKeep int
+
+	// BackupRemote* push DB + attachments archive to a second host (PC) via SFTP.
+	// Empty BackupRemoteHost disables the remote step.
+	BackupRemoteHost string
+	BackupRemoteDir  string
+	BackupRemoteKey  string
+	BackupRemotePort int
 }
 
 func Load() Config {
@@ -100,22 +107,36 @@ func Load() Config {
 			backupKeep = n
 		}
 	}
+	remotePort := 22
+	if raw := strings.TrimSpace(os.Getenv("QUESTS_BACKUP_REMOTE_PORT")); raw != "" {
+		if n, err := strconv.Atoi(raw); err == nil && n > 0 {
+			remotePort = n
+		}
+	}
+	remoteKey := strings.TrimSpace(os.Getenv("QUESTS_BACKUP_REMOTE_KEY"))
+	if remoteKey == "" {
+		remoteKey = filepath.Join(data, "backup_ssh_key")
+	}
 	return Config{
-		AuthMode:       authMode,
-		SecureCookies:  secure,
-		Root:           root,
-		DataDir:        data,
-		DBPath:         filepath.Join(data, "quests.db"),
-		Host:           host,
-		Port:           port,
-		CORS:           cors,
-		WebDAVURL:      strings.TrimRight(strings.TrimSpace(os.Getenv("QUESTS_WEBDAV_URL")), "/"),
-		WebDAVUser:     strings.TrimSpace(os.Getenv("QUESTS_WEBDAV_USER")),
-		WebDAVPass:     os.Getenv("QUESTS_WEBDAV_PASS"),
-		ClamAVAddr:     strings.TrimSpace(os.Getenv("QUESTS_CLAMAV_ADDR")),
-		MaxUploadBytes: maxUpload,
-		BackupInterval: backupInterval,
-		BackupKeep:     backupKeep,
+		AuthMode:         authMode,
+		SecureCookies:    secure,
+		Root:             root,
+		DataDir:          data,
+		DBPath:           filepath.Join(data, "quests.db"),
+		Host:             host,
+		Port:             port,
+		CORS:             cors,
+		WebDAVURL:        strings.TrimRight(strings.TrimSpace(os.Getenv("QUESTS_WEBDAV_URL")), "/"),
+		WebDAVUser:       strings.TrimSpace(os.Getenv("QUESTS_WEBDAV_USER")),
+		WebDAVPass:       os.Getenv("QUESTS_WEBDAV_PASS"),
+		ClamAVAddr:       strings.TrimSpace(os.Getenv("QUESTS_CLAMAV_ADDR")),
+		MaxUploadBytes:   maxUpload,
+		BackupInterval:   backupInterval,
+		BackupKeep:       backupKeep,
+		BackupRemoteHost: strings.TrimSpace(os.Getenv("QUESTS_BACKUP_REMOTE_HOST")),
+		BackupRemoteDir:  strings.TrimSpace(os.Getenv("QUESTS_BACKUP_REMOTE_DIR")),
+		BackupRemoteKey:  remoteKey,
+		BackupRemotePort: remotePort,
 	}
 }
 
