@@ -124,6 +124,7 @@ func (s *Server) getHealth(w http.ResponseWriter, r *http.Request) {
 	for _, c := range comps {
 		m, _ := c.(map[string]any)
 		st, _ := m["status"].(string)
+		// warn (e.g. DB alembic ahead of binary) still counts as degraded so the UI notices.
 		if st != "ok" && st != "disabled" {
 			overall = "degraded"
 			break

@@ -5,7 +5,7 @@
   /** @type {{
    *   view: 'journal' | 'toc' | 'notes' | 'attachments' | 'calendar' | 'hero' | 'stats',
    *   liveStatus: string,
-   *   health: { api: string, overlay: string, telegram: string, webdav?: string },
+   *   health: { api: string, overlay: string, telegram: string, webdav?: string, db?: string, detail?: Record<string, any> },
    *   sidebarCollapsed?: boolean,
    *   onToggleSidebar?: (() => void) | null,
    *   onViewChange: (v: 'journal' | 'toc' | 'notes' | 'attachments' | 'calendar' | 'hero' | 'stats') => void,
@@ -48,6 +48,13 @@
     if (status === 'ok') return 'WebDAV / вложения: онлайн'
     if (status === 'offline') return 'WebDAV / вложения: офлайн'
     return 'WebDAV / вложения: не настроен'
+  }
+
+  function dbTitle(status) {
+    const detail = health?.detail?.components?.db?.detail
+    if (status === 'warn') return detail || 'БД: схема новее API — обнови образ'
+    if (status === 'ok') return detail || 'БД: схема совпадает с API'
+    return 'БД: статус неизвестен'
   }
 
   let menuOpen = $state(false)
@@ -234,6 +241,15 @@
         <span class="health__dot" aria-hidden="true"></span>
         {#if !healthCollapsed}<span class="health__label">API</span>{/if}
       </span>
+      <span
+        class="health__chip"
+        data-status={health.db || 'unknown'}
+        title={dbTitle(health.db)}
+        aria-label={dbTitle(health.db)}
+      >
+        <span class="health__dot" aria-hidden="true"></span>
+        {#if !healthCollapsed}<span class="health__label">DB</span>{/if}
+      </span>
       <span class="health__chip" data-status={health.overlay} title="HUD / оверлей" aria-label="HUD / оверлей">
         <span class="health__dot" aria-hidden="true"></span>
         {#if !healthCollapsed}<span class="health__label">HUD</span>{/if}
@@ -268,6 +284,10 @@
     <span class="health__chip">
       <span class="health__dot" aria-hidden="true"></span>
       <span class="health__label">API</span>
+    </span>
+    <span class="health__chip">
+      <span class="health__dot" aria-hidden="true"></span>
+      <span class="health__label">DB</span>
     </span>
     <span class="health__chip">
       <span class="health__dot" aria-hidden="true"></span>

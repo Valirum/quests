@@ -20,6 +20,7 @@ func TestSnapshotHeartbeatAndProbe(t *testing.T) {
 	r.Record("overlay", "tab")
 	r.SetProbe("webdav", "ok", "")
 	r.SetProbe("clamav", "offline", "connection refused")
+	r.SetProbe("db", "warn", "БД alembic=ffff новее API")
 	snap = r.Snapshot()
 	overlay, _ = snap["overlay"].(map[string]any)
 	if overlay["status"] != "ok" {
@@ -35,6 +36,10 @@ func TestSnapshotHeartbeatAndProbe(t *testing.T) {
 	}
 	if clam["detail"] != "connection refused" {
 		t.Fatalf("clamav detail = %v", clam["detail"])
+	}
+	dbComp, _ := snap["db"].(map[string]any)
+	if dbComp["status"] != "warn" {
+		t.Fatalf("db = %v", dbComp["status"])
 	}
 }
 

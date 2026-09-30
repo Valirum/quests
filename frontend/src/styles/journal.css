@@ -307,6 +307,11 @@
     border-color: color-mix(in srgb, var(--color-danger, #b54a3a) 40%, var(--color-border, #333));
   }
 
+  .health__chip[data-status='warn'] {
+    color: var(--color-warning, #c47a20);
+    border-color: color-mix(in srgb, var(--color-warning, #c47a20) 40%, var(--color-border, #333));
+  }
+
   .health__chip[data-status='unknown'] {
     color: var(--color-fg-subtle, #6e6e6e);
   }

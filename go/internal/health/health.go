@@ -29,7 +29,7 @@ func (r *Registry) Record(component, detail string) {
 }
 
 // SetProbe records a status we observed by pinging, not a client heartbeat.
-// status is ok | offline | disabled.
+// status is ok | offline | disabled | warn.
 func (r *Registry) SetProbe(component, status, detail string) {
 	if r == nil {
 		return
@@ -47,7 +47,7 @@ func (r *Registry) Snapshot() map[string]any {
 	for _, name := range []string{"overlay", "telegram"} {
 		out[name] = heartbeatView(r.seen[name], now, true)
 	}
-	for _, name := range []string{"webdav", "clamav", "backup"} {
+	for _, name := range []string{"webdav", "clamav", "backup", "db"} {
 		hb, ok := r.seen[name]
 		if !ok {
 			out[name] = map[string]any{

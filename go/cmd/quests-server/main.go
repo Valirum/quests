@@ -29,11 +29,14 @@ func main() {
 	config.LoadDotenv(config.Load().Root)
 	cfg := config.Load()
 
-	sqlDB, err := db.Open(cfg.DBPath)
+	sqlDB, schema, err := db.Open(cfg.DBPath)
 	if err != nil {
 		log.Fatalf("db: %v", err)
 	}
 	defer sqlDB.Close()
+	if schema.State == "warn" {
+		log.Printf("db: warning: %s", schema.Detail)
+	}
 
 	authStore := &auth.Store{DB: sqlDB}
 	userCount, err := authStore.CountUsers()
@@ -66,13 +69,15 @@ func main() {
 
 	hub := events.New()
 	st := &store.Store{DB: sqlDB}
+	reg := health.New()
+	reg.SetProbe("db", schema.State, schema.Detail)
 	srv := &httpapi.Server{
 		Store:         st,
 		Auth:          authStore,
 		AuthRequired:  authRequired,
 		SecureCookies: cfg.SecureCookies,
 		InternalToken: internalToken,
-		Health:        health.New(),
+		Health:        reg,
 		Hub:           hub,
 		CORS:          cfg.CORS,
 		DataDir:       cfg.DataDir,

@@ -28,12 +28,16 @@
     if (s === 'ok' || s === 'live') return 'онлайн'
     if (s === 'offline' || s === 'off') return 'офлайн'
     if (s === 'disabled') return 'не настроен'
+    if (s === 'warn') return 'опережает'
     if (s === 'connecting' || s === 'reconnect') return 'переподключение'
     return 'неизвестно'
   }
 
   function ageLabel(comp) {
     const row = health?.detail?.components?.[comp]
+    if (comp === 'db') {
+      return row?.detail || ''
+    }
     if (row?.status === 'disabled') {
       if (comp === 'clamav') return 'нет адреса'
       if (comp === 'backup') return 'выключен или ещё не было'
@@ -52,7 +56,7 @@
   }
 
   function chipOf(s) {
-    if (s === 'ok' || s === 'offline') return s
+    if (s === 'ok' || s === 'offline' || s === 'warn') return s
     return 'unknown'
   }
 </script>
@@ -63,13 +67,19 @@
       <div class="modal__body">
         <section class="block">
           <h3 class="block__title">Сервисы</h3>
-          <p class="block__hint">API отвечает сам; HUD и бот шлют heartbeat. WebDAV и ClamAV сервер опрашивает сам раз в 15 с.</p>
+          <p class="block__hint">API отвечает сам; HUD и бот шлют heartbeat. WebDAV и ClamAV сервер опрашивает сам раз в 15 с. БД — сверка alembic при старте.</p>
           <ul class="svc-list">
             <li class="svc" data-status={health.api}>
               <span class="svc__dot" aria-hidden="true"></span>
               <span class="svc__name">API</span>
               <span class="svc__status">{statusLabel(health.api)}</span>
               <span class="svc__meta">HTTP · WS {statusLabel(liveStatus)}</span>
+            </li>
+            <li class="svc" data-status={chipOf(probeStatus('db'))}>
+              <span class="svc__dot" aria-hidden="true"></span>
+              <span class="svc__name">БД</span>
+              <span class="svc__status">{statusLabel(probeStatus('db'))}</span>
+              <span class="svc__meta">{ageLabel('db')}</span>
             </li>
             <li class="svc" data-status={health.overlay}>
               <span class="svc__dot" aria-hidden="true"></span>
@@ -258,12 +268,17 @@
     color: var(--color-danger, #b54a3a);
   }
 
+  .svc[data-status='warn'] {
+    color: var(--color-warning, #c47a20);
+  }
+
   .svc[data-status='unknown'] {
     color: var(--color-fg-subtle, #6e6e6e);
   }
 
   .svc[data-status='ok'] .svc__name,
   .svc[data-status='offline'] .svc__name,
+  .svc[data-status='warn'] .svc__name,
   .svc[data-status='unknown'] .svc__name {
     color: var(--color-fg, #e8e8e8);
   }

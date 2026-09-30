@@ -71,12 +71,13 @@
   let loading = $state(true)
   let error = $state('')
   let liveStatus = $state('off')
-  /** @type {{ api: string, overlay: string, telegram: string, webdav: string, detail?: Record<string, any> }} */
+  /** @type {{ api: string, overlay: string, telegram: string, webdav: string, db?: string, detail?: Record<string, any> }} */
   let health = $state({
     api: 'unknown',
     overlay: 'unknown',
     telegram: 'unknown',
     webdav: 'unknown',
+    db: 'unknown',
   })
   let searchQuery = $state('')
   /** @type {'journal' | 'toc' | 'notes' | 'attachments' | 'calendar' | 'hero' | 'stats'} */
@@ -1134,6 +1135,7 @@
         overlay: comps.overlay?.status === 'ok' ? 'ok' : 'offline',
         telegram: comps.telegram?.status === 'ok' ? 'ok' : 'offline',
         webdav,
+        db: dbStatus(comps.db?.status),
         detail: data,
       }
     } catch {
@@ -1142,6 +1144,7 @@
         overlay: 'unknown',
         telegram: 'unknown',
         webdav: 'unknown',
+        db: 'unknown',
       }
     }
   }
@@ -1149,6 +1152,12 @@
   function probeStatus(status) {
     if (status === 'ok') return 'ok'
     if (status === 'offline') return 'offline'
+    return 'unknown'
+  }
+
+  function dbStatus(status) {
+    if (status === 'ok') return 'ok'
+    if (status === 'warn') return 'warn'
     return 'unknown'
   }
 
