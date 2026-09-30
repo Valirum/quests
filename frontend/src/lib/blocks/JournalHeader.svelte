@@ -63,12 +63,19 @@
   let menuX = $state(0)
   let menuY = $state(0)
 
+  let showLowActions = $derived(view === 'journal' || view === 'toc' || view === 'notes')
+
+  /** @type {'full' | 'icons' | 'icons-core' | 'icons-primary'} */
+  let actionsMode = $state('full')
+
+  /** Overflow menu lists only actions hidden behind ⋮ for the current stage. */
   let menuItems = $derived.by(() => {
-    const items = [
-      { id: 'assistant', label: 'Команда' },
-      { id: 'settings', label: 'Настройки' },
-    ]
-    if (view === 'journal' || view === 'toc' || view === 'notes') {
+    /** @type {{ id: string, label: string }[]} */
+    const items = []
+    if (actionsMode === 'icons-primary') {
+      items.push({ id: 'settings', label: 'Настройки' })
+    }
+    if ((actionsMode === 'icons-core' || actionsMode === 'icons-primary') && showLowActions) {
       items.push(
         { id: 'templates', label: 'Шаблоны' },
         { id: 'secrets', label: 'Секреты' },
@@ -95,16 +102,24 @@
     else if (id === 'questline') onOpenCreateQuestline()
   }
 
-  /** Actual overflow detection, not a guessed breakpoint: the labeled row
-   * collapses to "…" + "+" exactly when it no longer fits next to the
-   * brand/health cluster and the view tabs — whatever the window's actual
-   * shape turns out to be. */
+  /** Progressive collapse: pick the widest actions stage (full → icons →
+   * icons-core → icons-primary) that still fits in headerSlots().right. */
   let headerEl = $state(null)
   let leftEl = $state(null)
   let tabsEl = $state(null)
-  let measureEl = $state(null)
+  let measureFullEl = $state(null)
+  let measureIconsEl = $state(null)
+  let measureCoreEl = $state(null)
+  let measurePrimaryEl = $state(null)
   let actionsEl = $state(null)
-  let collapsed = $state(false)
+
+  const ACTION_STAGES = /** @type {const} */ (['full', 'icons', 'icons-core', 'icons-primary'])
+
+  let showOverflow = $derived(actionsMode === 'icons-core' || actionsMode === 'icons-primary')
+  let showSettingsBtn = $derived(
+    actionsMode === 'full' || actionsMode === 'icons' || actionsMode === 'icons-core',
+  )
+  let showLowBtns = $derived((actionsMode === 'full' || actionsMode === 'icons') && showLowActions)
 
   // Same idea, independently, for the health chips: labeled by default,
   // dots-only only once the brand+health cluster actually doesn't fit.
@@ -166,8 +181,21 @@
   }
 
   function recomputeCollapse() {
-    if (!headerEl || !leftEl || !tabsEl || !measureEl) return
-    collapsed = measureEl.scrollWidth > headerSlots().right
+    if (!headerEl || !leftEl || !tabsEl || !measureFullEl) return
+    const available = headerSlots().right
+    const widths = {
+      full: measureFullEl.scrollWidth,
+      icons: measureIconsEl?.scrollWidth ?? Infinity,
+      'icons-core': measureCoreEl?.scrollWidth ?? Infinity,
+      'icons-primary': measurePrimaryEl?.scrollWidth ?? Infinity,
+    }
+    for (const stage of ACTION_STAGES) {
+      if (widths[stage] <= available) {
+        actionsMode = stage
+        return
+      }
+    }
+    actionsMode = 'icons-primary'
   }
 
   function recomputeHealthCollapse() {
@@ -197,7 +225,10 @@
     if (headerEl) ro.observe(headerEl)
     if (leftEl) ro.observe(leftEl)
     if (tabsEl) ro.observe(tabsEl)
-    if (measureEl) ro.observe(measureEl)
+    if (measureFullEl) ro.observe(measureFullEl)
+    if (measureIconsEl) ro.observe(measureIconsEl)
+    if (measureCoreEl) ro.observe(measureCoreEl)
+    if (measurePrimaryEl) ro.observe(measurePrimaryEl)
     if (brandEl) ro.observe(brandEl)
     if (healthEl) ro.observe(healthEl)
     if (healthMeasureEl) ro.observe(healthMeasureEl)
@@ -401,27 +432,91 @@
     </button>
   {/snippet}
 
-  {#if !collapsed}
-    <div class="header-actions" bind:this={actionsEl}>
-      {@render fullActions()}
-    </div>
-  {:else}
-    <div class="header-actions" bind:this={actionsEl}>
-      <button type="button" class="btn" onclick={openMenu} aria-haspopup="menu" aria-expanded={menuOpen} aria-label="Ещё действия">
+  <div
+    class="header-actions"
+    class:header-actions--icons={actionsMode !== 'full'}
+    bind:this={actionsEl}
+  >
+    <button type="button" class="btn" onclick={onOpenAssistant} aria-label="Командная строка журнала">
+      <Icon name="terminal" />
+      <span class="btn__text">Команда</span>
+    </button>
+    {#if showSettingsBtn}
+      <button type="button" class="btn" onclick={onOpenSettings} aria-label="Настройки">
+        <Icon name="settings" />
+        <span class="btn__text">Настройки</span>
+      </button>
+    {/if}
+    {#if showLowBtns}
+      <button type="button" class="btn" onclick={onOpenTemplates} aria-label="Шаблоны периодики">
+        <Icon name="repeat" />
+        <span class="btn__text">Шаблоны</span>
+      </button>
+      <button type="button" class="btn" onclick={onOpenSecrets} aria-label="Секреты">
+        <Icon name="key" />
+        <span class="btn__text">Секреты</span>
+      </button>
+      <button type="button" class="btn" onclick={onOpenTags} aria-label="Теги">
+        <Icon name="pin" />
+        <span class="btn__text">Теги</span>
+      </button>
+      <button type="button" class="btn" onclick={onOpenCreateQuestline} aria-label="Новый квестлайн">
+        <Icon name="flag" />
+        <span class="btn__text">Квестлайн</span>
+      </button>
+    {/if}
+    {#if showOverflow && (actionsMode === 'icons-primary' || showLowActions)}
+      <button
+        type="button"
+        class="btn btn--overflow"
+        onclick={openMenu}
+        aria-haspopup="menu"
+        aria-expanded={menuOpen}
+        aria-label="Ещё действия"
+      >
         <Icon name="more" />
       </button>
-      <button type="button" class="btn btn--accent btn--icon-only" onclick={() => onOpenCreateQuest()} aria-label="Новый квест">
-        <Icon name="add" />
-      </button>
-    </div>
-  {/if}
+    {/if}
+    <button type="button" class="btn btn--accent" onclick={onOpenCreateQuest} aria-label="Новый квест">
+      <Icon name="add" />
+      <span class="btn__text">Новый квест</span>
+    </button>
+  </div>
 
-  <!-- Off-screen twin of the full row, always laid out at natural width
-       (visibility:hidden keeps its box metrics, position:fixed keeps it
-       out of the page) — the only way to know "would the labeled row fit"
-       without guessing a breakpoint. -->
-  <div class="header-actions header-actions--measure" bind:this={measureEl} aria-hidden="true" inert>
+  <!-- Off-screen twins: one row per collapse stage, measured against headerSlots().right -->
+  <div class="header-actions header-actions--measure" bind:this={measureFullEl} aria-hidden="true" inert>
     {@render fullActions()}
+  </div>
+  <div
+    class="header-actions header-actions--measure header-actions--icons"
+    bind:this={measureIconsEl}
+    aria-hidden="true"
+    inert
+  >
+    {@render fullActions()}
+  </div>
+  <div
+    class="header-actions header-actions--measure header-actions--icons"
+    bind:this={measureCoreEl}
+    aria-hidden="true"
+    inert
+  >
+    <button type="button" class="btn" tabindex="-1"><Icon name="terminal" /><span class="btn__text">Команда</span></button>
+    <button type="button" class="btn" tabindex="-1"><Icon name="settings" /><span class="btn__text">Настройки</span></button>
+    {#if showLowActions}
+      <button type="button" class="btn btn--overflow" tabindex="-1"><Icon name="more" /></button>
+    {/if}
+    <button type="button" class="btn btn--accent" tabindex="-1"><Icon name="add" /><span class="btn__text">Новый квест</span></button>
+  </div>
+  <div
+    class="header-actions header-actions--measure header-actions--icons"
+    bind:this={measurePrimaryEl}
+    aria-hidden="true"
+    inert
+  >
+    <button type="button" class="btn" tabindex="-1"><Icon name="terminal" /><span class="btn__text">Команда</span></button>
+    <button type="button" class="btn btn--overflow" tabindex="-1"><Icon name="more" /></button>
+    <button type="button" class="btn btn--accent" tabindex="-1"><Icon name="add" /><span class="btn__text">Новый квест</span></button>
   </div>
 </header>
 

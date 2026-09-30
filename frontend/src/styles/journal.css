@@ -119,6 +119,21 @@
     padding: 0;
   }
 
+  .header-actions--icons .btn__text {
+    display: none;
+  }
+
+  .header-actions--icons .btn {
+    width: var(--nav-control-h, 2rem);
+    min-width: var(--nav-control-h, 2rem);
+    padding: 0;
+    gap: 0;
+  }
+
+  .header-actions .btn--overflow .icon {
+    transform: rotate(90deg);
+  }
+
   /* Off-screen twin used only to measure whether the full labeled row
      would fit — never shown, never wraps (nowrap so its scrollWidth is
      the row's true natural width). See JournalHeader's ResizeObserver. */
