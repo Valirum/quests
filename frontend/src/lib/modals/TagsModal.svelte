@@ -284,12 +284,17 @@
     margin: 0 0 1rem;
     padding: 0;
     list-style: none;
+    min-width: 0;
   }
 
   .tag-row {
     display: flex;
     align-items: center;
-    gap: 0.4rem;
+    gap: 0.35rem;
+    box-sizing: border-box;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
     min-height: 2.5rem;
     padding: 0.35rem 0.5rem;
     border: 1px solid var(--color-border, #333);
@@ -311,9 +316,9 @@
   }
 
   .tag-row__slug {
-    flex: 0 1 auto;
+    flex: 0 1 4.5rem;
     min-width: 0;
-    max-width: 8rem;
+    max-width: 5rem;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -322,31 +327,42 @@
     color: var(--color-fg-subtle, #6e6e6e);
   }
 
-  .tag-row__label-text {
-    flex: 1;
-    min-width: 0;
-    font-size: var(--text-sm, 0.875rem);
+  /* Slug is immutable — hide while editing so label gets the leftover width. */
+  .tag-row:has(:global(input.tag-row__label)) .tag-row__slug {
+    display: none;
   }
 
-  /* Beat .modal input { width:100% } — label fills; color is ~#rrggbb. */
+  .tag-row__label-text {
+    flex: 1 1 0%;
+    min-width: 0;
+    font-size: var(--text-sm, 0.875rem);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /*
+   * UA input min-width (~20ch) blew the modal on mobile. Label flexes into
+   * leftover space (basis 0 + min-width 0); color stays fixed for #rrggbb.
+   */
   .tag-row :global(input.tag-row__label) {
-    flex: 1 1 auto;
+    flex: 1 1 0%;
     box-sizing: border-box;
     width: auto;
-    min-width: 3rem;
+    min-width: 0;
     max-width: none;
     height: 1.9rem;
     padding: 0.2rem 0.4rem;
   }
 
   .tag-row :global(input.tag-row__color) {
-    flex: 0 0 auto;
+    flex: 0 0 5.5rem;
     box-sizing: border-box;
-    width: calc(7ch + 1.25rem);
-    min-width: calc(7ch + 1.25rem);
-    max-width: calc(7ch + 1.25rem);
+    width: 5.5rem;
+    min-width: 5.5rem;
+    max-width: 5.5rem;
     height: 1.9rem;
-    padding: 0.2rem 0.45rem;
+    padding: 0.2rem 0.35rem;
     font-family: var(--font-mono, monospace);
     font-size: var(--text-xs, 0.75rem);
   }
@@ -355,16 +371,19 @@
     flex: none;
   }
 
+  /* slug | label (flex) | color (fixed) | submit */
   .add-row {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 5rem 5.5rem auto;
+    grid-template-columns: minmax(0, 5.5rem) minmax(0, 1fr) 5.5rem auto;
     gap: 0.5rem;
     align-items: stretch;
+    min-width: 0;
   }
 
   .add-row :global(input) {
     box-sizing: border-box;
     width: 100%;
+    min-width: 0;
     height: 2.25rem;
     margin: 0;
   }
@@ -372,6 +391,11 @@
   .add-row__slug {
     font-family: var(--font-mono, monospace);
     font-size: var(--text-sm, 0.875rem);
+  }
+
+  .add-row__color {
+    font-family: var(--font-mono, monospace);
+    font-size: var(--text-xs, 0.75rem);
   }
 
   .add-row :global(.btn) {
@@ -386,7 +410,11 @@
 
   @media (max-width: 480px) {
     .add-row {
-      grid-template-columns: 1fr 1fr;
+      grid-template-columns: minmax(0, 1fr) 5.5rem;
+    }
+
+    .add-row__slug {
+      grid-column: 1 / -1;
     }
 
     .add-row :global(.btn) {
