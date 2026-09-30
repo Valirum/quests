@@ -290,6 +290,7 @@
     display: flex;
     align-items: center;
     gap: 0.4rem;
+    min-height: 2.5rem;
     padding: 0.35rem 0.5rem;
     border: 1px solid var(--color-border, #333);
     border-radius: var(--radius-sm, 2px);
@@ -310,7 +311,12 @@
   }
 
   .tag-row__slug {
-    flex: none;
+    flex: 0 1 auto;
+    min-width: 0;
+    max-width: 8rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     font-family: var(--font-mono, monospace);
     font-size: var(--text-xs, 0.75rem);
     color: var(--color-fg-subtle, #6e6e6e);
@@ -322,23 +328,41 @@
     font-size: var(--text-sm, 0.875rem);
   }
 
-  .tag-row__label {
-    flex: 1;
-    min-width: 0;
-    max-width: 6rem;
+  /* Beat .modal input { width:100% } — color must not eat the label. */
+  .tag-row :global(input.tag-row__label) {
+    flex: 0 0 4.5rem;
+    box-sizing: border-box;
+    width: 4.5rem;
+    min-width: 4.5rem;
+    max-width: 4.5rem;
+    height: 1.9rem;
+    padding: 0.2rem 0.4rem;
   }
 
-  .tag-row__color {
-    width: 5rem;
+  .tag-row :global(input.tag-row__color) {
+    flex: 0 0 5.5rem;
+    box-sizing: border-box;
+    width: 5.5rem;
+    min-width: 5.5rem;
+    max-width: 5.5rem;
+    height: 1.9rem;
+    padding: 0.2rem 0.4rem;
     font-family: var(--font-mono, monospace);
     font-size: var(--text-xs, 0.75rem);
   }
 
   .add-row {
     display: grid;
-    grid-template-columns: 1fr minmax(4rem, 5rem) 4.5rem auto;
+    grid-template-columns: minmax(0, 1fr) 5rem 5.5rem auto;
     gap: 0.5rem;
-    align-items: center;
+    align-items: stretch;
+  }
+
+  .add-row :global(input) {
+    box-sizing: border-box;
+    width: 100%;
+    height: 2.25rem;
+    margin: 0;
   }
 
   .add-row__slug {
@@ -346,14 +370,25 @@
     font-size: var(--text-sm, 0.875rem);
   }
 
+  .add-row :global(.btn) {
+    box-sizing: border-box;
+    height: 2.25rem;
+    margin: 0;
+    padding-block: 0;
+    display: inline-flex;
+    align-items: center;
+    align-self: stretch;
+  }
+
   @media (max-width: 480px) {
     .add-row {
       grid-template-columns: 1fr 1fr;
     }
 
-    .add-row .btn {
+    .add-row :global(.btn) {
       grid-column: 1 / -1;
-      justify-self: start;
+      justify-self: stretch;
+      width: 100%;
     }
   }
 </style>

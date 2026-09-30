@@ -172,6 +172,11 @@
   outline: none;
 }
 
+/* TagsModal row editors: don't let the shared width:100% rule stretch color. */
+.modal .tag-row :is(input[type='text'], input[type='search']) {
+  width: auto;
+}
+
 .modal :is(input, textarea, select):disabled {
   opacity: 0.5;
   cursor: not-allowed;
