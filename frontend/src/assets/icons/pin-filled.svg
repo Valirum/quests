@@ -1,4 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-  <path d="M6.5 1.75h3v4.5l2.5 3H4l2.5-3z" fill="currentColor"/>
-  <path d="M5.5 1.75h5M8 9.25v5"/>
+  <g transform="rotate(45 8 8)">
+    <path d="M6.5 1.75h3v4.5l2.5 3H4l2.5-3z" fill="currentColor"/>
+    <path d="M5.5 1.75h5M8 9.25v5"/>
+  </g>
 </svg>

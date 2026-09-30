@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/valirum/quests/go/internal/events"
 	"github.com/valirum/quests/go/internal/store"
 )
 
@@ -75,6 +76,7 @@ func (s *Server) createTag(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
+	s.publishSilent("tag_created", t.Label, map[string]any{"tag_id": t.ID, "slug": t.Slug})
 	writeJSON(w, 201, t)
 }
 
@@ -101,6 +103,8 @@ func (s *Server) patchTag(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
+	// Label/color changes show on quest rows — wake journal tabs.
+	s.publishSilent("tag_updated", t.Label, map[string]any{"tag_id": t.ID, "slug": t.Slug})
 	writeJSON(w, 200, t)
 }
 
@@ -108,6 +112,15 @@ func (s *Server) deleteTag(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil {
 		writeErr(w, 400, "invalid id")
+		return
+	}
+	t, err := s.Store.GetTag(r.Context(), id)
+	if errors.Is(err, store.ErrNotFound) {
+		writeErr(w, 404, "Tag not found")
+		return
+	}
+	if err != nil {
+		writeErr(w, 500, err.Error())
 		return
 	}
 	if err := s.Store.DeleteTag(r.Context(), id); err != nil {
@@ -118,6 +131,7 @@ func (s *Server) deleteTag(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
+	s.publishSilent("tag_deleted", t.Label, map[string]any{"tag_id": id, "slug": t.Slug})
 	w.WriteHeader(204)
 }
 
@@ -127,7 +141,8 @@ func (s *Server) putQuestTags(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "invalid id")
 		return
 	}
-	if _, err := s.Store.GetQuest(r.Context(), id); errors.Is(err, store.ErrNotFound) {
+	q, err := s.Store.GetQuest(r.Context(), id)
+	if errors.Is(err, store.ErrNotFound) {
 		writeErr(w, 404, "Quest not found")
 		return
 	} else if err != nil {
@@ -143,10 +158,22 @@ func (s *Server) putQuestTags(w http.ResponseWriter, r *http.Request) {
 		writeTagErr(w, err)
 		return
 	}
-	q, err := s.Store.GetQuest(r.Context(), id)
+	q, err = s.Store.GetQuest(r.Context(), id)
 	if err != nil {
 		writeErr(w, 500, err.Error())
 		return
+	}
+	silent := ""
+	if s.Hub != nil {
+		qid := q.ID
+		s.Hub.Publish("quest_updated", events.PublishOpts{
+			QuestID: &qid,
+			Title:   q.Title,
+			Detail:  "теги",
+			Toast:   false,
+			Source:  "api",
+			Sound:   &silent,
+		})
 	}
 	writeJSON(w, 200, q.Tags)
 }
@@ -178,6 +205,8 @@ func (s *Server) putTemplateTags(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
+	title, _ := row["title"].(string)
+	s.publishSilent("template_updated", title, map[string]any{"template_id": id})
 	writeJSON(w, 200, row["tags"])
 }
 

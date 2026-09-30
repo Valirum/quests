@@ -722,6 +722,22 @@
     gap: 2px;
     pointer-events: none;
     z-index: 1;
+    transition:
+      opacity 0.18s ease,
+      transform 0.18s ease;
+  }
+
+  /* Clear the right edge on hover so the pin is readable. */
+  .quest-row:hover .quest-row__tags,
+  .quest-row:focus-within .quest-row__tags {
+    opacity: 0;
+    transform: translateX(0.7rem);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .quest-row__tags {
+      transition: none;
+    }
   }
 
   .quest-row__tag {
@@ -1119,6 +1135,9 @@
     display: flex;
     flex-direction: column;
     gap: var(--space-4, 1rem);
+    min-width: 0;
+    max-width: 100%;
+    overflow-x: hidden;
   }
 
   .day-load__head {
@@ -1319,6 +1338,11 @@
     opacity: 0.72;
   }
 
+  .day-nowin {
+    min-width: 0;
+    max-width: 100%;
+  }
+
   .day-nowin__list {
     list-style: none;
     margin: 0;
@@ -1326,13 +1350,26 @@
     display: flex;
     flex-wrap: wrap;
     gap: 0.35rem 0.75rem;
+    min-width: 0;
   }
 
   .day-nowin__item {
     display: inline-flex;
     align-items: center;
     gap: 0.4rem;
+    box-sizing: border-box;
+    max-width: 100%;
+    min-width: 0;
     font-size: 0.75rem;
+  }
+
+  .day-nowin__item .day-events__time {
+    flex: none;
+  }
+
+  .day-nowin__item .day-events__quest {
+    flex: 1 1 auto;
+    min-width: 0;
   }
 
   .day-nowin__item--hover .day-events__quest {
@@ -1340,6 +1377,12 @@
   }
 
   @media (max-width: 720px) {
+    .day-nowin__list {
+      flex-direction: column;
+      flex-wrap: nowrap;
+      align-items: stretch;
+    }
+
     .day-board__axis,
     .day-board__load,
     .day-board__row {
@@ -1572,6 +1615,8 @@
     font: inherit;
     text-align: left;
     cursor: pointer;
+    min-width: 0;
+    max-width: 100%;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
