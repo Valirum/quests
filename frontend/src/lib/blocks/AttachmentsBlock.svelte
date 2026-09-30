@@ -3,9 +3,13 @@
   import ContextMenu from '../ui/ContextMenu.svelte'
   import {
     deleteAttachment,
+    deleteAttachmentRevision,
     listAttachments,
+    listAttachmentRevisions,
+    setAttachmentCurrentRevision,
     updateAttachmentComment,
     uploadAttachment,
+    uploadAttachmentRevision,
     attachmentDownloadUrl,
   } from '../js/api.js'
   import { copyText } from '../js/clipboard.js'
@@ -25,10 +29,18 @@
   let error = $state('')
   let dragOver = $state(false)
   let fileInput = $state(/** @type {HTMLInputElement | null} */ (null))
+  let versionInput = $state(/** @type {HTMLInputElement | null} */ (null))
+  /** @type {number | null} */
+  let versionForId = $state(null)
   /** @type {Record<number, string>} */
   let commentDraft = $state({})
   /** @type {number | null} */
   let commentBusy = $state(null)
+  /** @type {number | null} */
+  let historyOpenId = $state(null)
+  /** @type {Record<number, any[]>} */
+  let historyById = $state({})
+  let historyBusy = $state(false)
   let ctxOpen = $state(false)
   let ctxX = $state(0)
   let ctxY = $state(0)
@@ -40,7 +52,14 @@
     /** @type {{ id: string, label?: string, sep?: boolean, danger?: boolean, disabled?: boolean }[]} */
     const items = [
       { id: 'download', label: 'Скачать', disabled: a.available === false },
+      { id: 'new-version', label: 'Новая версия…' },
     ]
+    if ((a.revision_count || 1) > 1 || historyOpenId === a.id) {
+      items.push({
+        id: 'history',
+        label: historyOpenId === a.id ? 'Скрыть историю' : 'История версий',
+      })
+    }
     if (onOpenOwner) items.push({ id: 'open', label: 'Открыть владельца' })
     items.push(
       { id: 'copy-id', label: `Копировать attachment=${a.id}` },
@@ -62,14 +81,64 @@
     ctxOpen = true
   }
 
-  function downloadAtt(a) {
+  function downloadAtt(a, revision = null) {
     const link = document.createElement('a')
-    link.href = attachmentDownloadUrl(ownerType, ownerId, a.id)
+    link.href = attachmentDownloadUrl(ownerType, ownerId, a.id, revision)
     link.download = a.filename || ''
     link.rel = 'noopener'
     document.body.appendChild(link)
     link.click()
     link.remove()
+  }
+
+  async function toggleHistory(a) {
+    if (historyOpenId === a.id) {
+      historyOpenId = null
+      return
+    }
+    historyBusy = true
+    error = ''
+    try {
+      const data = await listAttachmentRevisions(ownerType, ownerId, a.id)
+      historyById = { ...historyById, [a.id]: data?.revisions || [] }
+      historyOpenId = a.id
+    } catch (e) {
+      error = e?.message || String(e)
+    } finally {
+      historyBusy = false
+    }
+  }
+
+  async function makeCurrent(a, revision) {
+    error = ''
+    try {
+      const updated = await setAttachmentCurrentRevision(ownerType, ownerId, a.id, revision)
+      applyRows(
+        ownerType,
+        ownerId,
+        items.map((row) => (row.id === a.id ? { ...row, ...updated } : row)),
+        { probed: peekAttachmentList(ownerType, ownerId)?.probed ?? true },
+      )
+      const data = await listAttachmentRevisions(ownerType, ownerId, a.id)
+      historyById = { ...historyById, [a.id]: data?.revisions || [] }
+      toast(`Версия ${revision} — текущая`, { kind: 'success', ttl: 1600 })
+    } catch (e) {
+      error = e?.message || String(e)
+    }
+  }
+
+  async function removeRevision(a, revision) {
+    error = ''
+    try {
+      await deleteAttachmentRevision(ownerType, ownerId, a.id, revision)
+      const data = await listAttachmentRevisions(ownerType, ownerId, a.id)
+      historyById = { ...historyById, [a.id]: data?.revisions || [] }
+      applyRows(ownerType, ownerId, (await listAttachments(ownerType, ownerId)) || [], {
+        probed: true,
+      })
+    } catch (e) {
+      error = e?.message || String(e)
+    }
   }
 
   async function onAttSelect(action) {
@@ -78,6 +147,15 @@
     if (action === 'download') {
       if (a.available === false) return
       downloadAtt(a)
+      return
+    }
+    if (action === 'new-version') {
+      versionForId = a.id
+      queueMicrotask(() => versionInput?.click())
+      return
+    }
+    if (action === 'history') {
+      await toggleHistory(a)
       return
     }
     if (action === 'open') {
@@ -114,8 +192,6 @@
     commentDraft = draftsFrom(next)
   }
 
-  // Paint from cache before the first DOM pass so switching quests does not
-  // flash the previous owner's files (or an empty hole while we refetch).
   $effect.pre(() => {
     const type = ownerType
     const id = ownerId
@@ -124,6 +200,7 @@
     error = ''
     items = next
     commentDraft = draftsFrom(next)
+    historyOpenId = null
   })
 
   let liveNudge = $state(0)
@@ -183,6 +260,31 @@
     }
   }
 
+  async function onVersionPick(event) {
+    const file = event.currentTarget.files?.[0]
+    const aid = versionForId
+    versionForId = null
+    if (versionInput) versionInput.value = ''
+    if (!file || aid == null) return
+    uploading = true
+    error = ''
+    try {
+      await uploadAttachmentRevision(ownerType, ownerId, aid, file)
+      applyRows(ownerType, ownerId, (await listAttachments(ownerType, ownerId)) || [], {
+        probed: true,
+      })
+      if (historyOpenId === aid) {
+        const data = await listAttachmentRevisions(ownerType, ownerId, aid)
+        historyById = { ...historyById, [aid]: data?.revisions || [] }
+      }
+      toast('Новая версия загружена', { kind: 'success', ttl: 1600 })
+    } catch (e) {
+      error = e?.message || String(e)
+    } finally {
+      uploading = false
+    }
+  }
+
   function onPick(event) {
     sendFiles(event.currentTarget.files || [])
   }
@@ -223,6 +325,7 @@
         items.filter((row) => row.id !== a.id),
         { probed: peekAttachmentList(ownerType, ownerId)?.probed ?? true },
       )
+      if (historyOpenId === a.id) historyOpenId = null
     } catch (e) {
       error = e?.message || String(e)
     }
@@ -249,13 +352,27 @@
     <ul class="attach__list">
       {#each items as a (a.id)}
         {@const unavailable = a.available === false}
+        {@const revCount = Number(a.revision_count) || 1}
+        {@const rev = Number(a.revision) || 1}
         <li
           class="attach__row"
           class:attach__row--off={unavailable}
           oncontextmenu={(e) => openAttMenu(e, a)}
         >
           <span class="attach__file">
-            <span class="attach__name">{a.filename}</span>
+            <span class="attach__name">
+              {a.filename}
+              {#if revCount > 1}
+                <button
+                  type="button"
+                  class="attach__rev"
+                  title="История версий"
+                  onclick={() => toggleHistory(a)}
+                >
+                  v{rev}/{revCount}
+                </button>
+              {/if}
+            </span>
             <span class="attach__meta">
               {formatSize(a.size_bytes)}
               {#if a.content_type_detected}
@@ -287,6 +404,19 @@
               }
             }}
           />
+          <button
+            type="button"
+            class="attach__act"
+            title="Новая версия"
+            aria-label="Загрузить новую версию"
+            disabled={uploading}
+            onclick={() => {
+              versionForId = a.id
+              versionInput?.click()
+            }}
+          >
+            <Icon name="renew" size={16} />
+          </button>
           {#if unavailable}
             <span class="attach__act attach__act--off" title="WebDAV недоступен" aria-label="Скачать (недоступно)">
               <Icon name="download" size={16} />
@@ -312,13 +442,58 @@
             <Icon name="delete" size={16} />
           </button>
         </li>
+        {#if historyOpenId === a.id}
+          <li class="attach__history">
+            {#if historyBusy}
+              <span class="attach__meta">загрузка…</span>
+            {:else}
+              <ul class="attach__rev-list">
+                {#each historyById[a.id] || [] as rev (rev.revision)}
+                  <li class="attach__rev-row" class:attach__rev-row--cur={rev.is_current}>
+                    <span class="attach__rev-label">
+                      v{rev.revision}
+                      {#if rev.is_current} · текущая{/if}
+                      · {formatSize(rev.size_bytes)}
+                      {#if rev.comment}
+                        · {rev.comment}
+                      {/if}
+                    </span>
+                    <a
+                      class="attach__act"
+                      href={attachmentDownloadUrl(ownerType, ownerId, a.id, rev.revision)}
+                      download={rev.filename || a.filename}
+                      title="Скачать версию"
+                    >
+                      <Icon name="download" size={14} />
+                    </a>
+                    {#if !rev.is_current}
+                      <button
+                        type="button"
+                        class="attach__act"
+                        title="Сделать текущей"
+                        onclick={() => makeCurrent(a, rev.revision)}
+                      >
+                        <Icon name="arrow-up" size={14} />
+                      </button>
+                      <button
+                        type="button"
+                        class="attach__act attach__act--danger"
+                        title="Удалить версию"
+                        onclick={() => removeRevision(a, rev.revision)}
+                      >
+                        <Icon name="delete" size={14} />
+                      </button>
+                    {/if}
+                  </li>
+                {/each}
+              </ul>
+            {/if}
+          </li>
+        {/if}
       {/each}
     </ul>
   {/if}
 
-  <!-- No "Вложений нет": an empty list already says that, and spelling it out
-       cost a line above the quest itself. The attach affordance reads as one
-       sentence — link plus its continuation — instead of a button. -->
   <div class="attach__drop">
     <button
       type="button"
@@ -335,6 +510,12 @@
       type="file"
       multiple
       onchange={onPick}
+    />
+    <input
+      bind:this={versionInput}
+      class="attach__input"
+      type="file"
+      onchange={onVersionPick}
     />
   </div>
 </div>

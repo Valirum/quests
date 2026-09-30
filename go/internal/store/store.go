@@ -13,6 +13,7 @@ import (
 )
 
 var ErrNotFound = errors.New("not found")
+var ErrConflict = errors.New("conflict")
 
 type Store struct {
 	DB *sql.DB

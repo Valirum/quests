@@ -419,8 +419,10 @@ export function listAllAttachments({ stat = false } = {}) {
   return request(stat ? '/api/attachments?stat=1' : '/api/attachments')
 }
 
-export function attachmentDownloadUrl(ownerType, ownerId, attachmentId) {
-  return ownerAttachmentsPath(ownerType, ownerId, attachmentId)
+export function attachmentDownloadUrl(ownerType, ownerId, attachmentId, revision = null) {
+  const base = ownerAttachmentsPath(ownerType, ownerId, attachmentId)
+  if (revision == null || revision === '') return base
+  return `${base}?revision=${encodeURIComponent(String(revision))}`
 }
 
 export async function uploadAttachment(ownerType, ownerId, file, comment = '') {
@@ -452,6 +454,46 @@ export async function uploadAttachment(ownerType, ownerId, file, comment = '') {
   return data
 }
 
+/** Upload a new revision of an existing attachment (becomes current). */
+export async function uploadAttachmentRevision(ownerType, ownerId, attachmentId, file, comment = '') {
+  const body = new FormData()
+  body.append('file', file)
+  if (comment) body.append('comment', comment)
+  const res = await fetch(
+    `${BASE}${ownerAttachmentsPath(ownerType, ownerId, attachmentId)}/revisions`,
+    { method: 'POST', credentials: 'same-origin', body },
+  )
+  if (res.status === 401) {
+    if (onUnauthorized) onUnauthorized()
+    throw new UnauthorizedError()
+  }
+  const text = await res.text()
+  let data = null
+  if (text) {
+    try {
+      data = JSON.parse(text)
+    } catch {
+      throw new Error(res.ok ? 'Ответ не JSON' : `HTTP ${res.status}`)
+    }
+  }
+  if (!res.ok) {
+    const detail = data?.detail ?? res.statusText
+    throw new Error(typeof detail === 'string' ? detail : JSON.stringify(detail))
+  }
+  return data
+}
+
+export function listAttachmentRevisions(ownerType, ownerId, attachmentId) {
+  return request(`${ownerAttachmentsPath(ownerType, ownerId, attachmentId)}/revisions`)
+}
+
+export function setAttachmentCurrentRevision(ownerType, ownerId, attachmentId, revision) {
+  return request(ownerAttachmentsPath(ownerType, ownerId, attachmentId), {
+    method: 'PATCH',
+    body: JSON.stringify({ current_revision: revision }),
+  })
+}
+
 export function updateAttachmentComment(ownerType, ownerId, attachmentId, comment) {
   return request(ownerAttachmentsPath(ownerType, ownerId, attachmentId), {
     method: 'PATCH',
@@ -463,4 +505,11 @@ export function deleteAttachment(ownerType, ownerId, attachmentId) {
   return request(ownerAttachmentsPath(ownerType, ownerId, attachmentId), {
     method: 'DELETE',
   })
+}
+
+export function deleteAttachmentRevision(ownerType, ownerId, attachmentId, revision) {
+  return request(
+    `${ownerAttachmentsPath(ownerType, ownerId, attachmentId)}/revisions/${revision}`,
+    { method: 'DELETE' },
+  )
 }

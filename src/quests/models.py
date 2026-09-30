@@ -640,6 +640,7 @@ class ApiToken(SQLModel, table=True):
 class AttachmentOwner(str, Enum):
     quest = "quest"
     questline = "questline"
+    note = "note"
 
 
 class AttachmentScanStatus(str, Enum):
@@ -653,10 +654,11 @@ class AttachmentScanStatus(str, Enum):
 
 
 class Attachment(SQLModel, table=True):
-    """Metadata for a file attached to a quest or questline.
+    """Logical file card on a quest / questline / note.
 
-    The bytes live on the WebDAV server, not here: this row only points at
-    them. Quests is an interface to a file server, not a second one.
+    The *current* revision's bytes live on WebDAV; older revisions are in
+    ``attachment_revision``. Fields below mirror the current revision so
+    listings stay a single-row read. ``attachment=N`` refs point at this id.
     """
 
     id: Optional[int] = Field(default=None, primary_key=True)
@@ -664,15 +666,35 @@ class Attachment(SQLModel, table=True):
     owner_id: int = Field(index=True)
     # Original name, shown to humans. Never used to build the storage path.
     filename: str = Field(max_length=255)
-    # Path inside the WebDAV root: attachments/<owner>-<id>/<uuid>-<filename>.
+    # Path inside the WebDAV root for the *current* revision.
     webdav_path: str = Field(max_length=512, unique=True, index=True)
     size_bytes: int = Field(default=0)
-    # What the client claimed vs what the magic bytes say. A mismatch is the
-    # signal worth acting on; neither alone is a verdict.
     content_type_declared: str = Field(default="", max_length=128)
     content_type_detected: str = Field(default="", max_length=128)
-    # Free-form note: what this file is, why it is attached. Lets an agent
-    # judge relevance from the listing without downloading anything.
+    comment: str = Field(default="", max_length=500)
+    uploaded_at: datetime = Field(default_factory=utcnow)
+    scan_status: str = Field(default="pending", max_length=16)
+    scanned_at: Optional[datetime] = Field(default=None)
+    # 1-based index of the revision currently mirrored on this row.
+    current_revision: int = Field(default=1)
+
+
+class AttachmentRevision(SQLModel, table=True):
+    """One immutable version of an attachment's bytes on WebDAV."""
+
+    __tablename__ = "attachment_revision"
+    __table_args__ = (
+        UniqueConstraint("attachment_id", "revision", name="uq_attachment_revision"),
+    )
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    attachment_id: int = Field(foreign_key="attachment.id", index=True)
+    revision: int = Field(default=1)
+    filename: str = Field(max_length=255)
+    webdav_path: str = Field(max_length=512, unique=True)
+    size_bytes: int = Field(default=0)
+    content_type_declared: str = Field(default="", max_length=128)
+    content_type_detected: str = Field(default="", max_length=128)
     comment: str = Field(default="", max_length=500)
     uploaded_at: datetime = Field(default_factory=utcnow)
     scan_status: str = Field(default="pending", max_length=16)
@@ -691,6 +713,8 @@ class AttachmentRead(SQLModel):
     uploaded_at: datetime
     scan_status: str
     scanned_at: Optional[datetime] = None
+    current_revision: int = 1
+    revision_count: int = 1
 
     @field_serializer("uploaded_at", "scanned_at", when_used="json")
     def _ser_utc(self, value: Optional[datetime]) -> Optional[str]:

@@ -95,12 +95,13 @@ server = MCPServer(
         "do not curl the Quests API or dig into the Quests repo for that. "
         "Attachments: list_quests and the get_*_context tools return metadata only "
         "(filename, size, type, scan_status, comment, available, "
-        "source_updated) — never file bytes. Use get_attachment when you "
-        "actually need the contents of one file. Use upload_attachment to add "
-        "a local file to a quest/questline/note as a real attachment — this is "
-        "the only supported way to attach files from here; it needs the "
-        "API's WebDAV storage and ClamAV scanning configured server-side, and "
-        "fails otherwise. "
+        "source_updated, revision, revision_count) — never file bytes. Use "
+        "get_attachment when you actually need the contents of one file "
+        "(optional revision=N for an older version). Use upload_attachment to "
+        "add a local file — or pass as_version_of=attachment_id to upload a "
+        "new revision of an existing card instead of a sibling *_v2 file. "
+        "Needs the API's WebDAV storage and ClamAV scanning configured "
+        "server-side, and fails otherwise. "
         "If you're blocked on the user's input and they may not be watching this "
         "conversation, use ping_user — it's the only tool guaranteed to interrupt "
         "them via the overlay HUD."
@@ -1598,6 +1599,7 @@ def _looks_text(content_type: str, raw: bytes) -> bool:
         "Fetch the contents of one attachment. Metadata is already on "
         "list_quests / the get_*_context tools — only call this when you decided the file "
         "is relevant. Pass attachment_id plus exactly one of quest / questline / note. "
+        "Optional revision=N downloads that historical version (default: current). "
         "Text is returned as utf-8; anything else as base64. Files over 512 KiB "
         "come back truncated (metadata only plus a note)."
     )
@@ -1607,6 +1609,7 @@ def get_attachment(
     quest: int | None = None,
     questline: int | None = None,
     note: int | None = None,
+    revision: int | None = None,
 ) -> dict[str, Any]:
     chosen = [
         (k, v)
@@ -1619,9 +1622,10 @@ def get_attachment(
     seg = {"quest": "quests", "questline": "questlines", "note": "notes"}[kind]
     meta_rows = _api_get(f"/api/{seg}/{owner_id}/attachments", {"stat": "0"}) or []
     meta = next((a for a in meta_rows if a.get("id") == attachment_id), None)
-    raw, _hdrs = _api_raw(
-        "GET", f"/api/{seg}/{owner_id}/attachments/{attachment_id}"
-    )
+    path = f"/api/{seg}/{owner_id}/attachments/{attachment_id}"
+    if revision is not None:
+        path = f"{path}?revision={int(revision)}"
+    raw, _hdrs = _api_raw("GET", path)
     out: dict[str, Any] = {
         "id": attachment_id,
         "owner_type": kind,
@@ -1631,6 +1635,8 @@ def get_attachment(
         "content_type": (meta or {}).get("content_type_detected")
         or (meta or {}).get("content_type_declared"),
         "comment": (meta or {}).get("comment"),
+        "revision": revision if revision is not None else (meta or {}).get("revision"),
+        "revision_count": (meta or {}).get("revision_count"),
         "truncated": False,
     }
     if len(raw) > _GET_ATTACHMENT_MAX:
@@ -1677,10 +1683,12 @@ def set_icon(
         "notes}/{id}/attachments) on a quest, questline, or note. Pass a "
         "local file_path (this reads from the filesystem where the MCP "
         "server runs, not from the conversation) plus exactly one of quest / "
-        "questline / note, and an optional comment. Requires the API's "
-        "WebDAV storage and ClamAV scanning to be configured server-side; "
-        "the file is rejected if it fails the virus scan. Use get_attachment "
-        "to read a file back afterward."
+        "questline / note, and an optional comment. Optional as_version_of="
+        "attachment_id uploads a *new revision* of that card "
+        "(POST …/attachments/{id}/revisions) instead of a sibling file — use "
+        "this instead of dumping *_v2.c next to the old one. Requires the "
+        "API's WebDAV storage and ClamAV scanning; rejected if the scan fails. "
+        "Use get_attachment to read a file back afterward."
     )
 )
 def upload_attachment(
@@ -1689,6 +1697,7 @@ def upload_attachment(
     questline: int | None = None,
     note: int | None = None,
     comment: str | None = None,
+    as_version_of: int | None = None,
 ) -> dict[str, Any]:
     chosen = [
         (k, v)
@@ -1699,10 +1708,17 @@ def upload_attachment(
         raise ValueError("provide exactly one of: quest, questline, note")
     kind, owner_id = chosen[0]
     seg = {"quest": "quests", "questline": "questlines", "note": "notes"}[kind]
+    extra = {"comment": comment} if comment else None
+    if as_version_of is not None:
+        return _api_upload_file(
+            f"/api/{seg}/{owner_id}/attachments/{int(as_version_of)}/revisions",
+            file_path,
+            extra_fields=extra,
+        )
     return _api_upload_file(
         f"/api/{seg}/{owner_id}/attachments",
         file_path,
-        extra_fields={"comment": comment} if comment else None,
+        extra_fields=extra,
     )
 
 

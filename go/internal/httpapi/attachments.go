@@ -49,6 +49,15 @@ func (s *Server) registerAttachments(mux *http.ServeMux) {
 		mux.HandleFunc("DELETE /api/"+seg+"/{id}/attachments/{aid}", func(w http.ResponseWriter, r *http.Request) {
 			s.deleteAttachment(w, r, typ)
 		})
+		mux.HandleFunc("GET /api/"+seg+"/{id}/attachments/{aid}/revisions", func(w http.ResponseWriter, r *http.Request) {
+			s.listAttachmentRevisions(w, r, typ)
+		})
+		mux.HandleFunc("POST /api/"+seg+"/{id}/attachments/{aid}/revisions", func(w http.ResponseWriter, r *http.Request) {
+			s.postAttachmentRevision(w, r, typ)
+		})
+		mux.HandleFunc("DELETE /api/"+seg+"/{id}/attachments/{aid}/revisions/{rev}", func(w http.ResponseWriter, r *http.Request) {
+			s.deleteAttachmentRevision(w, r, typ)
+		})
 	}
 	// Index of every attachment, grouped by owner. Default is metadata only
 	// (no WebDAV Stat) so the journal can seed its cache in one cheap query.
@@ -384,7 +393,29 @@ func (s *Server) getAttachmentContent(w http.ResponseWriter, r *http.Request, ow
 		writeErr(w, 503, "attachment storage is not configured")
 		return
 	}
-	body, err := s.WebDAV.Get(r.Context(), a.WebDAVPath)
+	pathToGet := a.WebDAVPath
+	filename := a.Filename
+	size := a.SizeBytes
+	if revStr := strings.TrimSpace(r.URL.Query().Get("revision")); revStr != "" {
+		revN, err := strconv.Atoi(revStr)
+		if err != nil || revN < 1 {
+			writeErr(w, 422, "revision must be a positive integer")
+			return
+		}
+		rev, err := s.Store.GetAttachmentRevision(r.Context(), a.ID, revN)
+		if errors.Is(err, store.ErrNotFound) {
+			writeErr(w, 404, "revision not found")
+			return
+		}
+		if err != nil {
+			writeErr(w, 500, err.Error())
+			return
+		}
+		pathToGet = rev.WebDAVPath
+		filename = rev.Filename
+		size = rev.SizeBytes
+	}
+	body, err := s.WebDAV.Get(r.Context(), pathToGet)
 	if errors.Is(err, webdav.ErrNotFound) {
 		writeErr(w, 404, "file missing on the file server")
 		return
@@ -400,9 +431,9 @@ func (s *Server) getAttachmentContent(w http.ResponseWriter, r *http.Request, ow
 	// file harmless on the way out.
 	w.Header().Set("Content-Type", "application/octet-stream")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
-	w.Header().Set("Content-Disposition", contentDisposition(a.Filename))
-	if a.SizeBytes > 0 {
-		w.Header().Set("Content-Length", strconv.FormatInt(a.SizeBytes, 10))
+	w.Header().Set("Content-Disposition", contentDisposition(filename))
+	if size > 0 {
+		w.Header().Set("Content-Length", strconv.FormatInt(size, 10))
 	}
 	w.WriteHeader(200)
 	_, _ = io.Copy(w, body)
@@ -445,19 +476,34 @@ func (s *Server) patchAttachment(w http.ResponseWriter, r *http.Request, ownerTy
 		return
 	}
 	var body struct {
-		Comment *string `json:"comment"`
+		Comment         *string `json:"comment"`
+		CurrentRevision *int    `json:"current_revision"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeErr(w, 400, "invalid JSON")
 		return
 	}
-	if body.Comment == nil {
-		writeJSON(w, 200, store.AttachmentToRead(a))
-		return
+	updated := a
+	if body.CurrentRevision != nil {
+		updated, err = s.Store.SetCurrentAttachmentRevision(r.Context(), a.ID, *body.CurrentRevision)
+		if errors.Is(err, store.ErrNotFound) {
+			writeErr(w, 404, "revision not found")
+			return
+		}
+		if err != nil {
+			writeErr(w, 500, err.Error())
+			return
+		}
 	}
-	updated, err := s.Store.SetAttachmentComment(r.Context(), a.ID, strings.TrimSpace(*body.Comment))
-	if err != nil {
-		writeErr(w, 500, err.Error())
+	if body.Comment != nil {
+		updated, err = s.Store.SetAttachmentComment(r.Context(), a.ID, strings.TrimSpace(*body.Comment))
+		if err != nil {
+			writeErr(w, 500, err.Error())
+			return
+		}
+	}
+	if body.Comment == nil && body.CurrentRevision == nil {
+		writeJSON(w, 200, store.AttachmentToRead(a))
 		return
 	}
 	s.publishSilent("attachment_updated", updated.Filename, map[string]any{
@@ -466,6 +512,189 @@ func (s *Server) patchAttachment(w http.ResponseWriter, r *http.Request, ownerTy
 		"owner_id":      updated.OwnerID,
 	})
 	writeJSON(w, 200, store.AttachmentToRead(updated))
+}
+
+func (s *Server) listAttachmentRevisions(w http.ResponseWriter, r *http.Request, ownerType string) {
+	a, err := s.attachmentFor(r, ownerType)
+	if errors.Is(err, store.ErrNotFound) {
+		writeErr(w, 404, "attachment not found")
+		return
+	}
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	revs, err := s.Store.ListAttachmentRevisions(r.Context(), a.ID)
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	out := make([]store.AttachmentRead, 0, len(revs))
+	for _, rev := range revs {
+		out = append(out, store.RevisionToRead(rev, a.CurrentRevision))
+	}
+	writeJSON(w, 200, map[string]any{
+		"attachment_id":    a.ID,
+		"current_revision": a.CurrentRevision,
+		"revisions":        out,
+	})
+}
+
+func (s *Server) postAttachmentRevision(w http.ResponseWriter, r *http.Request, ownerType string) {
+	a, err := s.attachmentFor(r, ownerType)
+	if errors.Is(err, store.ErrNotFound) {
+		writeErr(w, 404, "attachment not found")
+		return
+	}
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	if !s.webdavOK() {
+		writeErr(w, 503, "attachment storage is not configured (QUESTS_WEBDAV_URL)")
+		return
+	}
+	if !s.clamavOK() {
+		writeErr(w, 503, "virus scanning is not configured (QUESTS_CLAMAV_ADDR)")
+		return
+	}
+
+	maxBytes := s.MaxUploadBytes
+	if maxBytes <= 0 {
+		maxBytes = 25 << 20
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxBytes+(1<<20))
+	if err := r.ParseMultipartForm(8 << 20); err != nil {
+		writeErr(w, 400, "invalid multipart (or file too large)")
+		return
+	}
+	file, hdr, err := r.FormFile("file")
+	if err != nil {
+		writeErr(w, 400, "file required")
+		return
+	}
+	defer file.Close()
+
+	raw, err := io.ReadAll(io.LimitReader(file, maxBytes+1))
+	if err != nil {
+		writeErr(w, 400, "could not read upload")
+		return
+	}
+	if len(raw) == 0 {
+		writeErr(w, 400, "empty file")
+		return
+	}
+	if int64(len(raw)) > maxBytes {
+		writeErr(w, 413, fmt.Sprintf("file exceeds %d MB", maxBytes>>20))
+		return
+	}
+
+	declared := strings.TrimSpace(hdr.Header.Get("Content-Type"))
+	detected := mimetype.Detect(raw).String()
+	res, err := s.ClamAV.Scan(r.Context(), bytes.NewReader(raw))
+	if err != nil {
+		writeErr(w, 503, "virus scan unavailable: "+err.Error())
+		return
+	}
+	if res.Infected {
+		writeErr(w, 422, "file rejected by virus scan: "+res.Signature)
+		return
+	}
+
+	filename := safeFilename(hdr.Filename)
+	if filename == "file" && a.Filename != "" {
+		// Keep the card name when the client sends a generic/temp path.
+		filename = a.Filename
+	}
+	storedName := uuid.NewString() + "-" + filename
+	webdavPath := fmt.Sprintf("attachments/%s-%d/%s", a.OwnerType, a.OwnerID, storedName)
+	ctype := declared
+	if ctype == "" {
+		ctype = detected
+	}
+	if err := s.WebDAV.Put(r.Context(), webdavPath, ctype, bytes.NewReader(raw), int64(len(raw))); err != nil {
+		writeErr(w, 502, "upload to file server failed: "+err.Error())
+		return
+	}
+
+	now := timeutil.NowUTC()
+	comment := strings.TrimSpace(r.FormValue("comment"))
+	if comment == "" {
+		comment = a.Comment
+	}
+	updated, dropPaths, err := s.Store.AddAttachmentRevision(r.Context(), a.ID, store.AttachmentRevision{
+		Filename:            filename,
+		WebDAVPath:          webdavPath,
+		SizeBytes:           int64(len(raw)),
+		ContentTypeDeclared: declared,
+		ContentTypeDetected: detected,
+		Comment:             comment,
+		UploadedAt:          now,
+		ScanStatus:          "clean",
+		ScannedAt:           &now,
+	})
+	if err != nil {
+		_ = s.WebDAV.Delete(context.WithoutCancel(r.Context()), webdavPath)
+		writeErr(w, 500, err.Error())
+		return
+	}
+	for _, p := range dropPaths {
+		if err := s.WebDAV.Delete(context.WithoutCancel(r.Context()), p); err != nil && !errors.Is(err, webdav.ErrNotFound) {
+			fmt.Printf("attachment %d: rotated file left on webdav: %v\n", a.ID, err)
+		}
+	}
+	out := store.AttachmentToRead(updated)
+	out["available"] = true
+	out["source_updated"] = false
+	out["last_modified"] = nil
+	s.publishSilent("attachment_updated", updated.Filename, map[string]any{
+		"attachment_id": updated.ID,
+		"owner_type":    updated.OwnerType,
+		"owner_id":      updated.OwnerID,
+		"revision":      updated.CurrentRevision,
+	})
+	writeJSON(w, 201, out)
+}
+
+func (s *Server) deleteAttachmentRevision(w http.ResponseWriter, r *http.Request, ownerType string) {
+	a, err := s.attachmentFor(r, ownerType)
+	if errors.Is(err, store.ErrNotFound) {
+		writeErr(w, 404, "attachment not found")
+		return
+	}
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	revN, err := strconv.Atoi(r.PathValue("rev"))
+	if err != nil || revN < 1 {
+		writeErr(w, 422, "revision must be a positive integer")
+		return
+	}
+	davPath, err := s.Store.DeleteAttachmentRevision(r.Context(), a.ID, revN)
+	if errors.Is(err, store.ErrConflict) {
+		writeErr(w, 422, "cannot delete the current revision")
+		return
+	}
+	if errors.Is(err, store.ErrNotFound) {
+		writeErr(w, 404, "revision not found")
+		return
+	}
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	if s.webdavOK() {
+		if err := s.WebDAV.Delete(r.Context(), davPath); err != nil && !errors.Is(err, webdav.ErrNotFound) {
+			fmt.Printf("attachment %d rev %d: file left on webdav: %v\n", a.ID, revN, err)
+		}
+	}
+	s.publishSilent("attachment_updated", a.Filename, map[string]any{
+		"attachment_id": a.ID,
+		"owner_type":    a.OwnerType,
+		"owner_id":      a.OwnerID,
+	})
+	w.WriteHeader(204)
 }
 
 func (s *Server) deleteAttachment(w http.ResponseWriter, r *http.Request, ownerType string) {
@@ -478,6 +707,22 @@ func (s *Server) deleteAttachment(w http.ResponseWriter, r *http.Request, ownerT
 		writeErr(w, 500, err.Error())
 		return
 	}
+	revs, err := s.Store.ListAttachmentRevisions(r.Context(), a.ID)
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	paths := make([]string, 0, len(revs)+1)
+	seen := map[string]bool{}
+	for _, rev := range revs {
+		if !seen[rev.WebDAVPath] {
+			seen[rev.WebDAVPath] = true
+			paths = append(paths, rev.WebDAVPath)
+		}
+	}
+	if a.WebDAVPath != "" && !seen[a.WebDAVPath] {
+		paths = append(paths, a.WebDAVPath)
+	}
 	// Drop the row first: a leftover file on WebDAV is inert, a row pointing at
 	// nothing is a broken link in the UI.
 	if err := s.Store.DeleteAttachment(r.Context(), a.ID); err != nil {
@@ -485,9 +730,10 @@ func (s *Server) deleteAttachment(w http.ResponseWriter, r *http.Request, ownerT
 		return
 	}
 	if s.webdavOK() {
-		if err := s.WebDAV.Delete(r.Context(), a.WebDAVPath); err != nil && !errors.Is(err, webdav.ErrNotFound) {
-			// The row is already gone; report success but don't hide the miss.
-			fmt.Printf("attachment %d: file left on webdav: %v\n", a.ID, err)
+		for _, p := range paths {
+			if err := s.WebDAV.Delete(r.Context(), p); err != nil && !errors.Is(err, webdav.ErrNotFound) {
+				fmt.Printf("attachment %d: file left on webdav: %v\n", a.ID, err)
+			}
 		}
 	}
 	s.publishSilent("attachment_deleted", a.Filename, map[string]any{

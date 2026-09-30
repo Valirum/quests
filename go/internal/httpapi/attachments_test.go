@@ -112,7 +112,23 @@ CREATE TABLE attachment (
 	comment TEXT NOT NULL DEFAULT '',
 	uploaded_at DATETIME NOT NULL,
 	scan_status TEXT NOT NULL DEFAULT 'pending',
-	scanned_at DATETIME
+	scanned_at DATETIME,
+	current_revision INTEGER NOT NULL DEFAULT 1
+);
+CREATE TABLE attachment_revision (
+	id INTEGER PRIMARY KEY,
+	attachment_id INTEGER NOT NULL,
+	revision INTEGER NOT NULL,
+	filename TEXT NOT NULL,
+	webdav_path TEXT NOT NULL UNIQUE,
+	size_bytes INTEGER NOT NULL DEFAULT 0,
+	content_type_declared TEXT NOT NULL DEFAULT '',
+	content_type_detected TEXT NOT NULL DEFAULT '',
+	comment TEXT NOT NULL DEFAULT '',
+	uploaded_at DATETIME NOT NULL,
+	scan_status TEXT NOT NULL DEFAULT 'pending',
+	scanned_at DATETIME,
+	UNIQUE(attachment_id, revision)
 );
 CREATE TABLE note (
 	id INTEGER PRIMARY KEY,
@@ -384,6 +400,87 @@ func TestAttachmentHappyPath(t *testing.T) {
 	h.ServeHTTP(del, httptest.NewRequest(http.MethodDelete, fmt.Sprintf("/api/quests/%d/attachments/%d", qid, aid), nil))
 	if del.Code != 204 {
 		t.Fatalf("delete = %d %s", del.Code, del.Body.String())
+	}
+}
+
+func TestAttachmentRevisions(t *testing.T) {
+	dav := newFakeDAV()
+	t.Cleanup(dav.Close)
+	clam := fakeClamd(t, "stream: OK")
+	s := newAttachmentServer(t, dav.URL, clam, 0)
+	h := s.Handler()
+	qid := seedQuest(t, s)
+
+	up := postFile(t, h, fmt.Sprintf("/api/quests/%d/attachments", qid), "doc.txt", "v1", []byte("one"))
+	if up.Code != 201 {
+		t.Fatalf("upload = %d %s", up.Code, up.Body.String())
+	}
+	var created map[string]any
+	_ = json.Unmarshal(up.Body.Bytes(), &created)
+	aid := int64(created["id"].(float64))
+	if created["revision"] != float64(1) || created["revision_count"] != float64(1) {
+		t.Fatalf("rev fields = %v", created)
+	}
+
+	v2 := postFile(t, h, fmt.Sprintf("/api/quests/%d/attachments/%d/revisions", qid, aid), "doc.txt", "v2", []byte("two"))
+	if v2.Code != 201 {
+		t.Fatalf("rev2 = %d %s", v2.Code, v2.Body.String())
+	}
+	var cur map[string]any
+	_ = json.Unmarshal(v2.Body.Bytes(), &cur)
+	if cur["revision"] != float64(2) || cur["revision_count"] != float64(2) {
+		t.Fatalf("after v2 = %v", cur)
+	}
+
+	list := httptest.NewRecorder()
+	h.ServeHTTP(list, httptest.NewRequest(http.MethodGet, fmt.Sprintf("/api/quests/%d/attachments/%d/revisions", qid, aid), nil))
+	if list.Code != 200 {
+		t.Fatalf("list revs = %d %s", list.Code, list.Body.String())
+	}
+	var hist map[string]any
+	_ = json.Unmarshal(list.Body.Bytes(), &hist)
+	revs, _ := hist["revisions"].([]any)
+	if len(revs) != 2 {
+		t.Fatalf("revisions=%v", hist)
+	}
+
+	// Download old revision
+	old := httptest.NewRecorder()
+	h.ServeHTTP(old, httptest.NewRequest(http.MethodGet, fmt.Sprintf("/api/quests/%d/attachments/%d?revision=1", qid, aid), nil))
+	if old.Code != 200 || old.Body.String() != "one" {
+		t.Fatalf("old body = %d %q", old.Code, old.Body.String())
+	}
+	curDL := httptest.NewRecorder()
+	h.ServeHTTP(curDL, httptest.NewRequest(http.MethodGet, fmt.Sprintf("/api/quests/%d/attachments/%d", qid, aid), nil))
+	if curDL.Code != 200 || curDL.Body.String() != "two" {
+		t.Fatalf("current body = %d %q", curDL.Code, curDL.Body.String())
+	}
+
+	// Switch current back to v1
+	raw, _ := json.Marshal(map[string]any{"current_revision": 1})
+	sw := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPatch, fmt.Sprintf("/api/quests/%d/attachments/%d", qid, aid), bytes.NewReader(raw))
+	req.Header.Set("Content-Type", "application/json")
+	h.ServeHTTP(sw, req)
+	if sw.Code != 200 {
+		t.Fatalf("switch = %d %s", sw.Code, sw.Body.String())
+	}
+	curDL = httptest.NewRecorder()
+	h.ServeHTTP(curDL, httptest.NewRequest(http.MethodGet, fmt.Sprintf("/api/quests/%d/attachments/%d", qid, aid), nil))
+	if curDL.Body.String() != "one" {
+		t.Fatalf("after switch = %q", curDL.Body.String())
+	}
+
+	// Cannot delete current
+	bad := httptest.NewRecorder()
+	h.ServeHTTP(bad, httptest.NewRequest(http.MethodDelete, fmt.Sprintf("/api/quests/%d/attachments/%d/revisions/1", qid, aid), nil))
+	if bad.Code != 422 {
+		t.Fatalf("delete current = %d", bad.Code)
+	}
+	ok := httptest.NewRecorder()
+	h.ServeHTTP(ok, httptest.NewRequest(http.MethodDelete, fmt.Sprintf("/api/quests/%d/attachments/%d/revisions/2", qid, aid), nil))
+	if ok.Code != 204 {
+		t.Fatalf("delete old = %d %s", ok.Code, ok.Body.String())
 	}
 }
 
