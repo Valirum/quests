@@ -321,8 +321,10 @@ class QuestTemplateBase(SQLModel):
     emit_window_start: Optional[str] = Field(default=None, max_length=8)
     emit_window_end: Optional[str] = Field(default=None, max_length=8)
     # Shell command run on each roll; stdout must be a JSON array of
-    # {title, description?, weight?, ref?}. Independent of emit_mode — a
-    # fixed template can pool content too. Empty pool / zero total weight = miss.
+    # {title, description?, quest_description?, weight?, ref?}. Independent of
+    # emit_mode — a fixed template can pool content too. Empty pool / zero
+    # total weight = miss. description → step; quest_description → quest
+    # description only when the template description is empty.
     emit_pool_command: Optional[str] = Field(default=None, max_length=20000)
     # How many items to draw from the pool per successful roll.
     emit_pool_pick: int = Field(default=1, ge=1)

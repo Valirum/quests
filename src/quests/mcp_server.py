@@ -659,9 +659,12 @@ def get_template(template_id: int) -> dict[str, Any]:
         "executes it directly (its own shebang picks the interpreter), so the "
         "script lives in this DB row, not a path on whichever host runs the "
         "scheduler — nothing to hand-deploy. Either way stdout must be a JSON "
-        "array of {title, description?, weight?, ref?}; emit_pool_pick items are "
+        "array of {title, description?, quest_description?, weight?, ref?}; emit_pool_pick items are "
         "drawn weighted-without-replacement each roll and become the created "
-        "quest's steps, replacing `steps` below for that roll. emit_pool_pick<=0 "
+        "quest's steps, replacing `steps` below for that roll. description goes "
+        "to the step; quest_description fills the quest description only when "
+        "the template's own description is empty (first non-empty among picked "
+        "items). emit_pool_pick<=0 "
         "means take everything new instead of N random ones: no weighted "
         "sampling, just whatever's left after the anti-repeat filter below — use "
         "this for a pool that must not silently drop items (e.g. unread mail), "
@@ -970,7 +973,7 @@ def _run_emit_pool_command(command: str) -> dict[str, Any]:
     for entry in raw:
         if not isinstance(entry, dict):
             trace["ok"] = False
-            trace["error"] = "each pool item must be a JSON object {title, description?, weight?, ref?}"
+            trace["error"] = "each pool item must be a JSON object {title, description?, quest_description?, weight?, ref?}"
             return trace
         title = str(entry.get("title") or "").strip()
         if not title:
@@ -979,10 +982,14 @@ def _run_emit_pool_command(command: str) -> dict[str, Any]:
         weight = entry.get("weight")
         eff = 1.0 if weight is None else (float(weight) if float(weight) >= 0 else 0.0)
         ref = str(entry.get("ref") or "").strip()
+        quest_description = entry.get("quest_description") or ""
+        if not isinstance(quest_description, str):
+            quest_description = str(quest_description)
         items.append(
             {
                 "title": title,
                 "description": entry.get("description") or "",
+                "quest_description": quest_description,
                 "weight": weight,
                 "effective_weight": eff,
                 "ref": ref or None,
@@ -1113,13 +1120,27 @@ def create_note(
 @server.tool(
     description=(
         "Update a note (PATCH /api/notes/{id}). Only pass fields to change. "
-        "description is markdown. parent_id=null detaches to the vault root."
+        "description is markdown and replaces the whole body. For partial edits "
+        "use insert_text / replace_find instead — they keep the rest of the note. "
+        "insert_text: optional insert_after / insert_before (first occurrence) or "
+        "insert_at (rune offset 0..len); omit all three to append. "
+        "replace_find + replace_with: first match unless replace_all=true. "
+        "Missing anchor/find → API 422, not a silent full rewrite. "
+        "Do not mix description with insert/replace in one call. "
+        "parent_id=null (via clear_parent) detaches to the vault root."
     )
 )
 def update_note(
     note_id: int,
     title: str | None = None,
     description: str | None = None,
+    insert_text: str | None = None,
+    insert_after: str | None = None,
+    insert_before: str | None = None,
+    insert_at: int | None = None,
+    replace_find: str | None = None,
+    replace_with: str | None = None,
+    replace_all: bool = False,
     parent_id: int | None = None,
     clear_parent: bool = False,
     pinned: bool | None = None,
@@ -1128,8 +1149,49 @@ def update_note(
     body: dict[str, Any] = {}
     if title is not None:
         body["title"] = title
+    ops = sum(
+        1
+        for flag in (
+            description is not None,
+            insert_text is not None,
+            replace_find is not None,
+        )
+        if flag
+    )
+    if ops > 1:
+        raise ValueError(
+            "provide only one of: description, insert_text, replace_find"
+        )
     if description is not None:
         body["description"] = description
+    if insert_text is not None:
+        op: dict[str, Any] = {"text": insert_text}
+        pos = sum(
+            1
+            for flag in (
+                insert_after is not None,
+                insert_before is not None,
+                insert_at is not None,
+            )
+            if flag
+        )
+        if pos > 1:
+            raise ValueError("provide at most one of: insert_after, insert_before, insert_at")
+        if insert_after is not None:
+            op["after"] = insert_after
+        if insert_before is not None:
+            op["before"] = insert_before
+        if insert_at is not None:
+            op["at"] = int(insert_at)
+        body["description_insert"] = op
+    if replace_find is not None:
+        if replace_with is None:
+            raise ValueError("replace_with is required when replace_find is set")
+        body["description_replace"] = {
+            "find": replace_find,
+            "with": replace_with,
+            "all": bool(replace_all),
+        }
     if clear_parent:
         body["parent_id"] = None
     elif parent_id is not None:

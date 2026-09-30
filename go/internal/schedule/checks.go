@@ -3,6 +3,7 @@ package schedule
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"log"
 	"os"
 	"os/exec"
@@ -231,18 +232,24 @@ func (r *CheckRunner) apply(ctx context.Context, questID, stepID int64, once boo
 		_, _ = r.Store.UpdateStep(ctx, *st, q, "step_progress", st.Title)
 		return
 	}
-	n, ok := ParseCheckStdout(stdout)
-	if !ok {
+	parsed := ParseCheckOutput(stdout)
+	if parsed.Description != nil {
+		st.Description = *parsed.Description
+	}
+	if !parsed.ProgressOK {
 		_, _ = r.Store.UpdateStep(ctx, *st, q, "step_progress", st.Title)
 		return
 	}
+	n := parsed.Progress
 	if n < 0 {
 		n = 0
 	}
 	if n > st.ProgressTotal {
 		n = st.ProgressTotal
 	}
-	if n == st.ProgressCurrent {
+	progressSame := n == st.ProgressCurrent
+	descTouched := parsed.Description != nil
+	if progressSame && !descTouched {
 		_, _ = r.Store.UpdateStep(ctx, *st, q, "step_progress", st.Title)
 		return
 	}
@@ -351,6 +358,48 @@ func trimCheckOut(stderr, stdout string) string {
 		s = s[:checkOutLimit] + "…"
 	}
 	return s
+}
+
+// CheckOutput is the poll-mode reading of a check_command's stdout.
+// ProgressOK false means leave ProgressCurrent alone (broken JSON, missing
+// progress, or no integer). Description nil means leave the step description.
+type CheckOutput struct {
+	Progress    int
+	ProgressOK  bool
+	Description *string
+}
+
+// ParseCheckOutput accepts a bare integer (as before) or a JSON object
+// {"progress": N, "description": "…"}. Both fields are optional in the JSON;
+// a malformed object does not update progress or description.
+func ParseCheckOutput(out string) CheckOutput {
+	s := strings.TrimSpace(out)
+	if s == "" {
+		return CheckOutput{}
+	}
+	if strings.HasPrefix(s, "{") {
+		var raw map[string]json.RawMessage
+		if err := json.Unmarshal([]byte(s), &raw); err != nil {
+			return CheckOutput{}
+		}
+		var got CheckOutput
+		if v, ok := raw["progress"]; ok {
+			var n int
+			if err := json.Unmarshal(v, &n); err == nil {
+				got.Progress = n
+				got.ProgressOK = true
+			}
+		}
+		if v, ok := raw["description"]; ok {
+			var d string
+			if err := json.Unmarshal(v, &d); err == nil {
+				got.Description = &d
+			}
+		}
+		return got
+	}
+	n, ok := ParseCheckStdout(s)
+	return CheckOutput{Progress: n, ProgressOK: ok}
 }
 
 // ParseCheckStdout takes the last integer in command output (poll mode).

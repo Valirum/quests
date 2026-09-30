@@ -241,3 +241,58 @@ func TestEmitPoolOpenAt(t *testing.T) {
 		t.Fatalf("want openAt=deadline (%v) when duration=0, got %v", deadline, got)
 	}
 }
+
+func TestQuestDescriptionFromPool(t *testing.T) {
+	if got := questDescriptionFromPool([]poolItem{
+		{Title: "a"},
+		{Title: "b", QuestDescription: "  "},
+	}); got != "" {
+		t.Fatalf("empty/whitespace: %q", got)
+	}
+	got := questDescriptionFromPool([]poolItem{
+		{Title: "a", QuestDescription: ""},
+		{Title: "b", QuestDescription: "from second"},
+		{Title: "c", QuestDescription: "ignored"},
+	})
+	if got != "from second" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestApplyPoolQuestDescription(t *testing.T) {
+	if got := applyPoolQuestDescription("", "from pool"); got != "from pool" {
+		t.Fatalf("empty tmpl: %q", got)
+	}
+	if got := applyPoolQuestDescription("tmpl keeps", "from pool"); got != "tmpl keeps" {
+		t.Fatalf("non-empty tmpl: %q", got)
+	}
+	if got := applyPoolQuestDescription("", ""); got != "" {
+		t.Fatalf("both empty: %q", got)
+	}
+	if got := applyPoolQuestDescription("   ", "from pool"); got != "from pool" {
+		t.Fatalf("whitespace tmpl: %q", got)
+	}
+}
+
+func TestStepsFromPoolItemsKeepsStepDescription(t *testing.T) {
+	steps := stepsFromPoolItems([]poolItem{{
+		Title: "t", Description: "step text", QuestDescription: "quest text",
+	}})
+	if len(steps) != 1 {
+		t.Fatalf("len=%d", len(steps))
+	}
+	if steps[0].Description != "step text" {
+		t.Fatalf("step description=%q want step text", steps[0].Description)
+	}
+}
+
+func TestPoolItemJSONQuestDescription(t *testing.T) {
+	var items []poolItem
+	raw := `[{"title":"a","description":"step","quest_description":"quest body","weight":1}]`
+	if err := json.Unmarshal([]byte(raw), &items); err != nil {
+		t.Fatal(err)
+	}
+	if items[0].Description != "step" || items[0].QuestDescription != "quest body" {
+		t.Fatalf("%+v", items[0])
+	}
+}

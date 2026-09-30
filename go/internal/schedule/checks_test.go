@@ -115,6 +115,39 @@ func TestParseCheckStdout(t *testing.T) {
 	}
 }
 
+func TestParseCheckOutputJSON(t *testing.T) {
+	got := ParseCheckOutput(`{"progress": 4, "description": "половина"}`)
+	if !got.ProgressOK || got.Progress != 4 {
+		t.Fatalf("progress=%d ok=%v", got.Progress, got.ProgressOK)
+	}
+	if got.Description == nil || *got.Description != "половина" {
+		t.Fatalf("description=%v", got.Description)
+	}
+
+	bare := ParseCheckOutput("2\n")
+	if !bare.ProgressOK || bare.Progress != 2 || bare.Description != nil {
+		t.Fatalf("bare=%+v", bare)
+	}
+
+	broken := ParseCheckOutput(`{not json`)
+	if broken.ProgressOK || broken.Description != nil {
+		t.Fatalf("broken should not update: %+v", broken)
+	}
+
+	noProgress := ParseCheckOutput(`{"description": "только текст"}`)
+	if noProgress.ProgressOK {
+		t.Fatal("missing progress must not set ProgressOK")
+	}
+	if noProgress.Description == nil || *noProgress.Description != "только текст" {
+		t.Fatalf("description=%v", noProgress.Description)
+	}
+
+	badProgress := ParseCheckOutput(`{"progress": "x", "description": "keep?"}`)
+	if badProgress.ProgressOK {
+		t.Fatal("non-int progress must not set ProgressOK")
+	}
+}
+
 func seedQuest(t *testing.T, st *store.Store, steps []domain.Step) domain.Quest {
 	t.Helper()
 	now := timeutil.NowUTC()
@@ -145,6 +178,56 @@ func TestCheckPollProgress(t *testing.T) {
 	}
 	if got.Steps[0].ProgressCurrent != 2 {
 		t.Fatalf("progress=%d want 2", got.Steps[0].ProgressCurrent)
+	}
+}
+
+func TestCheckPollJSON(t *testing.T) {
+	st := openChecksDB(t)
+	cmd := `printf '{"progress":1,"description":"из JSON"}'`
+	iv := 15
+	q := seedQuest(t, st, []domain.Step{{
+		Title: "poll-json", ProgressTotal: 2, SortOrder: 0,
+		CheckCommand: &cmd, CheckIntervalSeconds: &iv, RunMode: domain.RunModePoll,
+	}})
+	r := NewCheckRunner(st, events.New())
+	r.Tick(context.Background())
+	r.Wait()
+	got, err := st.GetQuest(context.Background(), q.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Steps[0].ProgressCurrent != 1 {
+		t.Fatalf("progress=%d", got.Steps[0].ProgressCurrent)
+	}
+	if got.Steps[0].Description != "из JSON" {
+		t.Fatalf("description=%q", got.Steps[0].Description)
+	}
+	if got.Status != domain.StatusActive {
+		t.Fatalf("status=%s", got.Status)
+	}
+}
+
+func TestCheckPollJSONBrokenKeepsDescription(t *testing.T) {
+	st := openChecksDB(t)
+	cmd := `printf 'not-json'`
+	iv := 15
+	q := seedQuest(t, st, []domain.Step{{
+		Title: "poll-broken", Description: "оставить", ProgressTotal: 2, SortOrder: 0,
+		CheckCommand: &cmd, CheckIntervalSeconds: &iv, RunMode: domain.RunModePoll,
+		ProgressCurrent: 1,
+	}})
+	r := NewCheckRunner(st, events.New())
+	r.Tick(context.Background())
+	r.Wait()
+	got, err := st.GetQuest(context.Background(), q.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Steps[0].Description != "оставить" {
+		t.Fatalf("description wiped: %q", got.Steps[0].Description)
+	}
+	if got.Steps[0].ProgressCurrent != 1 {
+		t.Fatalf("progress changed: %d", got.Steps[0].ProgressCurrent)
 	}
 }
 

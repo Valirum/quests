@@ -188,6 +188,7 @@ func MaterializeDue(ctx context.Context, st *store.Store, hub *events.Hub, now t
 		var poolRollID int64
 		var poolFailed bool
 		var poolFailMsg string
+		var poolQuestDesc string
 		var steps []domain.Step
 		if usePool {
 			items, rollID, failMsg, perr := resolveEmitPool(ctx, st, tmpl, key, now, rng)
@@ -211,6 +212,7 @@ func MaterializeDue(ctx context.Context, st *store.Store, hub *events.Hub, now t
 				continue
 			default:
 				steps = stepsFromPoolItems(items)
+				poolQuestDesc = questDescriptionFromPool(items)
 			}
 		} else {
 			steps, err = loadTemplateSteps(ctx, st, tmpl, rng)
@@ -219,9 +221,10 @@ func MaterializeDue(ctx context.Context, st *store.Store, hub *events.Hub, now t
 			}
 		}
 
+		desc := applyPoolQuestDescription(tmpl.Description, poolQuestDesc)
 		q := domain.Quest{
 			Title:           tmpl.Title,
-			Description:     tmpl.Description,
+			Description:     desc,
 			Status:          domain.StatusActive,
 			Significance:    domain.Significance(tmpl.Significance),
 			Pinned:          tmpl.Pinned,
@@ -571,10 +574,11 @@ func loadTemplateSteps(ctx context.Context, st *store.Store, tmpl templateRow, r
 
 // poolItem is one entry of the JSON array printed by emit_pool_command.
 type poolItem struct {
-	Title       string   `json:"title"`
-	Description string   `json:"description"`
-	Weight      *float64 `json:"weight"`
-	Ref         string   `json:"ref"`
+	Title            string   `json:"title"`
+	Description      string   `json:"description"`
+	QuestDescription string   `json:"quest_description"`
+	Weight           *float64 `json:"weight"`
+	Ref              string   `json:"ref"`
 }
 
 func (it poolItem) effectiveWeight() float64 {
@@ -896,4 +900,24 @@ func stepsFromPoolItems(items []poolItem) []domain.Step {
 		})
 	}
 	return out
+}
+
+// questDescriptionFromPool returns the first non-empty quest_description in
+// pick order. Used only when the template's own description is empty.
+func questDescriptionFromPool(items []poolItem) string {
+	for _, it := range items {
+		if s := strings.TrimSpace(it.QuestDescription); s != "" {
+			return it.QuestDescription
+		}
+	}
+	return ""
+}
+
+// applyPoolQuestDescription fills an empty template description from the pool.
+// A non-empty template description is never overwritten.
+func applyPoolQuestDescription(tmplDesc, poolDesc string) string {
+	if strings.TrimSpace(tmplDesc) == "" && poolDesc != "" {
+		return poolDesc
+	}
+	return tmplDesc
 }

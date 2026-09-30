@@ -131,7 +131,8 @@ func (s *Server) createNote(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) patchNote(w http.ResponseWriter, r *http.Request) {
 	id, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
-	if _, err := s.Store.GetNote(r.Context(), id); errors.Is(err, store.ErrNotFound) {
+	cur, err := s.Store.GetNote(r.Context(), id)
+	if errors.Is(err, store.ErrNotFound) {
 		writeErr(w, 404, "Note not found")
 		return
 	} else if err != nil {
@@ -142,6 +143,66 @@ func (s *Server) patchNote(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeErr(w, 400, "invalid JSON")
 		return
+	}
+	_, hasFullDesc := body["description"]
+	_, hasInsert := body["description_insert"]
+	_, hasReplace := body["description_replace"]
+	ops := 0
+	if hasFullDesc {
+		ops++
+	}
+	if hasInsert {
+		ops++
+	}
+	if hasReplace {
+		ops++
+	}
+	if ops > 1 {
+		writeErr(w, 422, "provide only one of description, description_insert, description_replace")
+		return
+	}
+	if hasInsert {
+		op, ok := body["description_insert"].(map[string]any)
+		if !ok {
+			writeErr(w, 422, "description_insert must be an object")
+			return
+		}
+		text, _ := op["text"].(string)
+		var after, before *string
+		var at *int
+		if v, ok := op["after"].(string); ok {
+			after = &v
+		}
+		if v, ok := op["before"].(string); ok {
+			before = &v
+		}
+		if v, ok := noteJSONInt(op["at"]); ok {
+			at = &v
+		}
+		next, err := applyDescriptionInsert(cur.Description, text, after, before, at)
+		if err != nil {
+			writeErr(w, 422, err.Error())
+			return
+		}
+		delete(body, "description_insert")
+		body["description"] = next
+	}
+	if hasReplace {
+		op, ok := body["description_replace"].(map[string]any)
+		if !ok {
+			writeErr(w, 422, "description_replace must be an object")
+			return
+		}
+		find, _ := op["find"].(string)
+		withText, _ := op["with"].(string)
+		all, _ := op["all"].(bool)
+		next, err := applyDescriptionReplace(cur.Description, find, withText, all)
+		if err != nil {
+			writeErr(w, 422, err.Error())
+			return
+		}
+		delete(body, "description_replace")
+		body["description"] = next
 	}
 	if v, ok := body["title"].(string); ok {
 		v = strings.TrimSpace(v)
@@ -462,4 +523,12 @@ func noteJSONInt64(v any) *int64 {
 	default:
 		return nil
 	}
+}
+
+func noteJSONInt(v any) (int, bool) {
+	p := noteJSONInt64(v)
+	if p == nil {
+		return 0, false
+	}
+	return int(*p), true
 }
