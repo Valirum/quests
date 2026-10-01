@@ -381,7 +381,13 @@
       </span>
     {/snippet}
 
-    <div class="health" bind:this={healthEl} role="status" aria-label="Состояние сервисов">
+    <div
+      class="health"
+      class:health--collapsed={healthCollapsed}
+      bind:this={healthEl}
+      role="status"
+      aria-label="Состояние сервисов"
+    >
       {@render healthChips()}
     </div>
   </div>

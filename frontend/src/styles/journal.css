@@ -50,6 +50,9 @@
     flex-wrap: nowrap;
     gap: var(--space-3, 0.75rem);
     min-width: 0;
+    /* Yield width to header-actions if both claim space — actions stay
+       clickable; health collapses / clips rather than painting over gear. */
+    flex: 1 1 auto;
     z-index: 1;
   }
 
@@ -252,14 +255,50 @@
   }
 
   /* One row of status chips, labeled by default — a 2-column grid needs
-     upkeep as items come and go, a line doesn't. Collapses to dot-only
-     (label dropped, title tooltip carries the detail) only once it no
-     longer fits; see JournalHeader's ResizeObserver. */
+     upkeep as items come and go, a line doesn't. Collapses to a single
+     LED strip (labels dropped, title tooltip carries the detail) once it
+     no longer fits; see JournalHeader's ResizeObserver. */
   .health {
     display: flex;
     align-items: center;
     gap: 0.35rem;
     flex-shrink: 0;
+    min-width: 0;
+  }
+
+  /* Collapsed: 3×2 LED matrix, height locked to nav controls.
+     No capsule chrome — just the dots. */
+  .health--collapsed {
+    display: grid;
+    grid-template-columns: repeat(3, auto);
+    grid-template-rows: repeat(2, 1fr);
+    align-items: center;
+    justify-items: center;
+    column-gap: 0.35rem;
+    row-gap: 0.2rem;
+    box-sizing: border-box;
+    height: var(--nav-control-h, 2rem);
+    padding: 0.2rem 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+  }
+
+  .health--collapsed .health__chip {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: auto;
+    height: auto;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+  }
+
+  .health--collapsed .health__dot {
+    width: 6px;
+    height: 6px;
   }
 
   .health--measure {
@@ -284,24 +323,6 @@
     letter-spacing: 0.04em;
     text-transform: uppercase;
     color: var(--color-fg-muted, #9a9a9a);
-  }
-
-  /* Dot-only (collapsed): shrink the pill to a circle so the status
-     reads as a LED, not a leftover square chip. */
-  /* Whole-pixel sizes on purpose: a 17.6px ring around a 7.2px dot put
-     the dot on a half-pixel, and it rendered visibly off-center. 18 − 2
-     (border) − 8 leaves an even 4px on every side. */
-  .health__chip:not(:has(.health__label)) {
-    width: 18px;
-    height: 18px;
-    padding: 0;
-    justify-content: center;
-    border-radius: 50%;
-  }
-
-  .health__chip:not(:has(.health__label)) .health__dot {
-    width: 8px;
-    height: 8px;
   }
 
   .health__label {
@@ -470,8 +491,8 @@
 
   .sidebar__delayed-body {
     display: grid;
-    gap: 0.2rem;
-    padding: 0 0.35rem 0.4rem;
+    gap: 0.28rem;
+    padding: 0.15rem 0.4rem 0.3rem;
   }
 
   .search {
@@ -623,8 +644,8 @@
 
   .quest-subgroup__body {
     display: grid;
-    gap: 0.2rem;
-    padding: 0.05rem 0 0.15rem;
+    gap: 0.28rem;
+    padding: 0.1rem 0.4rem 0.25rem;
   }
 
   .quest-line {
@@ -698,28 +719,37 @@
 
   .quest-line__body {
     display: grid;
+    gap: 0.28rem;
+    padding: 0.2rem 0.4rem 0.35rem;
   }
 
   .quest-row {
     display: grid;
     gap: 0.12rem;
     width: 100%;
-    padding: 0.38rem 0.55rem 0.38rem 0.55rem;
+    box-sizing: border-box;
+    padding: 0.4rem 0.55rem;
     border: 0;
-    border-bottom: 0;
-    border-left: 0;
-    background: transparent;
+    border-right: 1px solid color-mix(in srgb, var(--color-border, #333) 40%, transparent);
+    border-radius: 0 5px 5px 0;
+    background: linear-gradient(
+      to right,
+      var(--color-bg-raised, #1a1a1a),
+      color-mix(in srgb, var(--color-bg, #121212) 35%, var(--color-bg-raised, #1a1a1a))
+    );
     text-align: left;
     color: inherit;
     cursor: pointer;
     position: relative;
+    /* Let bookmark tags peek past the card edge without clipping. */
+    overflow: visible;
   }
 
   /* Paper bookmarks on the row’s right edge — overlay, don’t steal title width. */
   .quest-row__tags {
     position: absolute;
-    top: 0.2rem;
-    right: 0;
+    top: 0.28rem;
+    right: -1px;
     display: flex;
     flex-direction: column;
     align-items: flex-end;
@@ -773,23 +803,33 @@
   }
 
   .quest-subgroup__body > .quest-row {
-    padding-left: 1.15rem;
+    padding-left: 0.85rem;
   }
 
   .sidebar__delayed-body > .quest-row {
-    padding-left: 1.15rem;
+    padding-left: 0.85rem;
   }
 
   .quest-line__body .quest-row {
-    padding-left: 1rem;
+    padding-left: 0.55rem;
   }
 
   .quest-row:hover {
-    background: color-mix(in srgb, var(--color-fg, #e8e8e8) 4%, transparent);
+    background: linear-gradient(
+      to right,
+      var(--color-bg-raised, #1a1a1a),
+      color-mix(in srgb, var(--color-fg, #e8e8e8) 5%, var(--color-bg-raised, #1a1a1a))
+    );
+    border-right-color: color-mix(in srgb, var(--color-border, #333) 65%, transparent);
   }
 
   .quest-row--active {
-    background: color-mix(in srgb, var(--color-fg, #e8e8e8) 6%, var(--color-bg-raised, #1a1a1a));
+    background: linear-gradient(
+      to right,
+      var(--color-bg-raised, #1a1a1a),
+      color-mix(in srgb, var(--color-fg, #e8e8e8) 8%, var(--color-bg-raised, #1a1a1a))
+    );
+    border-right-color: color-mix(in srgb, var(--color-fg-muted, #9a9a9a) 40%, transparent);
     box-shadow: inset 2px 0 0 var(--color-fg, #e8e8e8);
   }
 
