@@ -830,7 +830,6 @@
       color-mix(in srgb, var(--color-fg, #e8e8e8) 8%, var(--color-bg-raised, #1a1a1a))
     );
     border-right-color: color-mix(in srgb, var(--color-fg-muted, #9a9a9a) 40%, transparent);
-    box-shadow: inset 2px 0 0 var(--color-fg, #e8e8e8);
   }
 
   .quest-row--inactive {
