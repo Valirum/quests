@@ -5,11 +5,11 @@ Global Cursor config (``~/.cursor/mcp.json``) so any workspace can use it::
     {
       "mcpServers": {
         "quests": {
-          "command": "/home/amarant/.local/bin/uv",
+          "command": "/home/YOU/.local/bin/uv",
           "args": [
             "run",
             "--directory",
-            "/home/amarant/Quests",
+            "/home/YOU/Quests",
             "quests-mcp"
           ],
           "env": {
@@ -49,7 +49,26 @@ from quests.refs import resolve_questline_id as _shared_resolve_questline_id
 
 API_BASE = (os.environ.get("QUESTS_API") or f"http://{HOST}:{PORT}").rstrip("/")
 
+# IDs of your own vault notes holding the agent guide / session-report parent.
+# Unset (default) → the instructions skip the pointer instead of citing a note
+# that doesn't exist in a fresh install.
+AGENT_GUIDE_NOTE_ID = os.environ.get("QUESTS_AGENT_GUIDE_NOTE_ID")
+SESSION_REPORTS_NOTE_ID = os.environ.get("QUESTS_SESSION_REPORTS_NOTE_ID")
+
 ALLOWED_STATUS = {"active", "expired", "delayed", "completed", "failed", "archived"}
+
+_guide_pointer = (
+    (
+        f"Before your first non-trivial action in this project, read "
+        f"note={AGENT_GUIDE_NOTE_ID} (get_note_context) for the data model, "
+        f"workflow expectations (interim reports as notes under "
+        f"note={SESSION_REPORTS_NOTE_ID or '…'}, splitting work into real steps, "
+        f"closing steps only once actually verified, cross-linking via ref "
+        f"tokens), and tone guidance — do not skip this. "
+    )
+    if AGENT_GUIDE_NOTE_ID
+    else ""
+)
 
 server = MCPServer(
     "quests",
@@ -57,17 +76,13 @@ server = MCPServer(
         "Quests is a personal task/quest journal with light gamification "
         "(significance, rewards) for one user, conversing in Russian — a web "
         "journal, desktop GTK/Wayland HUD, Telegram bot, and Android app all "
-        "hit the same REST API this MCP server wraps. Before your first "
-        "non-trivial action in this project, read note=30 (get_note_context) "
-        "for the data model, workflow expectations (interim reports as notes "
-        "under note=12, splitting work into real steps, closing steps only "
-        "once actually verified, cross-linking via ref tokens), and tone "
-        "guidance — do not skip this. "
+        "hit the same REST API this MCP server wraps. "
+        + _guide_pointer +
         "Use list_questlines then list_quests to browse "
         "missions; list_notes for the knowledge vault. get_base_context for one "
         "entity's own fields (quest/step/questline — accepts a pasted ref like "
         "quest=23 / step=252 / questline=3); get_note_context for a note's own "
-        "fields plus refs/backlinks/children (note=12). get_active_context for "
+        "fields plus refs/backlinks/children (e.g. note=5). get_active_context for "
         "live/pending work; get_inactive_context for completed/failed/archived "
         "history with full steps — together they cover every quest, full detail. "
         "Notes are markdown knowledge pages (toolkits, facts) — not quests. "

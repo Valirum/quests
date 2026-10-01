@@ -11,7 +11,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DATA="${QUESTS_DATA_DIR:-$ROOT/data}"
-SSH_HOST="${QUESTS_PROD_SSH:-amarant@100.125.103.43}"
+SSH_HOST="${QUESTS_PROD_SSH:?set QUESTS_PROD_SSH, e.g. user@host}"
 CONTAINER="${QUESTS_PROD_CONTAINER:-quests-api}"
 IMAGE="${QUESTS_API_IMAGE:-ghcr.io/valirum/quests-api:main}"
 
@@ -29,7 +29,7 @@ usage: $0 [--pull-image] [--start]
   into \`$DATA\` (bind-mounted by docker-compose.dev.yml).
 
 env:
-  QUESTS_PROD_SSH         default: amarant@100.125.103.43
+  QUESTS_PROD_SSH         required, e.g. user@host
   QUESTS_PROD_CONTAINER   default: quests-api
   QUESTS_DATA_DIR         default: <repo>/data
   QUESTS_API_IMAGE        default: ghcr.io/valirum/quests-api:main

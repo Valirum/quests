@@ -38,7 +38,7 @@ uv run quests list              # launcher → тот же бинарник
 ```bash
 quests --json list
 quests list --json
-quests --api http://192.168.1.11:8765 list
+quests --api http://your-server:8765 list
 quests show 3 --json | jq .title
 ```
 

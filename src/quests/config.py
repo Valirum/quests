@@ -26,7 +26,7 @@ RELOAD = (os.environ.get("QUESTS_RELOAD") or "").strip().lower() in {
 }
 
 # Comma-separated CORS origins. Empty → Vite localhost defaults.
-# Example remote: QUESTS_CORS_ORIGINS=https://quests.example.com,http://192.168.1.10:5173
+# Example remote: QUESTS_CORS_ORIGINS=https://quests.example.com,http://192.168.1.100:5173
 _cors_raw = (os.environ.get("QUESTS_CORS_ORIGINS") or "").strip()
 if _cors_raw:
     CORS_ORIGINS = [o.strip() for o in _cors_raw.split(",") if o.strip()]

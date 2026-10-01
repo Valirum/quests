@@ -8,7 +8,7 @@
 ## Почему self-hosted, а не SSH из облачного раннера
 
 Первая версия дёргала сервер по SSH из обычного `ubuntu-latest`-раннера — не
-взлетело: `192.168.1.11` приватный адрес, у GitHub-раннеров в облаке до него
+взлетело: `<lan-ip>` приватный адрес, у GitHub-раннеров в облаке до него
 физически нет маршрута. Раннер живёт прямо на сервере — деплой-шаг просто
 локально выполняет `ci-deploy.sh`, никакого SSH-хопа.
 
@@ -42,8 +42,8 @@ if: |
 дальше используется одноразово при `config.sh`, для повседневной работы
 раннера не нужен (сервис сам обновляет свою сессию).
 
-Раннер поднят как systemd-сервис (`actions.runner.*.service`) под пользователем
-`amarant`, с доступом к docker (в группе `docker`) и к чекауту репозитория
+Раннер поднят как systemd-сервис (`actions.runner.*.service`) под выделенным
+пользователем, с доступом к docker (в группе `docker`) и к чекауту репозитория
 в `~/Documents/projects/quests`.
 
 ## SSH-ключ (`DEPLOY_SSH_KEY` / `DEPLOY_SSH_HOST` / `DEPLOY_SSH_USER`) — больше не используется деплоем
@@ -53,7 +53,7 @@ if: |
 можно всё ещё дёрнуть деплой без раннера:
 
 ```bash
-ssh -i quests_ci_deploy amarant@192.168.1.11
+ssh -i quests_ci_deploy <user>@<lan-ip>
 ```
 
 GitHub-секреты `DEPLOY_SSH_*` можно удалить (Settings → Secrets → Actions) —
@@ -68,5 +68,5 @@ job `deploy`.
 Ручками, в обход CI, то же самое можно прогнать прямо на сервере:
 
 ```bash
-bash /home/amarant/Documents/projects/quests/deploy/docker/ci-deploy.sh
+bash ~/Documents/projects/quests/deploy/docker/ci-deploy.sh
 ```

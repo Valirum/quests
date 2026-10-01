@@ -120,4 +120,4 @@ SQLite — volume `quests-data` (`/app/data`).
 - `QUESTS_WEBDAV_URL` / `QUESTS_WEBDAV_USER` / `QUESTS_WEBDAV_PASS` — внешний WebDAV (не в этом compose). Пустой URL = загрузка вложений выключена.
 - `QUESTS_CLAMAV_ADDR` — по умолчанию `clamav:3310`. Первый старт clamd качает сигнатуры; до готовности загрузки отвечают 503.
 
-WebDAV — отдельная инфра на хосте (сейчас `192.168.1.11:8082`), не сервис этого compose. Из контейнера `api` на тот же LAN-IP ходить можно как есть; если WebDAV на том же боксе, что и compose — `http://host.docker.internal:8082`.
+WebDAV — отдельная инфра на хосте (сейчас `<lan-ip>:8082`), не сервис этого compose. Из контейнера `api` на тот же LAN-IP ходить можно как есть; если WebDAV на том же боксе, что и compose — `http://host.docker.internal:8082`.
