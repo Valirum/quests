@@ -17,7 +17,7 @@ from quests.telegram.keyboards import quest_keyboard
 from quests.telegram.resilience import tg_retry
 from quests.telegram.settings import TgSettings
 from quests.telegram.store import ChatRegistry, NotifyDedup
-from quests.timeutil import ensure_utc, is_in_urgent_window
+from quests.timeutil import deadline_set_with_open_window, ensure_utc, is_in_urgent_window
 
 log = logging.getLogger("quests.telegram.notify")
 
@@ -327,6 +327,15 @@ async def window_start_loop(
             for q in await _active_in_window(api):
                 qid = int(q["id"])
                 if q.get("automated"):
+                    continue
+                # Postpone (deadline=now+N, duration=N) opens the window at
+                # update time — same rule as Go WindowNotifier (quest=269).
+                if deadline_set_with_open_window(
+                    _deadline_dt(q.get("deadline_at")),
+                    q.get("duration_seconds"),
+                    _deadline_dt(q.get("updated_at")),
+                ):
+                    dedup.mark(qid, "quest_started")
                     continue
                 if not dedup.mark(qid, "quest_started"):
                     continue

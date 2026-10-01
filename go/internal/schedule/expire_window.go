@@ -2,12 +2,32 @@ package schedule
 
 import (
 	"context"
+	"time"
 
 	"github.com/valirum/quests/go/internal/domain"
 	"github.com/valirum/quests/go/internal/events"
 	"github.com/valirum/quests/go/internal/store"
 	"github.com/valirum/quests/go/internal/timeutil"
 )
+
+// How far after UpdatedAt a window_start may land and still count as
+// "deadline was set with the window already open" (site/APK postpone:
+// deadline=now+N, duration=N → window_start≈updated_at). Covers scheduler
+// tick lag of a couple seconds without swallowing a natural crossing that
+// happened hours after the deadline was written.
+const windowStartSynthSkew = 3 * time.Second
+
+// deadlineSetWithOpenWindow reports whether the urgent window was already
+// open (within skew) at the quest's last update — typical of postponeQuest.
+// Natural case: deadline written earlier, clock later crosses window_start
+// → window_start is well after UpdatedAt → false → fire quest_started.
+func deadlineSetWithOpenWindow(q domain.Quest) bool {
+	if q.DeadlineAt == nil || q.DurationSeconds == nil || *q.DurationSeconds <= 0 {
+		return false
+	}
+	start := timeutil.WindowStart(*q.DeadlineAt, *q.DurationSeconds)
+	return !start.After(timeutil.EnsureUTC(q.UpdatedAt).Add(windowStartSynthSkew))
+}
 
 // ExpireOverdue marks active quests past deadline as expired and publishes events.
 func ExpireOverdue(ctx context.Context, st *store.Store, hub *events.Hub) ([]int64, error) {
@@ -120,7 +140,12 @@ func (w *WindowNotifier) Notify(ctx context.Context, st *store.Store, hub *event
 		if _, ok := w.notified[q.ID]; ok {
 			continue
 		}
+		// Always remember we've seen this window occupancy so a postponed
+		// quest does not fire on a later tick while still inside the window.
 		w.notified[q.ID] = struct{}{}
+		if deadlineSetWithOpenWindow(q) {
+			continue
+		}
 		qid := q.ID
 		hub.Publish("quest_started", events.PublishOpts{
 			QuestID:      &qid,

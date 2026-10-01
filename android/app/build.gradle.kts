@@ -42,6 +42,13 @@ android {
     }
 
     buildTypes {
+        debug {
+            // Side-by-side with the CI release APK: same phone can keep
+            // com.quests.hud (release, versionCode from CI) and install
+            // com.quests.hud.debug without VERSION_DOWNGRADE / signature clash.
+            applicationIdSuffix = ".debug"
+            versionNameSuffix = "-debug"
+        }
         release {
             isMinifyEnabled = false
             if (hasReleaseSigning) {

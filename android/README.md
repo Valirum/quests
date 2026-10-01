@@ -20,6 +20,11 @@ cd android
 ./gradlew installDebug
 ```
 
+Debug ставится как отдельное приложение `com.quests.hud.debug`
+(`applicationIdSuffix = ".debug"`), рядом с релизом `com.quests.hud` —
+иначе `INSTALL_FAILED_VERSION_DOWNGRADE` / конфликт подписи с CI-APK.
+На лаунчере — «Quests HUD (debug)». Методичка по USB-отладке: note=65.
+
 ## Что уже есть
 
 - `MainActivity` — экран настроек: `API URL` + `QUESTS_API_TOKEN`,

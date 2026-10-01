@@ -102,6 +102,30 @@ def is_in_urgent_window(
     return window_start(deadline_at, duration_seconds) < now
 
 
+# Match go/internal/schedule/expire_window.go windowStartSynthSkew.
+_WINDOW_START_SYNTH_SKEW = timedelta(seconds=3)
+
+
+def deadline_set_with_open_window(
+    deadline_at: datetime | None,
+    duration_seconds: int | None,
+    updated_at: datetime | None,
+) -> bool:
+    """True when the urgent window was already open at the last quest update.
+
+    Site/APK postpone sets deadline=now+N, duration=N → window_start≈updated_at.
+    Suppress quest_started in that case (quest=269). Natural crossing keeps
+    updated_at well before window_start → False → notify as usual.
+    """
+    if deadline_at is None or not duration_seconds or updated_at is None:
+        return False
+    deadline_at = ensure_utc(deadline_at)
+    updated_at = ensure_utc(updated_at)
+    assert deadline_at is not None and updated_at is not None
+    start = window_start(deadline_at, int(duration_seconds))
+    return start <= updated_at + _WINDOW_START_SYNTH_SKEW
+
+
 def remaining_seconds(
     deadline_at: datetime | None,
     *,
