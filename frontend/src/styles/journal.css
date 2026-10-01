@@ -170,6 +170,9 @@
     left: 50%;
     top: 50%;
     transform: translate(-50%, -50%);
+    /* Above header-left (z-index: 1): that flex cluster stretches across
+       the header and was eating clicks on the centered tabs. */
+    z-index: 3;
     gap: 0.15rem;
     border: 0;
     border-radius: 0;
