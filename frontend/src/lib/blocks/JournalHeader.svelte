@@ -199,15 +199,92 @@
   }
 
   function recomputeHealthCollapse() {
-    if (!headerEl || !leftEl || !tabsEl || !brandEl || !healthMeasureEl) return
+    if (!headerEl || !leftEl || !tabsEl || !healthMeasureEl) return
     const slots = headerSlots()
-    const forHealth = slots.health ?? slots.left - brandEl.offsetWidth - 12 /* header-left gap */
-    healthCollapsed = healthMeasureEl.scrollWidth > forHealth
+    let forHealth
+    if (slots.health != null) {
+      // Portrait: chips are absolutely centered — budget comes from headerSlots.
+      forHealth = slots.health
+    } else {
+      // In-flow: left slot minus siblings (sidebar toggle, brand, flex gaps).
+      // Using brand alone under-counted the toggle and left labeled chips
+      // overlapping the action icons (DAV ∩ gear).
+      const healthW = healthEl?.offsetWidth ?? 0
+      const chrome = Math.max(0, leftEl.offsetWidth - healthW)
+      forHealth = slots.left - chrome
+    }
+    if (!Number.isFinite(forHealth)) forHealth = 0
+
+    const labeledW = healthMeasureEl.scrollWidth
+    // Hysteresis: expanding labels frees action budget (portrait absolute
+    // health), which then says labels fit again — without slack we
+    // oscillate labeled ↔ dots and keep overlapping the gear.
+    const EXPAND_SLACK = 48
+    if (!healthCollapsed) {
+      healthCollapsed = labeledW > forHealth || labeledWouldOverlapActions()
+    } else {
+      healthCollapsed =
+        labeledW + EXPAND_SLACK > forHealth || labeledWouldOverlapActions()
+    }
+  }
+
+  /** If we painted the full labeled row right now, would it hit actions? */
+  function labeledWouldOverlapActions(gap = 8) {
+    if (!headerEl || !actionsEl || !healthMeasureEl) return false
+    const a = actionsEl.getBoundingClientRect()
+    if (a.width <= 0) return false
+    const labeledW = healthMeasureEl.scrollWidth
+    const healthPos = healthEl ? getComputedStyle(healthEl).position : 'static'
+    if (healthPos === 'absolute') {
+      const rect = headerEl.getBoundingClientRect()
+      const center = (rect.left + rect.right) / 2
+      return center + labeledW / 2 + gap > a.left
+    }
+    if (!leftEl) return false
+    const healthW = healthEl?.offsetWidth ?? 0
+    const chrome = Math.max(0, leftEl.offsetWidth - healthW)
+    const cs = getComputedStyle(headerEl)
+    const contentLeft =
+      headerEl.getBoundingClientRect().left + (parseFloat(cs.paddingLeft) || 0)
+    return contentLeft + chrome + labeledW + gap > a.left
+  }
+
+  /** True when health chips and action icons share the same pixels. */
+  function healthOverlapsActions(gap = 8) {
+    if (!healthEl || !actionsEl) return false
+    const h = healthEl.getBoundingClientRect()
+    const a = actionsEl.getBoundingClientRect()
+    if (h.width <= 0 || a.width <= 0) return false
+    return h.right + gap > a.left && a.right + gap > h.left && h.bottom > a.top && a.bottom > h.top
+  }
+
+  /** After the slot math, force collapse if the two clusters still collide. */
+  function resolveOverlap() {
+    if (!healthOverlapsActions()) return false
+    if (!healthCollapsed) {
+      healthCollapsed = true
+      return true
+    }
+    const idx = ACTION_STAGES.indexOf(actionsMode)
+    if (idx >= 0 && idx < ACTION_STAGES.length - 1) {
+      actionsMode = ACTION_STAGES[idx + 1]
+      return true
+    }
+    return false
   }
 
   function recomputeAll() {
-    recomputeCollapse()
+    // Health first so a wide labeled row yields budget to actions, then
+    // actions pick a stage; finally a geometry check stops residual overlap
+    // the slot math missed (toggle chrome, font swap, absolute tabs).
     recomputeHealthCollapse()
+    recomputeCollapse()
+    if (resolveOverlap()) {
+      requestAnimationFrame(() => {
+        recomputeCollapse()
+        if (resolveOverlap()) requestAnimationFrame(recomputeCollapse)
+      })
+    }
   }
 
   $effect(() => {

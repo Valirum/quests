@@ -45,7 +45,9 @@
   .header-left {
     display: flex;
     align-items: center;
-    flex-wrap: wrap;
+    /* nowrap: wrapping chips under the action row was one way they
+       "competed" for space and visually collided with the gear. */
+    flex-wrap: nowrap;
     gap: var(--space-3, 0.75rem);
     min-width: 0;
     z-index: 1;
@@ -66,12 +68,14 @@
 
   .header-actions {
     display: flex;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     align-items: center;
     justify-content: flex-end;
     gap: 0.1rem;
     flex-shrink: 0;
-    z-index: 1;
+    /* Above health if a residual overlap remains — clicks stay on actions. */
+    position: relative;
+    z-index: 2;
     font-family: var(--font-display, Georgia, serif);
   }
 

@@ -10,13 +10,15 @@ export default defineConfig({
     proxy: {
       // http target + ws:true — иначе после рестарта API сокет через Vite залипает.
       '/api': {
-        target: 'http://127.0.0.1:8765',
+        target: process.env.QUESTS_DEV_API || 'http://127.0.0.1:8765',
         changeOrigin: true,
+        secure: true,
       },
       '/ws': {
-        target: 'http://127.0.0.1:8765',
+        target: process.env.QUESTS_DEV_API || 'http://127.0.0.1:8765',
         ws: true,
         changeOrigin: true,
+        secure: true,
       },
     },
   },
