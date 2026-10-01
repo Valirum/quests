@@ -27,25 +27,24 @@ Debug ставится как отдельное приложение `com.quest
 
 ## Что уже есть
 
-- `MainActivity` — экран настроек: `API URL` + `QUESTS_API_TOKEN`,
-  проверка через `GET /api/auth/state` + `GET /api/health` перед
-  сохранением. Хранение — `EncryptedSharedPreferences`
+- `HubActivity` — свайп-хаб: настройки + SPA журнала.
+- Экран настроек: `API URL` + `QUESTS_API_TOKEN`, проверка
+  `/api/auth/state` + `/api/health`, prefs в `SharedPreferences`
   (`data/PrefsStore.kt`).
-- `service/QuestsService.kt` — foreground service с заглушкой
-  ongoing-уведомления. Поллинг `/api/quests` и рендер реальных данных —
-  следующие шаги квеста (716/717).
-- `net/ApiClient.kt` — минимальный HTTP-клиент (bearer-токен, без внешних
-  зависимостей вроде OkHttp).
+- `service/QuestsService.kt` — foreground service:
+  - ongoing-уведомление (`quests_hud`, LOW) со списком активных квестов;
+  - heads-up по major-событиям (`quests_events`, HIGH) — create/start/
+    expire/complete/fail (quest=269), полл `GET /api/events?since=`;
+  - actions: отложить 15/30/60 мин (как сайт) / завершить.
+- `net/ApiClient.kt` — HttpURLConnection + bearer, без OkHttp.
+- Методичка USB-отладки: note=65.
 
-## Известные пробелы (следующие шаги квеста 192)
+## Известные пробелы
 
-- Поллинг активных квестов (шаг 716) не подключён к сервису — `ApiClient`
-  есть, но `QuestsService` его пока не вызывает.
-- Рендер уведомления (717), тап-действие на конкретный квест (718),
-  battery optimization exemption (719) — не сделаны.
-- `POST_NOTIFICATIONS` runtime permission (Android 13+) запрашивается не
-  сама — надо добавить `ActivityResultContracts.RequestPermission` в
-  `MainActivity` перед стартом сервиса.
+- WebSocket `/ws` вместо полла events (полл достаточен, но с задержкой
+  и таймаутами на медленном шлюзе).
+- Chooser 90/120 мин для «Отложить» (сейчас на started/expired — 15/30).
+- Floating overlay (quest=195).
 
 ## Релизы (CI, quest=197)
 

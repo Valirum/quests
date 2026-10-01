@@ -28,4 +28,14 @@
     <string name="notification_active_count">Активных квестов: %1$d</string>
     <string name="notification_nearest_deadline">Ближайший дедлайн: %1$s</string>
     <string name="notification_current_step">%1$s: %2$s (%3$d/%4$d)</string>
+
+    <string name="event_channel_name">События квестов</string>
+    <string name="event_channel_description">Создание, старт окна, просрочка и завершение</string>
+    <string name="event_eyebrow_received">Получено задание</string>
+    <string name="event_eyebrow_started">Началось задание</string>
+    <string name="event_eyebrow_completed">Задание завершено</string>
+    <string name="event_eyebrow_failed">Задание провалено</string>
+    <string name="event_eyebrow_expired">Задание просрочено</string>
+    <string name="event_action_complete">Завершить</string>
+    <string name="event_action_postpone_min">%1$dм</string>
 </resources>
