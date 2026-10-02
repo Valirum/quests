@@ -88,8 +88,8 @@
   let renamingValue = $state('')
   let renameInputEl = $state(/** @type {HTMLInputElement | null} */ (null))
   /** Drag-n-drop reparenting in the tree — only moves a note between parents,
-   * never touches sort order (that stays pinned → sort_order → id, same as
-   * byParent's own sort above). */
+   * never touches sort order (that stays children → pinned → sort_order → id,
+   * same as byParent's own sort above). */
   let dragId = $state(/** @type {number | null} */ (null))
   /** String(id) of the row under the cursor, or 'root' for the list's empty
    * background, or null. */
@@ -152,16 +152,22 @@
       if (!m.has(key)) m.set(key, [])
       m.get(key).push(n)
     }
-    for (const list of m.values()) {
-      list.sort(
-        (a, b) =>
-          Number(b.pinned) - Number(a.pinned) ||
-          (a.sort_order || 0) - (b.sort_order || 0) ||
-          a.id - b.id,
-      )
-    }
+    // Notes with children first, then leaves; pin only breaks ties inside a group.
+    const hasKids = (/** @type {any} */ n) => (m.get(String(n.id))?.length ?? 0) > 0
+    for (const list of m.values()) list.sort((a, b) => compareNotes(a, b, hasKids))
     return m
   })
+
+  /** Tree order: with children → pinned → sort_order → id.
+   * @param {any} a @param {any} b @param {(n: any) => boolean} hasKids */
+  function compareNotes(a, b, hasKids) {
+    return (
+      Number(hasKids(b)) - Number(hasKids(a)) ||
+      Number(b.pinned) - Number(a.pinned) ||
+      (a.sort_order || 0) - (b.sort_order || 0) ||
+      a.id - b.id
+    )
+  }
 
   let roots = $derived(byParent.get('root') || [])
 
@@ -728,19 +734,41 @@
       label: 'Корень',
       checked: note?.parent_id == null,
     })
+    // Only flat neighbours: the parent's level (parent + its siblings — the note
+    // keeps its depth) and the note's own level (siblings — it nests one deeper).
+    // Own descendants are excluded, so there is never an ambiguous re-parenting.
+    const pid = note?.parent_id ?? null
+    const parent = pid != null ? noteById(pid) : null
+    const hasKids = (/** @type {any} */ n) => hasChildren(n.id)
+    const level = (/** @type {number | null} */ parentOf) =>
+      notes
+        .filter(
+          (n) =>
+            (n.parent_id ?? null) === parentOf &&
+            n.id !== note?.id &&
+            !(note?.id != null && isUnder(n.id, note.id)),
+        )
+        .sort((a, b) => compareNotes(a, b, hasKids))
+    const groups = [
+      ...(parent ? [level(parent.parent_id ?? null)] : []),
+      level(pid),
+    ]
     let listed = false
-    for (const n of notes) {
-      if (n.id === note?.id) continue
-      if (note?.id != null && isUnder(n.id, note.id)) continue
+    for (const group of groups) {
+      if (!group.length) continue
       if (!listed) {
         items.push({ id: 'sep-move', sep: true })
         listed = true
+      } else {
+        items.push({ id: `sep-move-${items.length}`, sep: true })
       }
-      items.push({
-        id: `move:${n.id}`,
-        label: n.title || `note=${n.id}`,
-        checked: note?.parent_id === n.id,
-      })
+      for (const n of group) {
+        items.push({
+          id: `move:${n.id}`,
+          label: n.title || `note=${n.id}`,
+          checked: note?.parent_id === n.id,
+        })
+      }
     }
     return items
   }
@@ -751,6 +779,7 @@
       { id: 'copy-id', label: `Копировать note=${ctxNoteId}` },
       { id: 'sep-copy', sep: true },
       { id: 'rename', label: 'Переименовать' },
+      { id: 'pin', label: ctxNote?.pinned ? 'Открепить' : 'Закрепить' },
       { id: 'add-child', label: 'Добавить дочернюю' },
       { id: 'move', label: 'Переместить', children: moveTargets(ctxNote) },
       {
@@ -814,6 +843,27 @@
       onChanged()
     } catch (e) {
       error = e.message || String(e)
+    }
+  }
+
+  async function togglePinNote(id) {
+    const n = noteById(id)
+    if (!n) return
+    const next = !n.pinned
+    error = ''
+    try {
+      const savedRow = await updateNote(id, { pinned: next })
+      if (id === selectedId) {
+        saved = { ...saved, pinned: next }
+        pinned = next
+        detail = savedRow
+        const draft = getNoteDraft(id)
+        if (draft) putNoteDraft(id, { ...draft, pinned: next })
+      }
+      onChanged()
+    } catch (e) {
+      error = e.message || String(e)
+      toast(error, { kind: 'error' })
     }
   }
 
@@ -925,6 +975,10 @@
     }
     if (action === 'rename') {
       startRename(id)
+      return
+    }
+    if (action === 'pin') {
+      await togglePinNote(id)
       return
     }
     if (action === 'add-child') {
