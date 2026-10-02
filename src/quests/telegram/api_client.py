@@ -94,7 +94,7 @@ class QuestsApi:
         data = await self.request("GET", "/api/questlines")
         return list(data or [])
 
-    async def preview_actions(self, text: str) -> dict:
+    async def preview_actions(self, text: str, *, no_clarify: bool = False) -> dict:
         """LLM action-batch dry-run (may take up to a few minutes)."""
         url = f"{self.base}/api/llm/actions/preview"
         headers = {"X-Quests-Source": "telegram"}
@@ -104,7 +104,7 @@ class QuestsApi:
             async with self._session.request(
                 "POST",
                 url,
-                json={"text": text},
+                json={"text": text, "no_clarify": no_clarify},
                 headers=headers,
                 timeout=aiohttp.ClientTimeout(total=200),
             ) as resp:

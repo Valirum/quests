@@ -579,7 +579,10 @@ def build_router(
         chat_id = message.chat.id if message.chat else None
         prompt = history_to_prompt_text(user_text, history)
         try:
-            res = await api.preview_actions(prompt)
+            # one clarifying question per request: after an answer the model must commit
+            res = await api.preview_actions(
+                prompt, no_clarify=any(r == "assistant" for r, _ in (history or []))
+            )
         except ApiError as e:
             await tg_soft(lambda: wait.delete(), label="llm-wait-del")
             await _purge_dialog(message.bot, state, chat_id)

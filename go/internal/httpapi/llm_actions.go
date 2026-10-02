@@ -23,7 +23,8 @@ func (s *Server) registerLLMActions(mux *http.ServeMux) {
 
 func (s *Server) postLLMActionsPreview(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Text string `json:"text"`
+		Text      string `json:"text"`
+		NoClarify bool   `json:"no_clarify"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid JSON")
@@ -48,6 +49,7 @@ func (s *Server) postLLMActionsPreview(w http.ResponseWriter, r *http.Request) {
 		hints = append(hints, llmassist.CategoryHint{ID: c.ID, Slug: c.Slug, Label: c.Label})
 	}
 	pc := llmassist.DefaultPromptContext(hints)
+	pc.NoClarify = body.NoClarify
 
 	settings := llmassist.LoadSettings()
 	batch, err := llmassist.ExtractActionBatch(ctx, settings, text, pc)
@@ -57,6 +59,11 @@ func (s *Server) postLLMActionsPreview(w http.ResponseWriter, r *http.Request) {
 		// statusText ("Bad Gateway") instead of the real reason.
 		writeErr(w, http.StatusBadGateway, err.Error())
 		return
+	}
+	if batch.NeedsClarification && body.NoClarify {
+		// The model asked again despite the ban: don't pass a second question
+		// on, report an empty plan (the client asks to rephrase).
+		batch = llmassist.ActionBatch{}
 	}
 	if batch.NeedsClarification {
 		writeJSON(w, http.StatusOK, map[string]any{

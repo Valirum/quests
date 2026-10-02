@@ -37,6 +37,9 @@ type PromptContext struct {
 	NowLocal   string
 	TimeZone   string
 	Categories []CategoryHint
+	// NoClarify forbids needs_clarification: the user has already answered a
+	// clarifying question, so the model must commit to its best reading.
+	NoClarify bool
 }
 
 // DefaultPromptContext builds NowLocal/TZ from QUESTS_TZ / TZ / time.Local.
@@ -261,6 +264,12 @@ func SystemPrompt(pc PromptContext) string {
 	b.WriteString("needs_clarification=true (actions=[]) только если запрос реально ")
 	b.WriteString("неоднозначен (непонятно, какой квест/шаг/квестлайн имеется в виду и ")
 	b.WriteString("тег/имя не помогает установить это однозначно).\n")
+	if pc.NoClarify {
+		b.WriteString("УТОЧНЯТЬ БОЛЬШЕ НЕЛЬЗЯ: пользователь уже ответил на уточнение. ")
+		b.WriteString("needs_clarification ВСЕГДА false; если что-то неясно — выбери самое ")
+		b.WriteString("вероятное толкование и составь план (пользователь увидит его и сможет ")
+		b.WriteString("отклонить).\n")
+	}
 
 	b.WriteString("\nКОНТЕКСТ СЕЙЧАС:\n")
 	b.WriteString(fmt.Sprintf("  Локальное время: %s\n", pc.NowLocal))
