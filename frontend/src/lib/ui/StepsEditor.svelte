@@ -2,7 +2,7 @@
   import Icon from './Icon.svelte'
   import MentionTextarea from './MentionTextarea.svelte'
   import StepAutoCheck from './StepAutoCheck.svelte'
-  import { questStepDraft, templateStepDraft } from '../js/steps.js'
+  import { mirrorQuestId, questStepDraft, templateStepDraft } from '../js/steps.js'
 
   /**
    * The one step-list editor (quest and template modals). Each step is a
@@ -41,6 +41,19 @@
 
   function remove(key) {
     steps = steps.length <= 1 ? [blank()] : steps.filter((s) => s.key !== key)
+  }
+
+  /** quest=N in a folded step's title/description with no check yet: offer it
+   * right on the row — the check field itself sits inside the ⚙ details. */
+  function foldedMirrorId(s) {
+    if (s.open || String(s.check_command || '').trim()) return null
+    return mirrorQuestId(s.title, s.description)
+  }
+
+  function useMirrorCheck(s, questId) {
+    s.check_command = `quests progress ${questId}`
+    s.run_mode = 'poll'
+    s.open = true
   }
 
   function hasDetails(s) {
@@ -97,6 +110,15 @@
           <Icon name="delete" size={14} />
         </button>
       </div>
+      {#if foldedMirrorId(s) != null}
+        <button
+          type="button"
+          class="btn btn--ghost steps-ed__mirror"
+          onclick={() => useMirrorCheck(s, foldedMirrorId(s))}
+        >
+          Следить за quest={foldedMirrorId(s)}: <code>quests progress {foldedMirrorId(s)}</code>
+        </button>
+      {/if}
       {#if s.open}
         <div class="steps-ed__details">
           {#if isQuest}
@@ -111,7 +133,7 @@
             />
           {/if}
           <StepAutoCheck
-            description={s.description}
+            text={`${s.title}\n${s.description || ''}`}
             bind:command={s.check_command}
             bind:interval={s.check_interval_seconds}
             bind:waitPrevious={s.wait_previous}
@@ -176,6 +198,12 @@
 
   .steps-ed__remove:hover:not(:disabled) {
     color: var(--color-danger, #b54a3a);
+  }
+
+  .steps-ed__mirror {
+    justify-self: start;
+    margin-top: 0.2rem;
+    font-size: var(--text-xs, 0.75rem);
   }
 
   .steps-ed__details {

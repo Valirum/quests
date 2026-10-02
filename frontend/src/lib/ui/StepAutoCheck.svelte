@@ -1,19 +1,19 @@
 <script>
   import HelpTip from './HelpTip.svelte'
   import OptionPills from './OptionPills.svelte'
-  import { parseRefs } from '../js/refs.js'
+  import { mirrorQuestId as findMirrorQuest } from '../js/steps.js'
 
   /** A step's auto-check: command, poll interval, mode, pipeline gate.
    * The mode/gate controls only appear once there is a command to run.
-   * `description` (read-only) is the step's text: a quest=N in it offers the
-   * "mirror that quest" check (`quests progress N`).
-   * @type {{ command?: string, interval?: string, waitPrevious?: boolean, runMode?: string, description?: string }} */
+   * `text` (read-only) is the step's title + description: a quest=N in it offers
+   * the "mirror that quest" check (`quests progress N`).
+   * @type {{ command?: string, interval?: string, waitPrevious?: boolean, runMode?: string, text?: string }} */
   let {
     command = $bindable(''),
     interval = $bindable(''),
     waitPrevious = $bindable(false),
     runMode = $bindable('poll'),
-    description = '',
+    text = '',
   } = $props()
 
   const MODES = [
@@ -23,10 +23,8 @@
 
   let hasCommand = $derived(Boolean(String(command || '').trim()))
 
-  /** First quest=N in the step description, offered while no command is set. */
-  let mirrorQuestId = $derived(
-    hasCommand ? null : (parseRefs(description).find((r) => r.kind === 'quest')?.id ?? null),
-  )
+  /** First quest=N in the step's title/description, offered while no command is set. */
+  let mirrorQuestId = $derived(hasCommand ? null : findMirrorQuest(text))
 
   function useMirrorCheck() {
     if (mirrorQuestId == null) return

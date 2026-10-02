@@ -110,7 +110,7 @@
     <div class="field">
       <span class="label">Автопроверка</span>
       <StepAutoCheck
-        description={draft.description}
+        text={`${draft.title}\n${draft.description || ''}`}
         bind:command={draft.check_command}
         bind:interval={draft.check_interval_seconds}
         bind:waitPrevious={draft.wait_previous}

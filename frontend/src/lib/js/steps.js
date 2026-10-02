@@ -1,3 +1,5 @@
+import { parseRefs } from './refs.js'
+
 /** Step drafts for the step editors (quest modal, template modal, step modal)
  * and their API payloads. One shape for the auto-check part everywhere:
  * check_command / check_interval_seconds (string, '' = default) /
@@ -114,4 +116,15 @@ export function parseProgressRange(raw) {
   }
   const n = Math.max(1, Number(text) || 1)
   return { progress_min: n, progress_max: n }
+}
+
+/**
+ * First quest=N in the given texts (a step's title and description): that step
+ * can mirror the quest with `quests progress N`.
+ * @param {...string} texts
+ * @returns {number | null}
+ */
+export function mirrorQuestId(...texts) {
+  const hit = parseRefs(texts.map((t) => String(t || '')).join('\n')).find((r) => r.kind === 'quest')
+  return hit ? hit.id : null
 }
