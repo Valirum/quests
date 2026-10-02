@@ -10,12 +10,40 @@ RUN npm run build
 
 # --- Go API (+ CLI) ---
 FROM golang:1.26-bookworm AS go-build
+# The image's Go is newer than go.mod's patch, so never fetch another toolchain
+# at build time (fail loudly instead if that ever stops being true).
+ENV GOTOOLCHAIN=local \
+    CGO_ENABLED=0
 WORKDIR /src
 COPY go/go.mod go/go.sum ./
 RUN go mod download
+# Compile the third-party deps (modernc sqlite/libc dominate) into the build
+# cache in a layer keyed only by go.mod/go.sum, so a source-only change below
+# recompiles just our own packages. Flags must match the real build (-trimpath).
+# The import list only affects speed: if it goes stale the prime step is skipped.
+RUN <<'PRIME'
+mkdir _prime
+cat > _prime/main.go <<'GO'
+package main
+
+import (
+	_ "github.com/gabriel-vasile/mimetype"
+	_ "github.com/google/uuid"
+	_ "github.com/gorilla/websocket"
+	_ "github.com/klauspost/compress/zstd"
+	_ "github.com/pkg/sftp"
+	_ "golang.org/x/crypto/ssh"
+	_ "golang.org/x/term"
+	_ "modernc.org/sqlite"
+)
+
+func main() {}
+GO
+go build -trimpath -o /dev/null ./_prime || echo "deps prime skipped"
+PRIME
 COPY go/ ./
-RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/quests-server ./cmd/quests-server \
- && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/quests ./cmd/quests
+RUN go build -trimpath -ldflags="-s -w" -o /out/quests-server ./cmd/quests-server \
+ && go build -trimpath -ldflags="-s -w" -o /out/quests ./cmd/quests
 
 # --- Python (migrations + bot tooling) ---
 FROM python:3.12-slim-bookworm AS python-base
@@ -33,7 +61,7 @@ RUN apt-get update \
        fonts-dejavu-core fontconfig \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+COPY --from=ghcr.io/astral-sh/uv:0.12.19 /uv /usr/local/bin/uv
 
 WORKDIR /app
 COPY pyproject.toml uv.lock README.md ./
