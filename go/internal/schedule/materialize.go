@@ -594,28 +594,8 @@ func loadTemplateSteps(ctx context.Context, st *store.Store, tmpl templateRow, r
 	return out, nil
 }
 
-// poolItem is one entry of the JSON array printed by emit_pool_command.
-type poolItem struct {
-	Title            string   `json:"title"`
-	Description      string   `json:"description"`
-	QuestDescription string   `json:"quest_description"`
-	Weight           *float64 `json:"weight"`
-	Ref              string   `json:"ref"`
-}
-
-func (it poolItem) effectiveWeight() float64 {
-	if it.Weight == nil {
-		return 1
-	}
-	if *it.Weight < 0 {
-		return 0
-	}
-	return *it.Weight
-}
-
 // emitResult is what one tick learns about a template's emit command.
-// Spec is set when there is a quest to create now (the command printed one, or
-// an old-style item list that was converted); nil means nothing this tick
+// Spec is set when there is a quest to create now (the command printed one); nil means nothing this tick
 // (pending retry, still running, or "no quest this period"). FailMsg is
 // non-empty exactly when this call is the one that exhausted the attempts
 // (outcome just became "error") — the caller then creates a failed quest
@@ -693,13 +673,6 @@ func resolveEmit(ctx context.Context, st *store.Store, tmpl templateRow, periodK
 	var note string
 	if execErr == nil {
 		spec := out.Spec
-		if out.Legacy != nil {
-			spec = legacySpec(out.Legacy)
-			if strings.TrimSpace(tmpl.Description) != "" {
-				spec.Description = nil // old rule: the template's own description wins
-			}
-			note = "old-style item list (converted to one quest)"
-		}
 		if spec != nil {
 			lim, lerr := store.ParseEmitLimits(tmpl.EmitLimits.String)
 			if lerr != nil {

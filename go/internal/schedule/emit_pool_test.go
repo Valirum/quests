@@ -90,10 +90,10 @@ func emitOnce(t *testing.T, st *store.Store, tmpl templateRow, period string, no
 }
 
 // A command that prints a quest object yields a spec; "no quest" outcomes
-// (null, {}, nothing, or an empty item list) become a miss that stays a miss
+// (null, {}, nothing, or nothing at all) become a miss that stays a miss
 // for the rest of the period and reuses the same roll row.
 func TestResolveEmitMissIsStickyWithinPeriod(t *testing.T) {
-	for _, cmd := range []string{`echo null`, `echo '{}'`, `true`, `echo '[]'`} {
+	for _, cmd := range []string{`echo null`, `echo '{}'`, `true`} {
 		st := openEmitPoolDB(t)
 		tmpl := poolTemplate(1, cmd)
 		first := emitOnce(t, st, tmpl, "p", time.Now())

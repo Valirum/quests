@@ -25,7 +25,7 @@ func TestPoolRunnerFastCommandReadyInSameCall(t *testing.T) {
 	withInlineWait(t, 2*time.Second)
 	st := openEmitPoolDB(t)
 	r := newPoolRunner()
-	tmpl := poolTemplate(30, `echo '[{"title":"a"}]'`, 1)
+	tmpl := poolTemplate(30, `echo '{"steps":[{"title":"a"}]}'`, 1)
 	items, _, _, err := resolveEmitPoolOpts(context.Background(), st, tmpl, "p", time.Now(), rand.New(rand.NewSource(1)), poolOpts{runner: r})
 	if err != nil {
 		t.Fatal(err)
@@ -43,7 +43,7 @@ func TestPoolRunnerSlowCommandDoesNotBlockAndRunsOnce(t *testing.T) {
 	st := openEmitPoolDB(t)
 	r := newPoolRunner()
 	counter := filepath.Join(t.TempDir(), "runs")
-	cmd := "#!/bin/sh\necho x >> " + counter + "\nsleep 1\necho '[{\"title\":\"slow\"}]'\n"
+	cmd := "#!/bin/sh\necho x >> " + counter + "\nsleep 1\necho '{\"steps\":[{\"title\":\"slow\"}]}'\n"
 	tmpl := poolTemplate(31, cmd, 1)
 	ctx := context.Background()
 	rng := rand.New(rand.NewSource(1))
@@ -102,7 +102,7 @@ func TestPoolRunnerConcurrentCallers(t *testing.T) {
 	for g := 0; g < 4; g++ {
 		go func(g int) {
 			defer func() { done <- struct{}{} }()
-			cmd := `echo '[{"title":"c"}]'`
+			cmd := `echo '{"title":"c"}'`
 			for i := 0; i < 20; i++ {
 				r.exec(context.Background(), st, int64(100+g), "p", cmd)
 				time.Sleep(time.Millisecond)

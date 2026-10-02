@@ -16,13 +16,11 @@ import (
 
 func TestParseEmitOutput(t *testing.T) {
 	cases := map[string]string{ // input -> kind
-		"":                "nothing",
-		"  \n":            "nothing",
-		"null":            "nothing",
-		"{}":              "nothing",
-		"[]":              "nothing",
-		`{"title":"a"}`:   "spec",
-		`[{"title":"a"}]`: "legacy",
+		"":              "nothing",
+		"  \n":          "nothing",
+		"null":          "nothing",
+		"{}":            "nothing",
+		`{"title":"a"}`: "spec",
 	}
 	for in, want := range cases {
 		out, err := parseEmitOutput([]byte(in))
@@ -33,14 +31,12 @@ func TestParseEmitOutput(t *testing.T) {
 		switch {
 		case out.Spec != nil:
 			got = "spec"
-		case out.Legacy != nil:
-			got = "legacy"
 		}
 		if got != want {
 			t.Errorf("%q: got %s, want %s", in, got, want)
 		}
 	}
-	for _, bad := range []string{`"text"`, `42`, `{not json`, `{"title": 5}`, `{"steps": {"a":1}}`, `{"steps":[{"title":"x","progress_total":"many"}]}`} {
+	for _, bad := range []string{`"text"`, `42`, `[]`, `[{"title":"a"}]`, `{not json`, `{"title": 5}`, `{"steps": {"a":1}}`, `{"steps":[{"title":"x","progress_total":"many"}]}`} {
 		if _, err := parseEmitOutput([]byte(bad)); err == nil {
 			t.Errorf("%q: want an error", bad)
 		}
@@ -57,20 +53,6 @@ func TestParseEmitOutputCollectsIgnoredFields(t *testing.T) {
 	want := []string{"ref", "steps[0].owner", "weight"}
 	if !reflect.DeepEqual(out.Spec.Ignored, want) {
 		t.Fatalf("ignored = %v, want %v", out.Spec.Ignored, want)
-	}
-}
-
-func TestLegacySpecKeepsOnlyPositiveItemsAsSteps(t *testing.T) {
-	out, err := parseEmitOutput([]byte(`[{"title":"a","description":"da","quest_description":"qd"},{"title":"b","weight":0},{"title":" "},{"title":"c","weight":2}]`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	spec := legacySpec(out.Legacy)
-	if len(spec.Steps) != 2 || spec.Steps[0].Title != "a" || spec.Steps[1].Title != "c" || spec.Steps[0].Description != "da" {
-		t.Fatalf("steps = %+v", spec.Steps)
-	}
-	if spec.Description == nil || *spec.Description != "qd" {
-		t.Fatalf("description = %v", spec.Description)
 	}
 }
 

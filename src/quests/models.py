@@ -332,7 +332,6 @@ class QuestTemplateBase(SQLModel):
     # description only when the template description is empty.
     emit_pool_command: Optional[str] = Field(default=None, max_length=20000)
     # How many items to draw from the pool per successful roll.
-    emit_pool_pick: int = Field(default=1, ge=1)
     # Optional JSON overrides of the emit-output limits (max_steps, max_title, …).
     emit_limits: Optional[str] = Field(default=None, max_length=1000)
     # JSON attribute weights copied onto instances, e.g. {"str":1,"int":2}.
@@ -422,7 +421,6 @@ class QuestTemplateUpdate(SQLModel):
     emit_window_start: Optional[str] = Field(default=None, max_length=8)
     emit_window_end: Optional[str] = Field(default=None, max_length=8)
     emit_pool_command: Optional[str] = Field(default=None, max_length=20000)
-    emit_pool_pick: Optional[int] = Field(default=None, ge=1)
     steps: Optional[List[QuestTemplateStepCreate]] = None
     reward_attrs: Optional[str] = Field(default=None, max_length=500)
     category_id: Optional[int] = None

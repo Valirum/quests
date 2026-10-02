@@ -51,8 +51,7 @@ type emitSpec struct {
 
 // emitOutput is the parsed stdout of one run.
 type emitOutput struct {
-	Spec    *emitSpec  // set for a quest object
-	Legacy  []poolItem // set for an old-style item array
+	Spec    *emitSpec // set for a quest object
 	Nothing bool
 }
 
@@ -74,21 +73,6 @@ func parseEmitOutput(b []byte) (emitOutput, error) {
 		return emitOutput{Nothing: true}, nil
 	}
 	switch s[0] {
-	case '[':
-		var items []poolItem
-		if err := json.Unmarshal(s, &items); err != nil {
-			return emitOutput{}, fmt.Errorf("invalid JSON on stdout: %w", err)
-		}
-		out := items[:0]
-		for _, it := range items {
-			if strings.TrimSpace(it.Title) != "" && it.effectiveWeight() > 0 {
-				out = append(out, it)
-			}
-		}
-		if len(out) == 0 {
-			return emitOutput{Nothing: true}, nil
-		}
-		return emitOutput{Legacy: out}, nil
 	case '{':
 		var raw map[string]json.RawMessage
 		if err := json.Unmarshal(s, &raw); err != nil {
@@ -190,20 +174,6 @@ func decodeEmitSpec(raw map[string]json.RawMessage) (*emitSpec, error) {
 	}
 	sort.Strings(spec.Ignored)
 	return spec, nil
-}
-
-// legacySpec turns an old-style item array into the one quest it always meant:
-// the items become steps, the first non-empty quest_description the description.
-func legacySpec(items []poolItem) *emitSpec {
-	spec := &emitSpec{}
-	for _, it := range items {
-		spec.Steps = append(spec.Steps, emitStepSpec{Title: it.Title, Description: it.Description})
-		if spec.Description == nil && strings.TrimSpace(it.QuestDescription) != "" {
-			d := it.QuestDescription
-			spec.Description = &d
-		}
-	}
-	return spec
 }
 
 // resolvedSpec is a validated emitSpec: limits enforced, names turned into ids.

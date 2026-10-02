@@ -29,7 +29,7 @@ func TestEmitAttemptsLogFailureThenSuccess(t *testing.T) {
 	if _, _, _, err := resolveEmitPool(ctx, st, fail, "p1", now, rand.New(rand.NewSource(1))); err != nil {
 		t.Fatal(err)
 	}
-	ok := poolTemplate(5, `echo '[{"title":"a","ref":"r1"},{"title":"b","ref":"r2"}]'`, 1)
+	ok := poolTemplate(5, `echo '{"steps":[{"title":"a"},{"title":"b"}]}'`, 1)
 	later := now.Add(emitPoolRetryDelays[0] + time.Second) // past the pause
 	if _, _, _, err := resolveEmitPool(ctx, st, ok, "p1", later, rand.New(rand.NewSource(1))); err != nil {
 		t.Fatal(err)
@@ -50,7 +50,7 @@ func TestEmitAttemptsLogFailureThenSuccess(t *testing.T) {
 
 func TestEmitAttemptsLogEmptyPoolMiss(t *testing.T) {
 	st := openTemplateSecretsDB(t)
-	if _, _, _, err := resolveEmitPool(context.Background(), st, poolTemplate(6, `echo '[]'`, 0), "p", time.Now(), rand.New(rand.NewSource(1))); err != nil {
+	if _, _, _, err := resolveEmitPool(context.Background(), st, poolTemplate(6, `echo null`, 0), "p", time.Now(), rand.New(rand.NewSource(1))); err != nil {
 		t.Fatal(err)
 	}
 	rows := attemptsFor(t, st, 6)
@@ -120,7 +120,7 @@ func TestExecEmitPoolCommandMasksFailureTrace(t *testing.T) {
 func TestEmitAttemptLogIsTrimmed(t *testing.T) {
 	st := openTemplateSecretsDB(t)
 	ctx := context.Background()
-	tmpl := poolTemplate(12, `echo '[]'`, 0)
+	tmpl := poolTemplate(12, `echo null`, 0)
 	for i := 0; i < 205; i++ {
 		// distinct period keys, each a fresh roll
 		_, _, _, _ = resolveEmitPool(ctx, st, tmpl, "p"+time.Duration(i).String(), time.Now(), rand.New(rand.NewSource(1)))
@@ -189,7 +189,7 @@ func TestEmitPoolSuccessClearsRetryAt(t *testing.T) {
 	if _, _, _, err := resolveEmitPool(ctx, st, poolTemplate(21, `exit 1`, 1), "p", now, rng); err != nil {
 		t.Fatal(err)
 	}
-	ok := poolTemplate(21, `echo '[{"title":"a"}]'`, 1)
+	ok := poolTemplate(21, `echo '{"title":"a"}'`, 1)
 	if _, _, _, err := resolveEmitPool(ctx, st, ok, "p", now.Add(emitPoolRetryDelays[0]+time.Second), rng); err != nil {
 		t.Fatal(err)
 	}
@@ -211,7 +211,7 @@ func TestExecEmitPoolCommandTimeoutKillsChildren(t *testing.T) {
 
 	st := openTemplateSecretsDB(t)
 	start := time.Now()
-	_, info, err := execEmitPoolCommand(context.Background(), st, 50, `sleep 30; echo '[{"title":"late"}]'`)
+	_, info, err := execEmitPoolCommand(context.Background(), st, 50, `sleep 30; echo '{"title":"late"}'`)
 	elapsed := time.Since(start)
 	if err == nil || info.Status != "timeout" {
 		t.Fatalf("want timeout, got %v / %+v", err, info)
