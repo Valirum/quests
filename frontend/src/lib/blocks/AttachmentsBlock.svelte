@@ -20,8 +20,11 @@
     onAttachmentLiveInvalidate,
   } from '../js/attachmentCache.js'
 
-  /** @type {{ ownerType: 'quest' | 'questline' | 'note', ownerId: number, onOpenOwner?: (kind: string, id: number) => void }} */
-  let { ownerType, ownerId, onOpenOwner } = $props()
+  /** @type {{ ownerType: 'quest' | 'questline' | 'note', ownerId: number, onOpenOwner?: (kind: string, id: number) => void, label?: string, labelClass?: string }} */
+  let { ownerType, ownerId, onOpenOwner, label = 'Вложения', labelClass = 'block__label' } = $props()
+
+  /** Файлы свёрнуты по умолчанию; строка «Прикрепить файл» видна всегда. */
+  let open = $state(false)
 
   /** @type {any[]} */
   let items = $state([])
@@ -252,6 +255,7 @@
       applyRows(ownerType, ownerId, (await listAttachments(ownerType, ownerId)) || [], {
         probed: true,
       })
+      open = true
     } catch (e) {
       error = e?.message || String(e)
     } finally {
@@ -349,6 +353,20 @@
   {/if}
 
   {#if items.length}
+    <button
+      type="button"
+      class="{labelClass} attach__toggle"
+      onclick={() => (open = !open)}
+      aria-expanded={open}
+    >
+      {label} ({items.length})
+      <Icon name={open ? 'chevron-down' : 'chevron-right'} size={12} />
+    </button>
+  {:else}
+    <span class="{labelClass} attach__toggle attach__toggle--static">{label}</span>
+  {/if}
+
+  {#if items.length && open}
     <ul class="attach__list">
       {#each items as a (a.id)}
         {@const unavailable = a.available === false}
@@ -528,3 +546,38 @@
   onSelect={onAttSelect}
   onClose={() => (ctxOpen = false)}
 />
+
+<style>
+  .attach__toggle {
+    display: flex;
+    width: fit-content;
+    align-items: center;
+    gap: 0.3rem;
+    border: 0;
+    background: transparent;
+    margin: 0;
+    padding: 0;
+    line-height: 1;
+    cursor: pointer;
+    font: inherit;
+    font-family: var(--font-ui, sans-serif);
+    font-size: 0.68rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    font-variant: small-caps;
+    font-weight: 500;
+    color: var(--color-fg-subtle, #6e6e6e);
+  }
+
+  .attach__toggle:hover {
+    color: var(--color-fg-muted, #9a9a9a);
+  }
+
+  .attach__toggle--static {
+    cursor: default;
+  }
+
+  .attach__toggle--static:hover {
+    color: var(--color-fg-subtle, #6e6e6e);
+  }
+</style>

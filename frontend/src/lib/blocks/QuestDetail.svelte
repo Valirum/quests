@@ -145,6 +145,9 @@
     lineIndex >= 0 && lineIndex < lineQuests.length - 1 ? lineQuests[lineIndex + 1] : null,
   )
 
+  /** Блок «Заметки» свёрнут по умолчанию (рисуется, только если есть заметки). */
+  let notesOpen = $state(false)
+
   let linkedNotes = $derived.by(() => {
     if (!selected) return []
     const blob = [
@@ -394,23 +397,32 @@
   </div>
 
   <div class="block">
-    <h3 class="block__label">Вложения</h3>
     <AttachmentsBlock ownerType="quest" ownerId={q.id} onOpenOwner={onRef} />
   </div>
 
   {#if linkedNotes.length}
     <div class="block">
-      <h3 class="block__label">Заметки</h3>
-      <ul class="detail__notes">
-        {#each linkedNotes as n (n.id)}
-          <li>
-            <button type="button" class="detail__note-link" onclick={() => onRef?.('note', n.id)}>
-              {n.title}
-              <span>note={n.id}</span>
-            </button>
-          </li>
-        {/each}
-      </ul>
+      <button
+        type="button"
+        class="block__label detail__fold"
+        onclick={() => (notesOpen = !notesOpen)}
+        aria-expanded={notesOpen}
+      >
+        Заметки ({linkedNotes.length})
+        <Icon name={notesOpen ? 'chevron-down' : 'chevron-right'} size={12} />
+      </button>
+      {#if notesOpen}
+        <ul class="detail__notes">
+          {#each linkedNotes as n (n.id)}
+            <li>
+              <button type="button" class="detail__note-link" onclick={() => onRef?.('note', n.id)}>
+                {n.title}
+                <span>note={n.id}</span>
+              </button>
+            </li>
+          {/each}
+        </ul>
+      {/if}
     </div>
   {/if}
 
@@ -491,8 +503,12 @@
       {/if}
 
       <div class="detail__line-attach">
-        <h3 class="block__label">Вложения квестлайна</h3>
-        <AttachmentsBlock ownerType="questline" ownerId={selected.questline_id} onOpenOwner={onRef} />
+        <AttachmentsBlock
+          ownerType="questline"
+          ownerId={selected.questline_id}
+          onOpenOwner={onRef}
+          label="Вложения квестлайна"
+        />
       </div>
 
       {#if lineQuests.length > 1}

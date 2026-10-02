@@ -1529,7 +1529,6 @@
       {/if}
       {#if selectedId}
         <div class="block notes__attach">
-          <h3 class="block__label">Вложения</h3>
           <AttachmentsBlock ownerType="note" ownerId={selectedId} onOpenOwner={onRef} />
         </div>
       {/if}

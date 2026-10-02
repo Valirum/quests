@@ -2253,6 +2253,23 @@
     color: var(--color-fg-subtle, #6e6e6e);
   }
 
+  .detail__fold {
+    display: flex;
+    width: fit-content;
+    align-items: center;
+    gap: 0.3rem;
+    border: 0;
+    background: transparent;
+    margin: 0;
+    padding: 0;
+    line-height: 1;
+    cursor: pointer;
+  }
+
+  .detail__fold:hover {
+    color: var(--color-fg-muted, #9a9a9a);
+  }
+
   .block--prose {
     margin-bottom: var(--space-6, 2rem);
   }

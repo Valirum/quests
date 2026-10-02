@@ -179,8 +179,7 @@
 
     {#if mode === 'edit' && line?.id}
       <div class="field">
-        <span class="label">Вложения</span>
-        <AttachmentsBlock ownerType="questline" ownerId={line.id} />
+        <AttachmentsBlock ownerType="questline" ownerId={line.id} labelClass="label" />
       </div>
     {/if}
 
