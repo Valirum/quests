@@ -28,6 +28,8 @@
   import { OPEN_STATUSES } from './lib/js/questFormat.js'
   import { groupQuestsByCategory } from './lib/js/questGroups.js'
   import { copyText } from './lib/js/clipboard.js'
+  import { installHotkeys, registerHotkeys } from './lib/js/hotkeys.js'
+  import { foldRow, moveRow } from './lib/js/listNav.js'
     import { statusToastLabel, toast, toastDone, toastProgress } from './lib/js/toasts.svelte.js'
   import { localTimeZone } from './lib/js/time.js'
   import { downloadQuestMarkdown, downloadQuestPdf } from './lib/js/questExport.js'
@@ -162,6 +164,8 @@
   let templatesFocusId = $state(/** @type {number | null} */ (null))
   let tagsOpen = $state(false)
   let settingsOpen = $state(false)
+  /** Section the settings modal scrolls to when opened (e.g. 'hotkeys'). */
+  let settingsSection = $state(/** @type {string | null} */ (null))
   let assistantOpen = $state(false)
   let lineModalOpen = $state(false)
   let lineModalMode = $state(/** @type {'create' | 'edit'} */ ('create'))
@@ -475,7 +479,9 @@
     tagsOpen = true
   }
 
-  function openSettings() {
+  /** @param {{ section?: string } | Event | null} [opts] */
+  function openSettings(opts = null) {
+    settingsSection = opts && !(opts instanceof Event) ? (opts.section ?? null) : null
     settingsOpen = true
   }
 
@@ -1326,33 +1332,210 @@
     }
   })
 
-  // Esc in journal (no modal): clear selection → empty detail prompt.
+  // Keyboard cursor on the steps of the open quest. Invisible until a step key
+  // is used (kbStepId stays null for mouse users); then it follows [ ] and +/-.
+  let kbStepId = $state(/** @type {number | null} */ (null))
   $effect(() => {
-    const onKey = (event) => {
-      if (event.key !== 'Escape') return
-      if (view !== 'journal') return
-      if (modalOpen || lineModalOpen || templatesOpen || secretsOpen || tagsOpen || settingsOpen) return
-      if (deleteConfirmOpen || stepDeleteOpen || lineDeleteConfirmOpen || ctxOpen) return
-      if (view === 'notes') {
-        if (selectedNoteId == null) return
-        event.preventDefault()
-        selectNoteFromUi(null)
-        return
-      }
-      if (selectedId == null) return
-      const t = event.target
-      if (
-        t instanceof HTMLElement &&
-        (t.closest('input, textarea, select, [contenteditable="true"]') ||
-          t.isContentEditable)
-      ) {
-        return
-      }
-      event.preventDefault()
-      clearSelectedQuest()
+    selectedId
+    kbStepId = null
+  })
+
+  function kbCursor() {
+    const steps = selected?.steps ?? []
+    if (!steps.length) return null
+    return steps.find((s) => s.id === kbStepId) ?? steps.find((s) => !s.done) ?? steps[steps.length - 1]
+  }
+
+  function kbMoveStep(delta) {
+    const steps = selected?.steps ?? []
+    const cur = kbCursor()
+    if (!cur) return
+    if (kbStepId == null) {
+      kbStepId = cur.id // first press only reveals the cursor
+      return
     }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+    const i = steps.findIndex((s) => s.id === cur.id)
+    kbStepId = steps[Math.min(steps.length - 1, Math.max(0, i + delta))].id
+  }
+
+  function kbBumpStep(delta) {
+    const cur = kbCursor()
+    if (!cur || !selected) return false
+    kbStepId = cur.id
+    void bumpStep(cur, delta, selected.id)
+  }
+
+  function kbToggleStep() {
+    const cur = kbCursor()
+    if (!cur || !selected) return false
+    kbStepId = cur.id
+    const total = Math.max(0, Number(cur.progress_total) || 0)
+    const done = cur.progress_current >= total
+    void setStepProgress(cur, done ? Math.max(0, total - 1) : total, selected.id)
+  }
+
+  // Keyboard control (design: note=76). The dispatcher itself stays silent in
+  // text fields, modals and context menus, so these only run on the bare page.
+  $effect(() => {
+    const unregister = registerHotkeys([
+      {
+        id: 'tabs',
+        group: 'Вкладки',
+        label: 'Журнал, оглавление, заметки, вложения, календарь, герой, статистика',
+        keys: '1–7',
+        codes: TAB_ORDER.flatMap((_, i) => [`Digit${i + 1}`, `Numpad${i + 1}`]),
+        run: (event) => {
+          const i = Number(event.code.slice(-1)) - 1
+          if (TAB_ORDER[i] === view) return false
+          setView(TAB_ORDER[i])
+        },
+      },
+      {
+        id: 'open-quest',
+        group: 'Окна',
+        label: 'Новый квест',
+        keys: 'N',
+        codes: ['KeyN'],
+        run: () => openCreate(),
+      },
+      {
+        id: 'open-questline',
+        group: 'Окна',
+        label: 'Новый квестлайн',
+        keys: 'L',
+        codes: ['KeyL'],
+        run: () => openCreateQuestline(),
+      },
+      {
+        id: 'open-templates',
+        group: 'Окна',
+        label: 'Шаблоны',
+        keys: 'T',
+        codes: ['KeyT'],
+        run: () => openTemplates(),
+      },
+      {
+        id: 'open-assistant',
+        group: 'Окна',
+        label: 'Ассистент',
+        keys: 'A',
+        codes: ['KeyA'],
+        run: () => (assistantOpen = true),
+      },
+      {
+        id: 'open-settings',
+        group: 'Окна',
+        label: 'Настройки',
+        keys: ',',
+        codes: ['Comma'],
+        run: () => openSettings(),
+      },
+      {
+        id: 'open-help',
+        group: 'Окна',
+        label: 'Справка по клавишам',
+        keys: '?',
+        codes: ['Slash'],
+        shift: true,
+        run: () => openSettings({ section: 'hotkeys' }),
+      },
+      {
+        id: 'list-down',
+        group: 'Список',
+        label: 'Следующая строка (квест, группа, заметка)',
+        keys: '↓  J',
+        codes: ['ArrowDown', 'KeyJ'],
+        when: () => ['journal', 'notes'].includes(view),
+        run: () => moveRow(1),
+      },
+      {
+        id: 'list-up',
+        group: 'Список',
+        label: 'Предыдущая строка',
+        keys: '↑  K',
+        codes: ['ArrowUp', 'KeyK'],
+        when: () => ['journal', 'notes'].includes(view),
+        run: () => moveRow(-1),
+      },
+      {
+        id: 'list-expand',
+        group: 'Список',
+        label: 'Развернуть группу',
+        keys: '→',
+        codes: ['ArrowRight'],
+        when: () => ['journal', 'notes'].includes(view),
+        run: () => foldRow(true),
+      },
+      {
+        id: 'list-collapse',
+        group: 'Список',
+        label: 'Свернуть группу',
+        keys: '←',
+        codes: ['ArrowLeft'],
+        when: () => ['journal', 'notes'].includes(view),
+        run: () => foldRow(false),
+      },
+      {
+        id: 'step-prev',
+        group: 'Шаги открытого квеста',
+        label: 'Предыдущий шаг',
+        keys: '[',
+        codes: ['BracketLeft'],
+        when: () => view === 'journal' && !!selected?.steps?.length,
+        run: () => kbMoveStep(-1),
+      },
+      {
+        id: 'step-next',
+        group: 'Шаги открытого квеста',
+        label: 'Следующий шаг',
+        keys: ']',
+        codes: ['BracketRight'],
+        when: () => view === 'journal' && !!selected?.steps?.length,
+        run: () => kbMoveStep(1),
+      },
+      {
+        id: 'step-plus',
+        group: 'Шаги открытого квеста',
+        label: 'Прогресс шага +1',
+        keys: '+',
+        codes: ['Equal', 'NumpadAdd'],
+        shift: 'any',
+        when: () => view === 'journal' && !!selected?.steps?.length,
+        run: () => kbBumpStep(1),
+      },
+      {
+        id: 'step-minus',
+        group: 'Шаги открытого квеста',
+        label: 'Прогресс шага −1',
+        keys: '−',
+        codes: ['Minus', 'NumpadSubtract'],
+        when: () => view === 'journal' && !!selected?.steps?.length,
+        run: () => kbBumpStep(-1),
+      },
+      {
+        id: 'step-toggle',
+        group: 'Шаги открытого квеста',
+        label: 'Завершить шаг (повторно — вернуть на единицу назад)',
+        keys: 'Пробел',
+        codes: ['Space'],
+        when: () => view === 'journal' && !!selected?.steps?.length,
+        run: () => kbToggleStep(),
+      },
+      {
+        id: 'clear-selection',
+        group: 'Список',
+        label: 'Снять выбор квеста',
+        keys: 'Esc',
+        codes: ['Escape'],
+        when: () => view === 'journal' && selectedId != null,
+        run: () => clearSelectedQuest(),
+      },
+    ])
+    const detach = installHotkeys()
+    return () => {
+      detach()
+      unregister()
+    }
   })
 </script>
 
@@ -1489,6 +1672,7 @@
       />
       <QuestDetail
         {selected}
+        {kbStepId}
         {quests}
         {showAllQuests}
         {nowMs}
@@ -1606,6 +1790,7 @@
   {health}
   {liveStatus}
   {username}
+  section={settingsSection}
   onLogout={authRequired ? doLogout : null}
 />
 

@@ -90,7 +90,7 @@
   }
 </script>
 
-<aside class="sidebar">
+<aside class="sidebar" data-nav-root>
   <div class="sidebar__tools">
     <input
       class="search"
@@ -135,6 +135,7 @@
     {@const frac = quantifiedProgress(q)}
     <button
       type="button"
+      data-nav
       class="quest-row"
       class:quest-row--active={q.id === selectedId}
       class:quest-row--pinned={q.pinned}
@@ -195,6 +196,7 @@
     <div class="sidebar__frozen">
       <button
         type="button"
+        data-nav
         class="sidebar__frozen-toggle"
         aria-expanded={frozenOpen}
         onclick={onToggleFrozen}
@@ -234,6 +236,7 @@
             <div class="quest-line" style="--line-color: {line.color || '#9a9a9a'}">
               <button
                 type="button"
+                data-nav
                 class="quest-line__toggle"
                 aria-expanded={isLineOpen(g.key, line.key)}
                 onclick={() => onToggleLine(g.key, line.key)}
@@ -285,6 +288,7 @@
         >
           <button
             type="button"
+            data-nav
             class="quest-subgroup__toggle"
             aria-expanded={isCategoryOpen(g.key)}
             onclick={() => onToggleCategory(g.key)}

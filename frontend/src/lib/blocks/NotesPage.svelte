@@ -1043,6 +1043,7 @@
     </div>
     <div
       class="notes__list"
+      data-nav-root
       class:notes__list--dragover={dragOverKey === 'root'}
       ondragover={onListDragOver}
       ondragleave={onListDragLeave}
@@ -1055,7 +1056,7 @@
       {:else}
         {#snippet tree(nodes, depth)}
           {#each nodes as n (n.id)}
-            <div class="notes__node" style:--notes-depth="{depth}">
+            <div class="notes__node" data-nav-node style:--notes-depth="{depth}">
               {#if hasChildren(n.id)}
                 <button
                   type="button"
@@ -1074,6 +1075,7 @@
               {/if}
               <button
                 type="button"
+                data-nav
                 class="notes__row"
                 class:notes__row--on={n.id === selectedId}
                 class:notes__row--pin={n.pinned}

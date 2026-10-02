@@ -3,8 +3,9 @@
   import Icon from '../ui/Icon.svelte'
   import ModalShell from './ModalShell.svelte'
   import ModalHead from './ModalHead.svelte'
+  import { hotkeyGroups } from '../js/hotkeys.js'
 
-  /** @type {{ open?: boolean, onClose: () => void, health?: { api: string, overlay: string, telegram: string, webdav?: string, detail?: any }, liveStatus?: string, username?: string, onLogout?: (() => void) | null }} */
+  /** @type {{ open?: boolean, onClose: () => void, health?: { api: string, overlay: string, telegram: string, webdav?: string, detail?: any }, liveStatus?: string, username?: string, onLogout?: (() => void) | null, section?: string | null }} */
   let {
     open = false,
     onClose,
@@ -12,12 +13,22 @@
     liveStatus = 'off',
     username = '',
     onLogout = null,
+    section = null,
   } = $props()
 
   let themeId = $state(currentThemeId())
 
+  /** Registered keyboard actions, read when the modal opens (the registry is not reactive). */
+  let hotkeys = $state(/** @type {{ title: string, items: { keys: string, label: string }[] }[]} */ ([]))
+  let hotkeysEl = $state(/** @type {HTMLElement | null} */ (null))
+
   $effect(() => {
-    if (open) themeId = currentThemeId()
+    if (!open) return
+    themeId = currentThemeId()
+    hotkeys = hotkeyGroups()
+    if (section === 'hotkeys') {
+      queueMicrotask(() => hotkeysEl?.scrollIntoView({ block: 'start' }))
+    }
   })
 
   function selectTheme(id) {
@@ -146,6 +157,25 @@
           </ul>
         </section>
 
+        <section class="block" bind:this={hotkeysEl}>
+          <h3 class="block__title">Клавиши</h3>
+          <p class="block__hint">
+            Работают, пока курсор не в поле ввода и не открыто окно. Esc в поле возвращает управление странице.
+            На телефоне не действуют.
+          </p>
+          {#each hotkeys as g (g.title)}
+            <h4 class="keys__group">{g.title}</h4>
+            <ul class="keys">
+              {#each g.items as it (it.label)}
+                <li class="keys__row">
+                  <kbd class="keys__kbd">{it.keys}</kbd>
+                  <span class="keys__label">{it.label}</span>
+                </li>
+              {/each}
+            </ul>
+          {/each}
+        </section>
+
         {#if onLogout}
           <section class="block">
             <h3 class="block__title">Аккаунт</h3>
@@ -161,6 +191,43 @@
 </ModalShell>
 
 <style>
+  .keys__group {
+    margin: var(--space-3, 0.75rem) 0 var(--space-1, 0.25rem);
+    font-size: var(--text-xs, 0.8rem);
+    color: var(--color-fg-muted, #9a9a9a);
+  }
+
+  .keys {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 4px;
+  }
+
+  .keys__row {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+  }
+
+  .keys__kbd {
+    flex: none;
+    min-width: 3.4rem;
+    text-align: center;
+    padding: 1px 6px;
+    border: 1px solid var(--color-border, #444);
+    border-radius: 4px;
+    font-family: var(--font-ui);
+    font-size: 0.8rem;
+    color: var(--color-fg);
+  }
+
+  .keys__label {
+    font-size: 0.85rem;
+    color: var(--color-fg);
+  }
+
   .account {
     display: flex;
     align-items: center;

@@ -32,6 +32,7 @@
    *   onToggleCompleted: (quest?: any) => void,
    *   onOpenEdit: (quest?: any) => void,
    *   onRequestDelete: (quest?: any) => void,
+   *   kbStepId?: number | null,   // step the keyboard cursor is on (highlight only)
    *   onBumpStep: (step: any, delta: number, questId?: number | null) => void,
    *   onBeginEditStep: (step: any, questId?: number | null) => void,
    *   onStepEditKeydown: (event: KeyboardEvent, step: any) => void,
@@ -60,6 +61,7 @@
     onToggleCompleted,
     onOpenEdit,
     onRequestDelete,
+    kbStepId = null,
     onBumpStep,
     onBeginEditStep,
     onStepEditKeydown,
@@ -281,6 +283,7 @@
           class="step"
           class:step--done={step.done}
           class:step--current={pipe && step.id === currentId}
+          class:step--kb={step.id === kbStepId}
           class:step--current-run={pipe && step.id === currentId && step.run_status === 'running'}
           oncontextmenu={(e) => onStepContextMenu?.(e, step)}
         >
