@@ -205,10 +205,10 @@ export function getStats(params = {}) {
 }
 
 /** Free text → LLM action batch → dry-run preview (no writes). */
-export function previewActionBatch(text) {
+export function previewActionBatch(text, { noClarify = false } = {}) {
   return request('/api/llm/actions/preview', {
     method: 'POST',
-    body: JSON.stringify({ text }),
+    body: JSON.stringify({ text, no_clarify: noClarify }),
   })
 }
 

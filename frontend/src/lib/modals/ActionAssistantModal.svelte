@@ -50,13 +50,19 @@
     phase = 'loading'
     errorMsg = ''
     try {
-      const res = await previewActionBatch(t)
+      // one clarifying question per request: after it the model must commit
+      const res = await previewActionBatch(t, { noClarify: !!clarifyQuestion })
       if (res?.needs_clarification) {
         clarifyQuestion = res.clarify_question || 'Уточни, пожалуйста, запрос.'
         phase = 'input'
         return
       }
       clarifyQuestion = ''
+      if (!res.batch?.actions?.length) {
+        errorMsg = 'Модель не предложила действий. Переформулируй запрос.'
+        phase = 'input'
+        return
+      }
       batch = res.batch
       preview = res.preview || []
       phase = 'preview'
