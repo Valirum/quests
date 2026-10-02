@@ -408,7 +408,12 @@ def _step_body(s: dict[str, Any]) -> dict[str, Any]:
         "note=N tokens it cites) and backlinks (other quests/notes that cite "
         "it) and children (nested notes). This is the only tool that resolves "
         "note refs/backlinks — quests/steps/questlines don't need it, use "
-        "get_base_context or get_active_context/get_inactive_context for those."
+        "get_base_context or get_active_context/get_inactive_context for those. "
+        "A note the user marked PRIVATE (is_private=true) comes back with "
+        "description replaced by a placeholder — that's deliberate (see "
+        "note=82), not an error; don't retry, and don't fetch it another way "
+        "(e.g. curl) to work around it — if the content is actually needed, "
+        "ask the user to paste it or read it themselves."
     )
 )
 def get_note_context(note_id: int) -> dict[str, Any]:
@@ -1283,7 +1288,10 @@ def dry_run_emit_pool(
     description=(
         "List knowledge notes (markdown pages, not quests). Optional parent_id "
         "filters children of one note; omit for the whole vault. "
-        "Link from quests with note=N in the description."
+        "Link from quests with note=N in the description. Each row carries "
+        "is_readme/is_private/is_category. A PRIVATE note's description is "
+        "replaced by a placeholder in this list too — same rule as "
+        "get_note_context, don't work around it."
     )
 )
 def list_notes(parent_id: int | None = None) -> list[dict[str, Any]]:
@@ -1306,6 +1314,9 @@ def create_note(
     description: str | None = None,
     parent_id: int | None = None,
     pinned: bool | None = None,
+    is_readme: bool | None = None,
+    is_private: bool | None = None,
+    is_category: bool | None = None,
     sort_order: int | None = None,
 ) -> dict[str, Any]:
     body: dict[str, Any] = {"title": title}
@@ -1315,6 +1326,12 @@ def create_note(
         body["parent_id"] = int(parent_id)
     if pinned is not None:
         body["pinned"] = bool(pinned)
+    if is_readme is not None:
+        body["is_readme"] = bool(is_readme)
+    if is_private is not None:
+        body["is_private"] = bool(is_private)
+    if is_category is not None:
+        body["is_category"] = bool(is_category)
     if sort_order is not None:
         body["sort_order"] = int(sort_order)
     return _api("POST", "/api/notes", body=body)
@@ -1330,7 +1347,9 @@ def create_note(
         "replace_find + replace_with: first match unless replace_all=true. "
         "Missing anchor/find → API 422, not a silent full rewrite. "
         "Do not mix description with insert/replace in one call. "
-        "parent_id=null (via clear_parent) detaches to the vault root."
+        "parent_id=null (via clear_parent) detaches to the vault root. "
+        "pinned/is_readme/is_private/is_category are independent flags, not "
+        "mutually exclusive (see note=82 for what each means)."
     )
 )
 def update_note(
@@ -1347,6 +1366,9 @@ def update_note(
     parent_id: int | None = None,
     clear_parent: bool = False,
     pinned: bool | None = None,
+    is_readme: bool | None = None,
+    is_private: bool | None = None,
+    is_category: bool | None = None,
     sort_order: int | None = None,
 ) -> dict[str, Any]:
     body: dict[str, Any] = {}
@@ -1401,6 +1423,12 @@ def update_note(
         body["parent_id"] = int(parent_id)
     if pinned is not None:
         body["pinned"] = bool(pinned)
+    if is_readme is not None:
+        body["is_readme"] = bool(is_readme)
+    if is_private is not None:
+        body["is_private"] = bool(is_private)
+    if is_category is not None:
+        body["is_category"] = bool(is_category)
     if sort_order is not None:
         body["sort_order"] = int(sort_order)
     if not body:

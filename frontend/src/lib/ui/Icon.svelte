@@ -1,5 +1,6 @@
 <script>
   import add from '../../assets/icons/add.svg?raw'
+  import alert from '../../assets/icons/alert.svg?raw'
   import arrowUp from '../../assets/icons/arrow-up.svg?raw'
   import attachment from '../../assets/icons/attachment.svg?raw'
   import calendar from '../../assets/icons/calendar.svg?raw'
@@ -16,7 +17,9 @@
   import fileDownload from '../../assets/icons/file-download.svg?raw'
   import filter from '../../assets/icons/filter.svg?raw'
   import flag from '../../assets/icons/flag.svg?raw'
+  import folder from '../../assets/icons/folder.svg?raw'
   import key from '../../assets/icons/key.svg?raw'
+  import lock from '../../assets/icons/lock.svg?raw'
   import layers from '../../assets/icons/layers.svg?raw'
   import list from '../../assets/icons/list.svg?raw'
   import map from '../../assets/icons/map.svg?raw'
@@ -36,6 +39,7 @@
 
   const ICONS = {
     add,
+    alert,
     'arrow-up': arrowUp,
     attachment,
     calendar,
@@ -52,7 +56,9 @@
     'file-download': fileDownload,
     filter,
     flag,
+    folder,
     key,
+    lock,
     layers,
     list,
     map,

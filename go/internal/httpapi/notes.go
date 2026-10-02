@@ -47,9 +47,25 @@ func (s *Server) listNotes(w http.ResponseWriter, r *http.Request) {
 	}
 	out := make([]store.NoteRead, 0, len(rows))
 	for _, n := range rows {
-		out = append(out, store.NoteToRead(n))
+		read := store.NoteToRead(n)
+		redactPrivateNote(r, n, read)
+		out = append(out, read)
 	}
 	writeJSON(w, 200, out)
+}
+
+// redactPrivateNote replaces description in-place with a placeholder when the
+// note is marked private and this request came in via MCP (X-Quests-Source:
+// mcp) — see note=82. Every other source (web, cli, telegram, api, ...) keeps
+// seeing the real content; only the agent's default tool path is blocked.
+func redactPrivateNote(r *http.Request, n store.Note, out store.NoteRead) {
+	if !n.IsPrivate {
+		return
+	}
+	if src := requestSource(r); src == nil || *src != "mcp" {
+		return
+	}
+	out["description"] = "[приватная заметка — содержимое скрыто от MCP; попросите пользователя прочитать её самостоятельно, если это правда нужно]"
 }
 
 func (s *Server) getNote(w http.ResponseWriter, r *http.Request) {
@@ -63,7 +79,7 @@ func (s *Server) getNote(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, s.notePayload(r, n))
+	writeJSON(w, 200, s.notePayloadFiltered(r, n))
 }
 
 func (s *Server) createNote(w http.ResponseWriter, r *http.Request) {
@@ -80,6 +96,9 @@ func (s *Server) createNote(w http.ResponseWriter, r *http.Request) {
 	}
 	desc, _ := body["description"].(string)
 	pinned, _ := body["pinned"].(bool)
+	isReadme, _ := body["is_readme"].(bool)
+	isPrivate, _ := body["is_private"].(bool)
+	isCategory, _ := body["is_category"].(bool)
 	sortOrder := 0
 	if v, ok := body["sort_order"].(float64); ok {
 		sortOrder = int(v)
@@ -88,6 +107,9 @@ func (s *Server) createNote(w http.ResponseWriter, r *http.Request) {
 		Title:       title,
 		Description: desc,
 		Pinned:      pinned,
+		IsReadme:    isReadme,
+		IsPrivate:   isPrivate,
+		IsCategory:  isCategory,
 		SortOrder:   sortOrder,
 		CreatedAt:   timeutil.NowUTC(),
 		UpdatedAt:   timeutil.NowUTC(),
@@ -126,7 +148,7 @@ func (s *Server) createNote(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	s.publishNote("note_created", created)
-	writeJSON(w, 201, s.notePayload(r, created))
+	writeJSON(w, 201, s.notePayloadFiltered(r, created))
 }
 
 func (s *Server) patchNote(w http.ResponseWriter, r *http.Request) {
@@ -238,7 +260,7 @@ func (s *Server) patchNote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.publishNote("note_updated", updated)
-	writeJSON(w, 200, s.notePayload(r, updated))
+	writeJSON(w, 200, s.notePayloadFiltered(r, updated))
 }
 
 func (s *Server) deleteNote(w http.ResponseWriter, r *http.Request) {
@@ -350,7 +372,7 @@ func (s *Server) postNoteIcon(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.publishNote("note_updated", updated)
-	writeJSON(w, 200, s.notePayload(r, updated))
+	writeJSON(w, 200, s.notePayloadFiltered(r, updated))
 }
 
 func (s *Server) deleteNoteIcon(w http.ResponseWriter, r *http.Request) {
@@ -365,7 +387,15 @@ func (s *Server) deleteNoteIcon(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.publishNote("note_updated", updated)
-	writeJSON(w, 200, s.notePayload(r, updated))
+	writeJSON(w, 200, s.notePayloadFiltered(r, updated))
+}
+
+// notePayloadFiltered is notePayload with private-note redaction applied —
+// use this everywhere a note goes back in a response, not the bare notePayload.
+func (s *Server) notePayloadFiltered(r *http.Request, n store.Note) map[string]any {
+	out := s.notePayload(r, n)
+	redactPrivateNote(r, n, store.NoteRead(out))
+	return out
 }
 
 func (s *Server) notePayload(r *http.Request, n store.Note) map[string]any {

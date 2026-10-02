@@ -179,3 +179,91 @@ func TestNoteDescriptionInsertAndReplace(t *testing.T) {
 		t.Fatalf("mix full+insert want 422 got %d", code)
 	}
 }
+
+// A private note hides its description from MCP (X-Quests-Source: mcp), but
+// every other source still sees it — see note=82 for the design.
+func TestPrivateNoteHidesDescriptionOnlyFromMCP(t *testing.T) {
+	s := newAttachmentServer(t, "", "", 0)
+	h := s.Handler()
+
+	post := func(path, source string, body map[string]any) map[string]any {
+		t.Helper()
+		raw, _ := json.Marshal(body)
+		r := httptest.NewRequest(http.MethodPost, path, bytes.NewReader(raw))
+		r.Header.Set("Content-Type", "application/json")
+		if source != "" {
+			r.Header.Set("X-Quests-Source", source)
+		}
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		if w.Code != http.StatusCreated {
+			t.Fatalf("create %d %s", w.Code, w.Body.String())
+		}
+		var out map[string]any
+		if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil {
+			t.Fatal(err)
+		}
+		return out
+	}
+	get := func(path, source string) map[string]any {
+		t.Helper()
+		r := httptest.NewRequest(http.MethodGet, path, nil)
+		if source != "" {
+			r.Header.Set("X-Quests-Source", source)
+		}
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		if w.Code != http.StatusOK {
+			t.Fatalf("get %d %s", w.Code, w.Body.String())
+		}
+		var out map[string]any
+		if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil {
+			t.Fatal(err)
+		}
+		return out
+	}
+
+	n := post("/api/notes", "web", map[string]any{
+		"title": "Пароль", "description": "sk-super-secret", "is_private": true,
+	})
+	id := int64(n["id"].(float64))
+	if n["description"] != "sk-super-secret" {
+		t.Fatalf("own create response (web) must see real content, got %v", n["description"])
+	}
+
+	viaMCP := get(fmt.Sprintf("/api/notes/%d", id), "mcp")
+	if d, _ := viaMCP["description"].(string); d == "sk-super-secret" || d == "" {
+		t.Fatalf("mcp get must not see the real description, got %q", d)
+	}
+	if viaMCP["title"] != "Пароль" {
+		t.Fatalf("mcp get must still see the title, got %v", viaMCP["title"])
+	}
+
+	viaWeb := get(fmt.Sprintf("/api/notes/%d", id), "web")
+	if viaWeb["description"] != "sk-super-secret" {
+		t.Fatalf("web get must see the real description, got %v", viaWeb["description"])
+	}
+
+	list := []map[string]any{}
+	r := httptest.NewRequest(http.MethodGet, "/api/notes", nil)
+	r.Header.Set("X-Quests-Source", "mcp")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	if err := json.Unmarshal(w.Body.Bytes(), &list); err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range list {
+		if int64(row["id"].(float64)) == id {
+			if row["description"] == "sk-super-secret" {
+				t.Fatal("list_notes via mcp must not leak the private description")
+			}
+		}
+	}
+
+	// A non-private note is unaffected.
+	open := post("/api/notes", "web", map[string]any{"title": "Обычная", "description": "видно всем"})
+	openID := int64(open["id"].(float64))
+	if g := get(fmt.Sprintf("/api/notes/%d", openID), "mcp"); g["description"] != "видно всем" {
+		t.Fatalf("non-private note must be visible via mcp too, got %v", g["description"])
+	}
+}

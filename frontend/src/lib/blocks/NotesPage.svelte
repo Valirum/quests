@@ -62,12 +62,25 @@
   let description = $state('')
   let parentId = $state('')
   let pinned = $state(false)
+  let isReadme = $state(false)
+  let isPrivate = $state(false)
+  let isCategory = $state(false)
+  /** Private note: description stays collapsed until explicitly revealed. */
+  let privateRevealed = $state(false)
   let saving = $state(false)
   let deleting = $state(false)
   let deleteOpen = $state(false)
   let deleteTargetId = $state(/** @type {number | null} */ (null))
   let error = $state('')
-  let saved = $state({ title: '', description: '', parentId: '', pinned: false })
+  let saved = $state({
+    title: '',
+    description: '',
+    parentId: '',
+    pinned: false,
+    isReadme: false,
+    isPrivate: false,
+    isCategory: false,
+  })
   /** @type {'raw' | 'combined' | 'formatted'} */
   let viewMode = $state(loadViewMode())
   let ctxOpen = $state(false)
@@ -99,7 +112,10 @@
     title !== saved.title ||
       description !== saved.description ||
       parentId !== saved.parentId ||
-      pinned !== saved.pinned,
+      pinned !== saved.pinned ||
+      isReadme !== saved.isReadme ||
+      isPrivate !== saved.isPrivate ||
+      isCategory !== saved.isCategory,
   )
 
   let filtered = $derived.by(() => {
@@ -218,6 +234,9 @@
       description: row.description || '',
       parentId: row.parent_id != null ? String(row.parent_id) : '',
       pinned: !!row.pinned,
+      isReadme: !!row.is_readme,
+      isPrivate: !!row.is_private,
+      isCategory: !!row.is_category,
     }
   }
 
@@ -226,10 +245,14 @@
     description = src.description
     parentId = src.parentId
     pinned = src.pinned
+    isReadme = src.isReadme
+    isPrivate = src.isPrivate
+    isCategory = src.isCategory
+    privateRevealed = false
   }
 
   function formDraft() {
-    return { title, description, parentId, pinned }
+    return { title, description, parentId, pinned, isReadme, isPrivate, isCategory }
   }
 
   function draftsEqual(a, b) {
@@ -237,7 +260,10 @@
       a.title === b.title &&
       a.description === b.description &&
       a.parentId === b.parentId &&
-      a.pinned === b.pinned
+      a.pinned === b.pinned &&
+      a.isReadme === b.isReadme &&
+      a.isPrivate === b.isPrivate &&
+      a.isCategory === b.isCategory
     )
   }
 
@@ -327,7 +353,15 @@
     })
     if (id == null) {
       detail = null
-      const empty = { title: '', description: '', parentId: '', pinned: false }
+      const empty = {
+        title: '',
+        description: '',
+        parentId: '',
+        pinned: false,
+        isReadme: false,
+        isPrivate: false,
+        isCategory: false,
+      }
       applyForm(empty)
       saved = empty
       loadedId = null
@@ -359,7 +393,7 @@
     const id = selectedId
     const loaded = loadedId
     if (id == null || loaded !== id) return
-    const form = { title, description, parentId, pinned }
+    const form = { title, description, parentId, pinned, isReadme, isPrivate, isCategory }
     untrack(() => {
       if (draftsEqual(form, saved)) clearNoteDraft(id)
       else putNoteDraft(id, form)
@@ -381,6 +415,9 @@
         title: t,
         description,
         pinned,
+        is_readme: isReadme,
+        is_private: isPrivate,
+        is_category: isCategory,
         parent_id: parentId === '' ? null : Number(parentId),
       })
       detail = savedRow
@@ -780,6 +817,9 @@
       { id: 'sep-copy', sep: true },
       { id: 'rename', label: 'Переименовать' },
       { id: 'pin', label: ctxNote?.pinned ? 'Открепить' : 'Закрепить' },
+      { id: 'readme', label: ctxNote?.is_readme ? 'Снять README' : 'Пометить README' },
+      { id: 'private', label: ctxNote?.is_private ? 'Снять PRIVATE' : 'Пометить PRIVATE' },
+      { id: 'category', label: ctxNote?.is_category ? 'Снять CATEGORY' : 'Пометить CATEGORY' },
       { id: 'add-child', label: 'Добавить дочернюю' },
       { id: 'move', label: 'Переместить', children: moveTargets(ctxNote) },
       {
@@ -863,8 +903,42 @@
       onChanged()
     } catch (e) {
       error = e.message || String(e)
-      toast(error, { kind: 'error' })
     }
+  }
+
+  /** Shared body for the three status toggles below — same immediate-save
+   * shape as togglePinNote, just parameterised over which field flips. */
+  async function toggleNoteFlag(id, apiField, stateVar, setState) {
+    const n = noteById(id)
+    if (!n) return
+    const current = apiField === 'is_readme' ? n.is_readme : apiField === 'is_private' ? n.is_private : n.is_category
+    const next = !current
+    error = ''
+    try {
+      const savedRow = await updateNote(id, { [apiField]: next })
+      if (id === selectedId) {
+        saved = { ...saved, [stateVar]: next }
+        setState(next)
+        detail = savedRow
+        const draft = getNoteDraft(id)
+        if (draft) putNoteDraft(id, { ...draft, [stateVar]: next })
+      }
+      onChanged()
+    } catch (e) {
+      error = e.message || String(e)
+    }
+  }
+
+  function toggleReadmeNote(id) {
+    return toggleNoteFlag(id, 'is_readme', 'isReadme', (v) => (isReadme = v))
+  }
+
+  function togglePrivateNote(id) {
+    return toggleNoteFlag(id, 'is_private', 'isPrivate', (v) => (isPrivate = v))
+  }
+
+  function toggleCategoryNote(id) {
+    return toggleNoteFlag(id, 'is_category', 'isCategory', (v) => (isCategory = v))
   }
 
   async function moveNoteUp(id) {
@@ -979,6 +1053,18 @@
     }
     if (action === 'pin') {
       await togglePinNote(id)
+      return
+    }
+    if (action === 'readme') {
+      await toggleReadmeNote(id)
+      return
+    }
+    if (action === 'private') {
+      await togglePrivateNote(id)
+      return
+    }
+    if (action === 'category') {
+      await toggleCategoryNote(id)
       return
     }
     if (action === 'add-child') {
@@ -1113,6 +1199,13 @@
                         title="Несохранено">*</span>{/if}
                   {/if}
                 </span>
+                {#if n.is_readme || n.is_private || n.is_category}
+                  <span class="notes__row-status" aria-hidden="true">
+                    {#if n.is_readme}<span class="notes__status-dot notes__status-dot--readme"><Icon name="alert" size={12} /></span>{/if}
+                    {#if n.is_private}<span class="notes__status-dot notes__status-dot--private"><Icon name="lock" size={12} /></span>{/if}
+                    {#if n.is_category}<span class="notes__status-dot notes__status-dot--category"><Icon name="folder" size={12} /></span>{/if}
+                  </span>
+                {/if}
               </button>
             </div>
             {#if showChildren(n.id)}
@@ -1167,6 +1260,39 @@
               aria-pressed={pinned}
             >
               <Icon name={pinned ? 'pin-filled' : 'pin'} />
+            </button>
+            <button
+              type="button"
+              class="btn btn--icon notes__status-btn notes__status-btn--readme"
+              class:notes__status-btn--on={isReadme}
+              onclick={() => (isReadme = !isReadme)}
+              title={isReadme ? 'Снять README (прочитано)' : 'Пометить README (прочитать)'}
+              aria-label={isReadme ? 'Снять README' : 'Пометить README'}
+              aria-pressed={isReadme}
+            >
+              <Icon name="alert" />
+            </button>
+            <button
+              type="button"
+              class="btn btn--icon notes__status-btn notes__status-btn--private"
+              class:notes__status-btn--on={isPrivate}
+              onclick={() => (isPrivate = !isPrivate)}
+              title={isPrivate ? 'Снять PRIVATE' : 'Пометить PRIVATE (скрыть от MCP)'}
+              aria-label={isPrivate ? 'Снять PRIVATE' : 'Пометить PRIVATE'}
+              aria-pressed={isPrivate}
+            >
+              <Icon name="lock" />
+            </button>
+            <button
+              type="button"
+              class="btn btn--icon notes__status-btn notes__status-btn--category"
+              class:notes__status-btn--on={isCategory}
+              onclick={() => (isCategory = !isCategory)}
+              title={isCategory ? 'Снять CATEGORY' : 'Пометить CATEGORY (папка-агрегатор)'}
+              aria-label={isCategory ? 'Снять CATEGORY' : 'Пометить CATEGORY'}
+              aria-pressed={isCategory}
+            >
+              <Icon name="folder" />
             </button>
             {#if dirty}
               <button
@@ -1246,6 +1372,15 @@
           </div>
         </div>
       </header>
+      {#if isPrivate && !privateRevealed}
+        <div class="notes__private-gate">
+          <Icon name="lock" size={20} />
+          <p>Приватная заметка — содержимое скрыто от случайного взгляда.</p>
+          <button type="button" class="btn" onclick={() => (privateRevealed = true)}>
+            Показать
+          </button>
+        </div>
+      {:else}
       <div
         class="notes__split"
         class:notes__split--raw={viewMode === 'raw'}
@@ -1279,6 +1414,7 @@
           </div>
         {/if}
       </div>
+      {/if}
       {#if detail?.refs?.length}
         <div class="block notes__links notes__links--first">
           <button
@@ -1546,6 +1682,68 @@
     font-weight: 700;
     line-height: 1;
     animation: notes-unsaved-glow 1.8s cubic-bezier(0.37, 0, 0.63, 1) infinite;
+  }
+
+  .notes__row-status {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.15rem;
+  }
+
+  /* Status toggles in the open note's header, and their matching sidebar badges. */
+  .notes__status-btn {
+    opacity: 0.35;
+  }
+
+  .notes__status-btn--on {
+    opacity: 1;
+  }
+
+  .notes__status-btn--readme.notes__status-btn--on,
+  .notes__status-dot--readme {
+    color: #d14343;
+    animation: notes-readme-blink 1.4s steps(1, end) infinite;
+  }
+
+  .notes__status-btn--private.notes__status-btn--on,
+  .notes__status-dot--private {
+    color: #9a9a9a;
+  }
+
+  .notes__status-btn--category.notes__status-btn--on,
+  .notes__status-dot--category {
+    color: #b5651d;
+  }
+
+  .notes__status-dot {
+    display: inline-flex;
+  }
+
+  @keyframes notes-readme-blink {
+    0%,
+    49% {
+      opacity: 1;
+    }
+    50%,
+    100% {
+      opacity: 0.25;
+    }
+  }
+
+  .notes__private-gate {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--space-2, 0.5rem);
+    padding: var(--space-5, 2rem) var(--space-3, 0.75rem);
+    color: var(--color-fg-muted, #9a9a9a);
+    text-align: center;
+  }
+
+  .notes__private-gate p {
+    margin: 0;
+    font-size: 0.9rem;
   }
 
   @keyframes notes-unsaved-glow {

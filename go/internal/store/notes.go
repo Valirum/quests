@@ -17,6 +17,9 @@ type Note struct {
 	Title       string
 	Description string
 	Pinned      bool
+	IsReadme    bool
+	IsPrivate   bool
+	IsCategory  bool
 	SortOrder   int
 	ParentID    *int64
 	Color       string
@@ -34,7 +37,7 @@ type NoteFilter struct {
 	Pinned      *bool
 }
 
-const noteCols = `id, title, description, pinned, sort_order, parent_id, color, icon, custom_icon, created_at, updated_at`
+const noteCols = `id, title, description, pinned, is_readme, is_private, is_category, sort_order, parent_id, color, icon, custom_icon, created_at, updated_at`
 
 func (s *Store) ListNotes(ctx context.Context, f NoteFilter) ([]Note, error) {
 	q := `SELECT ` + noteCols + ` FROM note WHERE 1=1`
@@ -96,9 +99,18 @@ func (s *Store) CreateNote(ctx context.Context, n Note) (Note, error) {
 	if n.UpdatedAt.IsZero() {
 		n.UpdatedAt = now
 	}
-	pin := 0
+	pin, readme, private, category := 0, 0, 0, 0
 	if n.Pinned {
 		pin = 1
+	}
+	if n.IsReadme {
+		readme = 1
+	}
+	if n.IsPrivate {
+		private = 1
+	}
+	if n.IsCategory {
+		category = 1
 	}
 	if n.ParentID != nil && (n.Color == "" || n.Icon == "") {
 		parent, err := s.GetNote(ctx, *n.ParentID)
@@ -118,9 +130,9 @@ func (s *Store) CreateNote(ctx context.Context, n Note) (Note, error) {
 		n.Icon = "document"
 	}
 	res, err := s.DB.ExecContext(ctx, `
-		INSERT INTO note (title, description, pinned, sort_order, parent_id, color, icon, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		n.Title, n.Description, pin, n.SortOrder, n.ParentID, n.Color, n.Icon,
+		INSERT INTO note (title, description, pinned, is_readme, is_private, is_category, sort_order, parent_id, color, icon, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		n.Title, n.Description, pin, readme, private, category, n.SortOrder, n.ParentID, n.Color, n.Icon,
 		timeutil.ToDBUTC(n.CreatedAt), timeutil.ToDBUTC(n.UpdatedAt))
 	if err != nil {
 		return Note{}, err
@@ -146,6 +158,15 @@ func (s *Store) UpdateNote(ctx context.Context, id int64, patch map[string]any) 
 	if v, ok := patch["pinned"].(bool); ok {
 		cur.Pinned = v
 	}
+	if v, ok := patch["is_readme"].(bool); ok {
+		cur.IsReadme = v
+	}
+	if v, ok := patch["is_private"].(bool); ok {
+		cur.IsPrivate = v
+	}
+	if v, ok := patch["is_category"].(bool); ok {
+		cur.IsCategory = v
+	}
 	if v, ok := noteAsInt(patch["sort_order"]); ok {
 		cur.SortOrder = v
 	}
@@ -170,9 +191,18 @@ func (s *Store) UpdateNote(ctx context.Context, id int64, patch map[string]any) 
 			return Note{}, ErrNoteCycle
 		}
 	}
-	pin := 0
+	pin, readme, private, category := 0, 0, 0, 0
 	if cur.Pinned {
 		pin = 1
+	}
+	if cur.IsReadme {
+		readme = 1
+	}
+	if cur.IsPrivate {
+		private = 1
+	}
+	if cur.IsCategory {
+		category = 1
 	}
 	if cur.Color == "" {
 		cur.Color = "#9a9a9a"
@@ -182,9 +212,9 @@ func (s *Store) UpdateNote(ctx context.Context, id int64, patch map[string]any) 
 	}
 	now := timeutil.NowUTC()
 	_, err = s.DB.ExecContext(ctx, `
-		UPDATE note SET title=?, description=?, pinned=?, sort_order=?, parent_id=?, color=?, icon=?, updated_at=?
+		UPDATE note SET title=?, description=?, pinned=?, is_readme=?, is_private=?, is_category=?, sort_order=?, parent_id=?, color=?, icon=?, updated_at=?
 		WHERE id=?`,
-		cur.Title, cur.Description, pin, cur.SortOrder, cur.ParentID, cur.Color, cur.Icon,
+		cur.Title, cur.Description, pin, readme, private, category, cur.SortOrder, cur.ParentID, cur.Color, cur.Icon,
 		timeutil.ToDBUTC(now), id)
 	if err != nil {
 		return Note{}, err
@@ -289,15 +319,18 @@ func (s *Store) DeleteNote(ctx context.Context, id int64) error {
 
 func scanNote(row rowScanner) (Note, error) {
 	var n Note
-	var pin int
+	var pin, readme, private, category int
 	var parent sql.NullInt64
 	var created, updated sql.NullString
 	var colorNS, iconNS, custom sql.NullString
-	err := row.Scan(&n.ID, &n.Title, &n.Description, &pin, &n.SortOrder, &parent, &colorNS, &iconNS, &custom, &created, &updated)
+	err := row.Scan(&n.ID, &n.Title, &n.Description, &pin, &readme, &private, &category, &n.SortOrder, &parent, &colorNS, &iconNS, &custom, &created, &updated)
 	if err != nil {
 		return n, err
 	}
 	n.Pinned = pin != 0
+	n.IsReadme = readme != 0
+	n.IsPrivate = private != 0
+	n.IsCategory = category != 0
 	if parent.Valid {
 		v := parent.Int64
 		n.ParentID = &v
@@ -331,6 +364,9 @@ func NoteToRead(n Note) NoteRead {
 		"title":       n.Title,
 		"description": n.Description,
 		"pinned":      n.Pinned,
+		"is_readme":   n.IsReadme,
+		"is_private":  n.IsPrivate,
+		"is_category": n.IsCategory,
 		"sort_order":  n.SortOrder,
 		"parent_id":   n.ParentID,
 		"color":       n.Color,
@@ -353,12 +389,15 @@ func NoteToRead(n Note) NoteRead {
 
 func NoteBrief(n Note) NoteRead {
 	out := NoteRead{
-		"id":        n.ID,
-		"title":     n.Title,
-		"parent_id": n.ParentID,
-		"pinned":    n.Pinned,
-		"color":     n.Color,
-		"icon":      n.Icon,
+		"id":          n.ID,
+		"title":       n.Title,
+		"parent_id":   n.ParentID,
+		"pinned":      n.Pinned,
+		"is_readme":   n.IsReadme,
+		"is_private":  n.IsPrivate,
+		"is_category": n.IsCategory,
+		"color":       n.Color,
+		"icon":        n.Icon,
 	}
 	if n.CustomIcon != nil && *n.CustomIcon != "" {
 		out["icon_url"] = fmt.Sprintf("/api/notes/%d/icon", n.ID)
