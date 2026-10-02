@@ -36,8 +36,12 @@ GitHub Actions (`.github/workflows/main.yml`, workflow **CI**):
 2. Path-filter: `api` (+ frontend SPA) и узкий `bot` (telegram/llm/stt + deps)
 3. Job **`build-images`**: `docker buildx bake` (`deploy/docker/docker-bake.hcl`) —
    если нужны оба target’а, `python-base` собирается один раз → общие layer digests на GHCR
-4. Push `ghcr.io/<owner>/quests-api:main` / `quests-bot:main` (BuildKit cache `scope=quests`)
-5. Job **`deploy`** (только push на `main`, после успешного `build-images`) — раннер сам живёт на
+4. `build-images` идёт параллельно с тестами и пушит только `ghcr.io/<owner>/quests-*:<sha>`
+   (BuildKit cache `scope=quests`); тег `:main` не трогает
+5. Job **`promote`** (после зелёных `test` и `build-images`) — registry-side ретег `:<sha>` → `:main`
+   (`imagetools create`, без пересборки). При красных тестах `:main` не двигается; осиротевшие `:<sha>`
+   чистятся retention-правилом пакета
+6. Job **`deploy`** (только push на `main`, после успешного `promote`) — раннер сам живёт на
    проде (self-hosted, не `ubuntu-latest`: облачный раннер не видит приватный IP сервера), гоняет
    `git reset --hard origin/main` + `compose pull` + `compose up -d` —
    [`deploy/docker/ci-deploy.sh`](ci-deploy.sh). Настройка: [`docs/deploy-ssh.md`](../../docs/deploy-ssh.md).

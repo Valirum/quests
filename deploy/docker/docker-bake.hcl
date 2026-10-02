@@ -22,6 +22,13 @@ variable "TAG" {
   default = "local"
 }
 
+# CI pushes only :${TAG} and promotes :main after the tests pass (promote job
+# in .github/workflows/main.yml); locally :main stays part of the tags.
+variable "MAIN_TAG" {
+  type    = bool
+  default = true
+}
+
 target "_common" {
   context    = "."
   dockerfile = "deploy/docker/Dockerfile"
@@ -33,28 +40,28 @@ target "_common" {
 target "api" {
   inherits = ["_common"]
   target   = "api"
-  tags = [
-    "${API_IMAGE}:main",
+  tags = compact([
+    MAIN_TAG ? "${API_IMAGE}:main" : "",
     "${API_IMAGE}:${TAG}",
-  ]
+  ])
 }
 
 target "bot" {
   inherits = ["_common"]
   target   = "bot"
-  tags = [
-    "${BOT_IMAGE}:main",
+  tags = compact([
+    MAIN_TAG ? "${BOT_IMAGE}:main" : "",
     "${BOT_IMAGE}:${TAG}",
-  ]
+  ])
 }
 
 target "stt" {
   inherits = ["_common"]
   target   = "stt"
-  tags = [
-    "${STT_IMAGE}:main",
+  tags = compact([
+    MAIN_TAG ? "${STT_IMAGE}:main" : "",
     "${STT_IMAGE}:${TAG}",
-  ]
+  ])
 }
 
 group "default" {

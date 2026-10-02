@@ -118,11 +118,13 @@ jobs:
           uv run pytest
 
   # One BuildKit session → api+bot share python-base layer digests on GHCR.
+  # Runs in parallel with `test` and pushes only :<sha>; the `promote` job
+  # moves :main (the tag the server pulls) once the tests are green, so a red
+  # run never changes what a redeploy would fetch.
   build-images:
-    needs: [changes, test]
+    needs: [changes]
     if: |
       github.event_name != 'pull_request' &&
-      needs.test.result == 'success' &&
       (
         needs.changes.outputs.api == 'true' ||
         needs.changes.outputs.frontend == 'true' ||
@@ -131,6 +133,8 @@ jobs:
         (github.event_name == 'workflow_dispatch' && (inputs.force_api || inputs.force_bot || inputs.force_stt))
       )
     runs-on: ubuntu-latest
+    outputs:
+      targets: ${{ steps.meta.outputs.targets }}
     permissions:
       contents: read
       packages: write
@@ -195,9 +199,45 @@ jobs:
             BOT_IMAGE=${{ env.BOT_IMAGE }}
             STT_IMAGE=${{ env.STT_IMAGE }}
             TAG=${{ github.sha }}
+            MAIN_TAG=false
           set: |
             *.cache-from=type=gha,scope=quests
             *.cache-to=type=gha,mode=max,scope=quests
+
+  # Points :main (what the server's compose pulls) at the images just built,
+  # only after `test` passed. A registry-side retag: no rebuild, seconds.
+  # Safe to run on workflow_dispatch from main too (hosted runner, unlike
+  # deploy below); never from any other ref.
+  promote:
+    needs: [build-images, test]
+    if: |
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
+      needs.build-images.result == 'success' &&
+      needs.test.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Retag :<sha> as :main
+        env:
+          TARGETS: ${{ needs.build-images.outputs.targets }}
+        run: |
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          IFS=',' read -ra targets <<< "$TARGETS"
+          for t in "${targets[@]}"; do
+            image="ghcr.io/${owner}/quests-${t}"
+            docker buildx imagetools create -t "${image}:main" "${image}:${GITHUB_SHA}"
+          done
 
   # Replaces Watchtower's poll-and-swap: an explicit step at the end of a
   # green run on main, instead of the server discovering new images on its
@@ -217,13 +257,13 @@ jobs:
   #     `main` (no `pull_request`, no `workflow_dispatch` from an arbitrary ref)
   # If any of that changes, self-hosted here becomes a real attack surface.
   deploy:
-    needs: build-images
+    needs: promote
     # A job with an explicit `if:` stops inheriting the implicit "needs
     # succeeded" gate, so it's spelled out here — otherwise this would also
-    # run when build-images was skipped (no relevant paths changed).
+    # run when promote was skipped (no images built, or tests red).
     if: |
       github.event_name == 'push' && github.ref == 'refs/heads/main' &&
-      needs.build-images.result == 'success'
+      needs.promote.result == 'success'
     runs-on: self-hosted
     permissions:
       contents: read
