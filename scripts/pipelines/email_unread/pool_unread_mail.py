@@ -30,9 +30,10 @@ count on the actual mailbox honest; open the real message to read it.
 See note=6 in the quests journal for the endpoint reference this is
 built from (login/list/body-fetch quirks, non-strict-JSON parsing, etc).
 
-Credentials come from the *server's* environment (its root .env, loaded
-by config.LoadDotenv — same place QUESTS_TG_TOKEN etc. live), not a
-script-adjacent .env file: MAIL_HOST, MAIL_USER, MAIL_PASSWORD.
+Credentials come from this template's own secrets (set_template_secret /
+PUT /api/templates/{id}/secrets/{key}), injected into the script's env only
+while the scheduler runs it: MAIL_HOST, MAIL_USER, MAIL_PASSWORD. Never
+hardcode them here — the script body is returned by the template API.
 """
 import http.cookiejar
 import json
@@ -46,7 +47,7 @@ import urllib.request
 def env_or_die(name):
     v = os.environ.get(name, "").strip()
     if not v:
-        print(f"missing {name} in the server's .env — see note=6", file=sys.stderr)
+        print(f"missing {name} — set it as a template secret, see note=6", file=sys.stderr)
         sys.exit(1)
     return v
 
