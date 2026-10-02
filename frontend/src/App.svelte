@@ -1236,7 +1236,17 @@
           if (view === 'stats') statsNonce += 1
         }
       },
-      { onStatus: (s) => (liveStatus = s) },
+      {
+        onStatus: (s) => (liveStatus = s),
+        // The socket missed events while it was down or the tab was hidden.
+        onResync: () => {
+          void load({ silent: true })
+          void refreshTemplates()
+          void refreshHealth()
+          if (view === 'hero') heroNonce += 1
+          if (view === 'stats') statsNonce += 1
+        },
+      },
     )
     return () => {
       clearInterval(tick)

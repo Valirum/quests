@@ -1,6 +1,11 @@
 /**
  * Live updates via WebSocket. Reconnects with backoff.
  * onEvent receives parsed server messages ({ type, revision, action, quest_id }).
+ *
+ * The server keeps no event backlog, so anything that happened while the
+ * socket was dead (sleep, network switch, background tab) is simply lost.
+ * onResync is the catch-up: it fires after every RE-connect and when the tab
+ * comes back to the foreground after a while, and the caller should refetch.
  */
 
 // Server sends an app-level {type:'ping'} every 25s (see wsPingInterval in
@@ -14,14 +19,21 @@ const WATCHDOG_INTERVAL_MS = 10_000
 // runs much longer than a user will. Give a connect attempt this long,
 // then abandon it and retry ourselves.
 const CONNECT_TIMEOUT_MS = 8_000
+// A tab hidden for less than this has not missed anything worth a refetch.
+const RESYNC_AFTER_HIDDEN_MS = 10_000
+// Reconnect, visibility and online events often arrive together.
+const RESYNC_MIN_GAP_MS = 2_000
 
-export function subscribeQuestEvents(onEvent, { onStatus } = {}) {
+export function subscribeQuestEvents(onEvent, { onStatus, onResync } = {}) {
   let stopped = false
   let socket = null
   let attempt = 0
   let timer = null
   let watchdog = null
   let lastMessageAt = 0
+  let everOpened = false
+  let hiddenAt = 0
+  let lastResyncAt = 0
 
   const wsUrl = () => {
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:'
@@ -30,6 +42,13 @@ export function subscribeQuestEvents(onEvent, { onStatus } = {}) {
 
   const setStatus = (status) => {
     if (onStatus) onStatus(status)
+  }
+
+  const resync = () => {
+    const now = Date.now()
+    if (stopped || !onResync || now - lastResyncAt < RESYNC_MIN_GAP_MS) return
+    lastResyncAt = now
+    onResync()
   }
 
   const schedule = () => {
@@ -59,6 +78,10 @@ export function subscribeQuestEvents(onEvent, { onStatus } = {}) {
       attempt = 0
       lastMessageAt = Date.now()
       setStatus('live')
+      // Events from the gap are gone for good; a first connect needs nothing
+      // (the app has just loaded), every later one does.
+      if (everOpened) resync()
+      everOpened = true
     })
 
     socket.addEventListener('message', (ev) => {
@@ -106,10 +129,34 @@ export function subscribeQuestEvents(onEvent, { onStatus } = {}) {
     }
   }
 
+  const onVisibility = () => {
+    if (document.visibilityState === 'hidden') {
+      hiddenAt = Date.now()
+      return
+    }
+    if (stopped) return
+    checkStale()
+    if (hiddenAt && Date.now() - hiddenAt > RESYNC_AFTER_HIDDEN_MS) resync()
+    hiddenAt = 0
+  }
+
+  // Network is back: don't wait for the backoff timer or the 70s watchdog.
+  const onOnline = () => {
+    if (stopped) return
+    if (!socket || socket.readyState === WebSocket.CLOSED) {
+      if (timer) clearTimeout(timer)
+      attempt = 0
+      connect()
+    }
+    resync()
+  }
+
   const hardClose = () => {
     stopped = true
     if (timer) clearTimeout(timer)
     if (watchdog) clearInterval(watchdog)
+    document.removeEventListener('visibilitychange', onVisibility)
+    window.removeEventListener('online', onOnline)
     try {
       socket?.close()
     } catch {
@@ -134,6 +181,9 @@ export function subscribeQuestEvents(onEvent, { onStatus } = {}) {
   }
   window.addEventListener('pagehide', onPageHide)
   window.addEventListener('beforeunload', onPageHide)
+
+  document.addEventListener('visibilitychange', onVisibility)
+  window.addEventListener('online', onOnline)
 
   connect()
   watchdog = setInterval(checkStale, WATCHDOG_INTERVAL_MS)
