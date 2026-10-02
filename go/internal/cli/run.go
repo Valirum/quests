@@ -46,6 +46,8 @@ func Run(argv []string) int {
 		code, err = cmdStatus(c, args, "failed")
 	case "step":
 		code, err = cmdStep(c, args)
+	case "progress":
+		code, err = cmdProgress(c, args)
 	case "step-add", "stepadd":
 		code, err = cmdStepAdd(c, args)
 	case "step-edit", "stepedit", "step-set":
@@ -113,6 +115,7 @@ Commands:
   status ID STATUS
   complete|fail ID
   step ID          прогресс шага
+  progress ID      закрыто/всего шагов квеста как JSON для check_command (poll)
   step-add|step-edit|step-rm
   delete|rm ID
   categories|cats
@@ -1387,5 +1390,43 @@ func cmdHookEvents(asJSON bool) (int, error) {
 		kinds, _ := json.Marshal(row["kinds"])
 		fmt.Printf("%-18s → %s\n", row["alias"], string(kinds))
 	}
+	return 0, nil
+}
+
+// cmdProgress prints {"progress": <closed steps>, "total": <steps>} for a
+// quest — the poll-mode output a check_command of a *parent* step can return to
+// mirror a child quest (see docs/cli.md). It deliberately omits "description"
+// so the parent step keeps its own text (usually the quest=N link).
+func cmdProgress(c *Client, args []string) (int, error) {
+	id, _, err := parseID(args, "quest_id")
+	if err != nil {
+		return 1, err
+	}
+	raw, err := c.Get(fmt.Sprintf("/api/quests/%d", id), nil)
+	if err != nil {
+		return 1, err
+	}
+	q, err := DecodeMap(raw)
+	if err != nil {
+		return 1, err
+	}
+	steps, _ := q["steps"].([]any)
+	done := 0
+	for _, s := range steps {
+		if m, ok := s.(map[string]any); ok {
+			if d, _ := m["done"].(bool); d {
+				done++
+			}
+		}
+	}
+	total := len(steps)
+	if total < 1 {
+		total = 1
+	}
+	out, err := json.Marshal(map[string]int{"progress": done, "total": total})
+	if err != nil {
+		return 1, err
+	}
+	fmt.Println(string(out))
 	return 0, nil
 }

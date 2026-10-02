@@ -1,15 +1,19 @@
 <script>
   import HelpTip from './HelpTip.svelte'
   import OptionPills from './OptionPills.svelte'
+  import { parseRefs } from '../js/refs.js'
 
   /** A step's auto-check: command, poll interval, mode, pipeline gate.
    * The mode/gate controls only appear once there is a command to run.
-   * @type {{ command?: string, interval?: string, waitPrevious?: boolean, runMode?: string }} */
+   * `description` (read-only) is the step's text: a quest=N in it offers the
+   * "mirror that quest" check (`quests progress N`).
+   * @type {{ command?: string, interval?: string, waitPrevious?: boolean, runMode?: string, description?: string }} */
   let {
     command = $bindable(''),
     interval = $bindable(''),
     waitPrevious = $bindable(false),
     runMode = $bindable('poll'),
+    description = '',
   } = $props()
 
   const MODES = [
@@ -18,6 +22,17 @@
   ]
 
   let hasCommand = $derived(Boolean(String(command || '').trim()))
+
+  /** First quest=N in the step description, offered while no command is set. */
+  let mirrorQuestId = $derived(
+    hasCommand ? null : (parseRefs(description).find((r) => r.kind === 'quest')?.id ?? null),
+  )
+
+  function useMirrorCheck() {
+    if (mirrorQuestId == null) return
+    command = `quests progress ${mirrorQuestId}`
+    runMode = 'poll'
+  }
 </script>
 
 <div class="autocheck">
@@ -43,6 +58,11 @@
       />
     {/if}
   </div>
+  {#if mirrorQuestId != null}
+    <button type="button" class="btn btn--ghost autocheck__suggest" onclick={useMirrorCheck}>
+      Следить за quest={mirrorQuestId}: <code>quests progress {mirrorQuestId}</code>
+    </button>
+  {/if}
   {#if hasCommand}
     <div class="autocheck__opts">
       <OptionPills options={MODES} bind:value={runMode} label="Режим автопроверки" compact />
@@ -51,7 +71,8 @@
         ждать предыдущий
       </label>
       <HelpTip label="Как работает автопроверка">
-        <p><b>Опрос</b> — команда запускается каждые N сек (по умолчанию 60), число из stdout становится прогрессом шага.</p>
+        <p><b>Опрос</b> — команда запускается каждые N сек (по умолчанию 60), число из stdout становится прогрессом шага. Можно вывести и JSON: <code>{`{"progress": 2, "total": 5, "description": "…"}`}</code>, все поля необязательны; <code>total</code> меняет максимум шага.</p>
+        <p><b>Дочерний квест как шаг:</b> в описании шага <code>quest=N</code>, команда <code>quests progress N</code> (кнопка-подсказка появится сама).</p>
         <p><b>Разово</b> — один запуск: код 0 закрывает шаг, иначе квест проваливается.</p>
         <p><b>Ждать предыдущий</b> — шаг стартует только после предыдущего: линейный пайплайн.</p>
       </HelpTip>
@@ -79,6 +100,11 @@
   .autocheck__row .autocheck__interval {
     flex: 0 0 4.5rem;
     width: 4.5rem;
+  }
+
+  .autocheck__suggest {
+    justify-self: start;
+    font-size: var(--text-xs, 0.75rem);
   }
 
   .autocheck__opts {

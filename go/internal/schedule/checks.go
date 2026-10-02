@@ -31,6 +31,9 @@ var intToken = regexp.MustCompile(`-?\d+`)
 type CheckRunner struct {
 	Store *store.Store
 	Hub   *events.Hub
+	// Env is added to every check command's environment (the server sets
+	// QUESTS_API and an internal token so `quests …` works inside a check).
+	Env []string
 
 	mu       sync.Mutex
 	inFlight map[int64]struct{}
@@ -184,7 +187,7 @@ func (r *CheckRunner) exec(parent context.Context, questID, stepID int64, comman
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, "sh", "-c", command)
-	cmd.Env = os.Environ()
+	cmd.Env = append(os.Environ(), r.Env...)
 	if home, err := os.UserHomeDir(); err == nil {
 		cmd.Dir = home
 	}
@@ -236,11 +239,18 @@ func (r *CheckRunner) apply(ctx context.Context, questID, stepID int64, once boo
 	if parsed.Description != nil {
 		st.Description = *parsed.Description
 	}
-	if !parsed.ProgressOK {
+	totalChanged := parsed.TotalOK && parsed.Total != st.ProgressTotal
+	if totalChanged {
+		st.ProgressTotal = parsed.Total
+	}
+	if !parsed.ProgressOK && !totalChanged {
 		_, _ = r.Store.UpdateStep(ctx, *st, q, "step_progress", st.Title)
 		return
 	}
-	n := parsed.Progress
+	n := st.ProgressCurrent // a total-only reading keeps the progress it had
+	if parsed.ProgressOK {
+		n = parsed.Progress
+	}
 	if n < 0 {
 		n = 0
 	}
@@ -249,7 +259,7 @@ func (r *CheckRunner) apply(ctx context.Context, questID, stepID int64, once boo
 	}
 	progressSame := n == st.ProgressCurrent
 	descTouched := parsed.Description != nil
-	if progressSame && !descTouched {
+	if progressSame && !descTouched && !totalChanged {
 		_, _ = r.Store.UpdateStep(ctx, *st, q, "step_progress", st.Title)
 		return
 	}
@@ -367,11 +377,16 @@ type CheckOutput struct {
 	Progress    int
 	ProgressOK  bool
 	Description *string
+	// Total is the step's new maximum (progress_total); TotalOK false leaves it.
+	Total   int
+	TotalOK bool
 }
 
 // ParseCheckOutput accepts a bare integer (as before) or a JSON object
-// {"progress": N, "description": "…"}. Both fields are optional in the JSON;
-// a malformed object does not update progress or description.
+// {"progress": N, "total": M, "description": "…"}. Every field is optional in
+// the JSON; a malformed object does not update progress, total or description.
+// total (an integer ≥ 1) re-sizes the step — the way a step that mirrors
+// another quest follows that quest gaining or losing steps.
 func ParseCheckOutput(out string) CheckOutput {
 	s := strings.TrimSpace(out)
 	if s == "" {
@@ -388,6 +403,13 @@ func ParseCheckOutput(out string) CheckOutput {
 			if err := json.Unmarshal(v, &n); err == nil {
 				got.Progress = n
 				got.ProgressOK = true
+			}
+		}
+		if v, ok := raw["total"]; ok {
+			var n int
+			if err := json.Unmarshal(v, &n); err == nil && n >= 1 {
+				got.Total = n
+				got.TotalOK = true
 			}
 		}
 		if v, ok := raw["description"]; ok {

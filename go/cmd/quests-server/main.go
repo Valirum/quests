@@ -94,6 +94,8 @@ func main() {
 
 	windows := schedule.NewWindowNotifier()
 	checks := schedule.NewCheckRunner(st, hub)
+	// Check commands may call the CLI (`quests progress N`) against this server.
+	checks.Env = []string{"QUESTS_API=" + srv.SelfBase, "QUESTS_API_TOKEN=" + internalToken}
 	go schedule.RunMaintenanceLoop(ctx, st, hub, windows, checks)
 	go srv.RunProbes(ctx)
 	go schedule.RunBackupLoop(ctx, st, srv.WebDAV, cfg.DataDir, cfg.BackupInterval, cfg.BackupKeep, schedule.BackupRemote{

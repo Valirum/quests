@@ -163,6 +163,19 @@ func TestParseCheckOutputJSON(t *testing.T) {
 	if badProgress.ProgressOK {
 		t.Fatal("non-int progress must not set ProgressOK")
 	}
+
+	withTotal := ParseCheckOutput(`{"progress": 2, "total": 7}`)
+	if !withTotal.ProgressOK || !withTotal.TotalOK || withTotal.Total != 7 {
+		t.Fatalf("total not parsed: %+v", withTotal)
+	}
+	if only := ParseCheckOutput(`{"total": 3}`); only.ProgressOK || !only.TotalOK || only.Total != 3 {
+		t.Fatalf("total-only: %+v", only)
+	}
+	for _, bad := range []string{`{"total": 0}`, `{"total": -2}`, `{"total": "x"}`, `{"total": 1.5}`} {
+		if got := ParseCheckOutput(bad); got.TotalOK {
+			t.Fatalf("%s must not set TotalOK: %+v", bad, got)
+		}
+	}
 }
 
 func seedQuest(t *testing.T, st *store.Store, steps []domain.Step) domain.Quest {
@@ -334,4 +347,64 @@ func TestFailStaleRunning(t *testing.T) {
 		t.Fatalf("status=%s", got.Status)
 	}
 	_ = time.Second
+}
+
+func pollStep(t *testing.T, st *store.Store, cmd string, total, current int) domain.Quest {
+	t.Helper()
+	iv := 15
+	q := seedQuest(t, st, []domain.Step{{
+		Title: "mirror", ProgressTotal: total, ProgressCurrent: current, SortOrder: 0,
+		CheckCommand: &cmd, CheckIntervalSeconds: &iv, RunMode: domain.RunModePoll,
+	}})
+	r := NewCheckRunner(st, events.New())
+	r.Tick(context.Background())
+	r.Wait()
+	got, err := st.GetQuest(context.Background(), q.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return got
+}
+
+// A step that mirrors another quest follows it while it is open: when the
+// mirrored quest gains steps the maximum grows and progress is applied
+// against the new maximum. (A step already at its maximum is final, as before.)
+func TestCheckPollTotalGrows(t *testing.T) {
+	st := openChecksDB(t)
+	got := pollStep(t, st, `printf '{"progress":3,"total":5}'`, 4, 2)
+	step := got.Steps[0]
+	if step.ProgressTotal != 5 || step.ProgressCurrent != 3 || step.Done {
+		t.Fatalf("want 3/5 not done, got %d/%d done=%v", step.ProgressCurrent, step.ProgressTotal, step.Done)
+	}
+}
+
+func TestCheckPollTotalOnlyKeepsProgress(t *testing.T) {
+	st := openChecksDB(t)
+	got := pollStep(t, st, `printf '{"total":6}'`, 4, 2)
+	step := got.Steps[0]
+	if step.ProgressTotal != 6 || step.ProgressCurrent != 2 {
+		t.Fatalf("want 2/6, got %d/%d", step.ProgressCurrent, step.ProgressTotal)
+	}
+}
+
+func TestCheckPollTotalShrinkClampsProgressAndCompletes(t *testing.T) {
+	st := openChecksDB(t)
+	got := pollStep(t, st, `printf '{"progress":5,"total":2}'`, 6, 1)
+	step := got.Steps[0]
+	if step.ProgressTotal != 2 || step.ProgressCurrent != 2 || !step.Done {
+		t.Fatalf("want 2/2 done, got %d/%d done=%v", step.ProgressCurrent, step.ProgressTotal, step.Done)
+	}
+	if got.Status != domain.StatusCompleted {
+		t.Fatalf("status=%s, want completed", got.Status)
+	}
+}
+
+// Bad total (zero) is ignored; progress still applies against the old max.
+func TestCheckPollInvalidTotalIgnored(t *testing.T) {
+	st := openChecksDB(t)
+	got := pollStep(t, st, `printf '{"progress":2,"total":0}'`, 5, 0)
+	step := got.Steps[0]
+	if step.ProgressTotal != 5 || step.ProgressCurrent != 2 {
+		t.Fatalf("want 2/5, got %d/%d", step.ProgressCurrent, step.ProgressTotal)
+	}
 }

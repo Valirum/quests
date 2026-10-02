@@ -111,6 +111,7 @@
             />
           {/if}
           <StepAutoCheck
+            description={s.description}
             bind:command={s.check_command}
             bind:interval={s.check_interval_seconds}
             bind:waitPrevious={s.wait_previous}
