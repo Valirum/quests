@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 _CSS_DIR = Path(__file__).with_name("css")
-_EXPR = re.compile(r"\$\{(.+?)\}", re.S)
+_EXPR = re.compile(r"\$\{(.+?)\}", re.DOTALL)
 
 
 def render_css(name: str, namespace: dict[str, Any]) -> str:
