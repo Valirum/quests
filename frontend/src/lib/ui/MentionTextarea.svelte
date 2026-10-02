@@ -1,5 +1,6 @@
 <script>
   import { activeMentionToken, applyMention, matchMentions } from '../js/mentionSuggest.js'
+  import { templateStore } from '../js/templatesStore.svelte.js'
 
   /** @type {{
    *   value?: string,
@@ -45,7 +46,13 @@
       return
     }
     mentionToken = token
-    mentionItems = matchMentions(token.query, { quests, questlines, notes, attachments })
+    mentionItems = matchMentions(token.query, {
+      quests,
+      questlines,
+      notes,
+      attachments,
+      templates: templateStore.list,
+    })
     mentionIndex = 0
     mentionOpen = mentionItems.length > 0
   }

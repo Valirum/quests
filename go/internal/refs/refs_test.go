@@ -21,3 +21,10 @@ func TestParseDoesNotPrefixMatch(t *testing.T) {
 		t.Fatalf("got=%v", got)
 	}
 }
+
+func TestParseKnowsTemplates(t *testing.T) {
+	got := Parse("шаблон template=5 и квест quest=7, а mytemplate=9 не ссылка")
+	if len(got) != 2 || got[0] != (Ref{Kind: "template", ID: 5}) || got[1] != (Ref{Kind: "quest", ID: 7}) {
+		t.Fatalf("got %+v, want template=5 and quest=7 only", got)
+	}
+}

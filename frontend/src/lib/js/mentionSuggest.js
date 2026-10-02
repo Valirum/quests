@@ -4,17 +4,18 @@ const KIND_LABEL = {
   step: 'шаг',
   note: 'заметка',
   attachment: 'файл',
+  template: 'шаблон',
 }
 
 /**
  * Candidates for `@query` autocomplete — matches already-loaded
- * quests/questlines/notes/attachments (and nested steps) by title substring.
+ * quests/questlines/notes/attachments/templates (and nested steps) by title substring.
  * Ranked: title starts with query > title contains query,
  * questlines/quests before their nested steps within each tier.
  */
 export function matchMentions(
   query,
-  { quests = [], questlines = [], notes = [], attachments = [] } = {},
+  { quests = [], questlines = [], notes = [], attachments = [], templates = [] } = {},
   limit = 8,
 ) {
   const q = query.trim().toLowerCase()
@@ -33,6 +34,7 @@ export function matchMentions(
 
   for (const note of notes) push('note', note.id, note.title || '')
   for (const line of questlines) push('questline', line.id, line.title || '')
+  for (const tpl of templates) push('template', tpl.id, tpl.title || '')
   for (const att of attachments) {
     const name = att.filename || `attachment=${att.id}`
     const hint = att.comment || undefined

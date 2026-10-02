@@ -1,29 +1,42 @@
 <script>
-  import {
-    listTemplates,
-    listTemplateSecrets,
-    setTemplateSecret,
-    deleteTemplateSecret,
-  } from '../js/api.js'
+  import { SECRET_OWNER_KINDS, listSecrets, setSecret, deleteSecret } from '../js/api.js'
+  import { parseRefs } from '../js/refs.js'
   import Icon from '../ui/Icon.svelte'
+  import MentionTextarea from '../ui/MentionTextarea.svelte'
   import ModalShell from './ModalShell.svelte'
   import ModalHead from './ModalHead.svelte'
   import { untrack } from 'svelte'
 
-  /** Standalone secrets manager — GitHub-style: names are visible, values
-   * never are, only add/overwrite/delete. Scoped to templates today (the
-   * only owner emit_pool_command has), but kept as its own modal rather
-   * than a TemplatesModal subsection since secrets may outgrow templates
-   * later.
-   * @type {{ open: boolean, onClose: () => void }} */
-  let { open = false, onClose } = $props()
+  /** Secrets manager — GitHub-style: names are visible, values never are, only
+   * add/overwrite/delete. A secret belongs to one entity (questline, template,
+   * quest or step) and is inherited step > quest > template > questline, so
+   * the field below takes `@name` (resolved to `quest=12`) or a pasted ref.
+   * `owner` pre-fills it (context menu → «Секреты»); only entities that can
+   * own secrets are offered (no notes or files).
+   * @type {{
+   *   open: boolean,
+   *   onClose: () => void,
+   *   owner?: { kind: string, id: number } | null,
+   *   quests?: any[],
+   *   questlines?: any[],
+   *   labels?: Record<string, string>,
+   * }} */
+  let { open = false, onClose, owner = null, quests = [], questlines = [], labels = {} } = $props()
 
-  let loading = $state(false)
-  let error = $state('')
-  let templates = $state(/** @type {any[]} */ ([]))
-  let templateId = $state(/** @type {number | null} */ (null))
+  const KIND_LABEL = { questline: 'квестлайн', template: 'шаблон', quest: 'квест', step: 'шаг' }
+
+  let ownerText = $state('')
+  /** the entity the field resolves to: the first owner-capable ref in the text */
+  let target = $derived.by(() => {
+    const hit = parseRefs(ownerText).find((r) => SECRET_OWNER_KINDS.includes(r.kind))
+    return hit ?? null
+  })
+  let targetLabel = $derived(
+    target ? labels[`${target.kind}:${target.id}`] || `${target.kind}=${target.id}` : '',
+  )
 
   let keys = $state(/** @type {string[]} */ ([]))
+  let inherited = $state(/** @type {{ key: string, from: string, id: number }[]} */ ([]))
   let keysLoading = $state(false)
   let keysError = $state('')
 
@@ -37,45 +50,31 @@
 
   const KEY_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/
 
-  let selectedTemplate = $derived(templates.find((t) => t.id === templateId) ?? null)
-
-  async function refreshTemplates() {
-    loading = true
-    error = ''
-    try {
-      templates = await listTemplates({})
-      if (templateId == null && templates.length > 0) {
-        templateId = templates[0].id
-      }
-    } catch (e) {
-      error = e.message || String(e)
-      templates = []
-    } finally {
-      loading = false
-    }
-  }
-
   /** Bumped on every refreshKeys() call so a slower, older request can't
-   * clobber a newer one's result if responses arrive out of order (e.g. the
-   * template-switch effect's own fetch racing an explicit post-save refresh). */
+   * clobber a newer one's result if responses arrive out of order. */
   let keysRequestSeq = 0
 
   async function refreshKeys() {
-    if (templateId == null) {
+    const t = target
+    if (!t) {
       keys = []
+      inherited = []
+      keysError = ''
       return
     }
     const seq = ++keysRequestSeq
     keysLoading = true
     keysError = ''
     try {
-      const result = await listTemplateSecrets(templateId)
+      const result = await listSecrets(t.kind, t.id)
       if (seq !== keysRequestSeq) return
-      keys = result
+      keys = result.keys
+      inherited = result.inherited
     } catch (e) {
       if (seq !== keysRequestSeq) return
       keysError = e.message || String(e)
       keys = []
+      inherited = []
     } finally {
       if (seq === keysRequestSeq) keysLoading = false
     }
@@ -85,25 +84,28 @@
   $effect(() => {
     if (!open) return
     untrack(() => {
-      error = ''
       newKey = ''
       newValue = ''
       editingKey = null
-      void refreshTemplates()
+      keysError = ''
+      ownerText = owner ? `${owner.kind}=${owner.id} ` : ''
     })
   })
 
-  // Reload keys whenever the selected template changes (including the
-  // initial pick once templates load).
+  // Reload names whenever the resolved entity changes.
   $effect(() => {
     if (!open) return
-    void templateId
-    untrack(() => void refreshKeys())
+    void target?.kind
+    void target?.id
+    untrack(() => {
+      editingKey = null
+      void refreshKeys()
+    })
   })
 
   async function onAdd(event) {
     event.preventDefault()
-    if (templateId == null || saving) return
+    if (!target || saving) return
     const key = newKey.trim()
     if (!KEY_PATTERN.test(key)) {
       keysError = 'Имя ключа — как переменная окружения: [A-Za-z_][A-Za-z0-9_]*'
@@ -116,7 +118,7 @@
     saving = true
     keysError = ''
     try {
-      await setTemplateSecret(templateId, key, newValue)
+      await setSecret(target.kind, target.id, key, newValue)
       newKey = ''
       newValue = ''
       await refreshKeys()
@@ -139,7 +141,7 @@
   }
 
   async function saveEdit(key) {
-    if (templateId == null || saving) return
+    if (!target || saving) return
     if (!editValue) {
       keysError = 'Нужно значение'
       return
@@ -147,7 +149,7 @@
     saving = true
     keysError = ''
     try {
-      await setTemplateSecret(templateId, key, editValue)
+      await setSecret(target.kind, target.id, key, editValue)
       editingKey = null
       editValue = ''
       await refreshKeys()
@@ -159,11 +161,11 @@
   }
 
   async function onDelete(key) {
-    if (templateId == null || saving) return
+    if (!target || saving) return
     saving = true
     keysError = ''
     try {
-      await deleteTemplateSecret(templateId, key)
+      await deleteSecret(target.kind, target.id, key)
       if (editingKey === key) editingKey = null
       await refreshKeys()
     } catch (e) {
@@ -172,28 +174,39 @@
       saving = false
     }
   }
+
+  /** @param {{ from: string, id: number }} ref */
+  function sourceLabel(ref) {
+    const name = labels[`${ref.from}:${ref.id}`]
+    return `${KIND_LABEL[ref.from] || ref.from}${name ? ` «${name}»` : ''} (${ref.from}=${ref.id})`
+  }
 </script>
 
-<ModalShell {open} {onClose} labelledby="secrets-modal-title" zIndex={40} maxWidth="30rem">
+<ModalShell {open} {onClose} labelledby="secrets-modal-title" zIndex={60} maxWidth="30rem">
   <ModalHead id="secrets-modal-title" title="Секреты" icon="key" {onClose} />
 
   <div class="modal__body">
-    {#if loading}
-      <p class="hint">Загрузка…</p>
-    {:else if error}
-      <p class="modal__error">{error}</p>
-    {:else if templates.length === 0}
-      <p class="hint">Шаблонов нет — секретам пока некуда принадлежать.</p>
-    {:else}
-      <label class="field">
-        <span class="label">Шаблон</span>
-        <select bind:value={templateId}>
-          {#each templates as t}
-            <option value={t.id}>{t.title}</option>
-          {/each}
-        </select>
-      </label>
+    <div class="field">
+      <span class="label">Чьи секреты</span>
+      <MentionTextarea
+        bind:value={ownerText}
+        {quests}
+        {questlines}
+        notes={[]}
+        attachments={[]}
+        rows={1}
+        placeholder="@квест, @шаг, @шаблон или @квестлайн; можно вставить quest=12"
+      />
+      {#if target}
+        <span class="hint">
+          {KIND_LABEL[target.kind]} · <b>{targetLabel}</b> <code>{target.kind}={target.id}</code>
+        </span>
+      {:else}
+        <span class="hint">Секрет принадлежит квестлайну, шаблону, квесту или шагу.</span>
+      {/if}
+    </div>
 
+    {#if target}
       {#if keysError}
         <p class="modal__error">{keysError}</p>
       {/if}
@@ -230,7 +243,13 @@
               {/if}
             </li>
           {:else}
-            <li class="hint">Секретов не заведено.</li>
+            <li class="hint">Своих секретов нет.</li>
+          {/each}
+          {#each inherited as ref (ref.key)}
+            <li class="secret-row secret-row--inherited">
+              <code class="secret-row__key">{ref.key}</code>
+              <span class="secret-row__from">унаследован: {sourceLabel(ref)}</span>
+            </li>
           {/each}
         </ul>
       {/if}
@@ -258,9 +277,11 @@
       </form>
 
       <p class="hint">
-        Значения хранятся как есть (сервер — доверенная граница) и попадают в
-        окружение скрипта только в момент запуска. Ни один инструмент
-        (включая этот список) их обратно не показывает — только имена.
+        Секрет доступен командам этой сущности и всего, что ниже: шаг &gt; квест &gt; шаблон &gt; квестлайн
+        (одноимённый секрет более частного уровня перекрывает общий, добавьте тот же ключ, чтобы переопределить
+        унаследованный). Значения попадают в окружение команды только в момент запуска, а в её выводе
+        заменяются на ***. Ни один инструмент (включая этот список) их обратно не показывает, только имена.
+        Кто может написать команду шага, может вывести её секреты, держите секрет на самом узком уровне.
       </p>
     {/if}
   </div>
@@ -304,6 +325,17 @@
     font-size: var(--text-xs, 0.75rem);
   }
 
+  .secret-row--inherited {
+    background: transparent;
+    border-style: dashed;
+  }
+
+  .secret-row__from {
+    flex: 1;
+    min-width: 0;
+    color: var(--color-fg-subtle, #6e6e6e);
+    font-size: var(--text-xs, 0.75rem);
+  }
   .add-row {
     display: grid;
     grid-template-columns: 1fr 1fr auto;

@@ -38,6 +38,7 @@
   import QuestlineModal from './lib/modals/QuestlineModal.svelte'
   import TemplatesModal from './lib/modals/TemplatesModal.svelte'
   import SecretsModal from './lib/modals/SecretsModal.svelte'
+  import { refreshTemplates, templateStore } from './lib/js/templatesStore.svelte.js'
   import TagsModal from './lib/modals/TagsModal.svelte'
   import SettingsModal from './lib/modals/SettingsModal.svelte'
   import ConfirmModal from './lib/modals/ConfirmModal.svelte'
@@ -155,6 +156,10 @@
   )
   let templatesOpen = $state(false)
   let secretsOpen = $state(false)
+  /** entity the secrets modal opens on (context menu → «Секреты»), or null */
+  let secretsOwner = $state(/** @type {{ kind: string, id: number } | null} */ (null))
+  /** template the templates modal opens for editing (a template=N link) */
+  let templatesFocusId = $state(/** @type {number | null} */ (null))
   let tagsOpen = $state(false)
   let settingsOpen = $state(false)
   let assistantOpen = $state(false)
@@ -226,6 +231,7 @@
         { id: 'add', label: 'Добавить квест' },
         { id: 'edit', label: 'Редактировать' },
         { id: 'icon', label: 'Иконка' },
+        { id: 'secrets', label: 'Секреты' },
         { id: 'sep-danger', sep: true },
         { id: 'delete', label: 'Удалить', danger: true },
       ]
@@ -272,6 +278,7 @@
             checked: s.id === significance,
           })),
         },
+        { id: 'secrets', label: 'Секреты' },
         {
           id: 'export',
           label: 'Экспорт',
@@ -312,6 +319,7 @@
       items.push(
         { id: 'sep-edit', sep: true },
         { id: 'edit', label: 'Редактировать' },
+        { id: 'secrets', label: 'Секреты' },
         { id: 'sep-danger', sep: true },
         { id: 'delete', label: 'Удалить шаг', danger: true },
       )
@@ -360,6 +368,7 @@
       }
     }
     for (const l of questlines) m[`questline:${l.id}`] = l.title || `questline=${l.id}`
+    for (const t of templateStore.list) m[`template:${t.id}`] = t.title || `template=${t.id}`
     for (const a of attachments) {
       m[`attachment:${a.id}`] = a.filename || `attachment=${a.id}`
     }
@@ -456,7 +465,9 @@
     templatesOpen = true
   }
 
-  function openSecrets() {
+  /** @param {{ kind: string, id: number } | null} [owner] */
+  function openSecrets(owner = null) {
+    secretsOwner = owner
     secretsOpen = true
   }
 
@@ -549,6 +560,10 @@
   function onLineContextSelect(action) {
     if (action === 'copy-id') {
       copyIdToClipboard('questline', ctxLineId)
+      return
+    }
+    if (action === 'secrets') {
+      if (ctxLineId != null) openSecrets({ kind: 'questline', id: ctxLineId })
       return
     }
     const line = questlines.find((l) => l.id === ctxLineId)
@@ -652,6 +667,10 @@
       copyIdToClipboard('quest', ctxQuestId)
       return
     }
+    if (action === 'secrets') {
+      if (ctxQuestId != null) openSecrets({ kind: 'quest', id: ctxQuestId })
+      return
+    }
     const quest = quests.find((q) => q.id === ctxQuestId)
     if (!quest) return
     if (action === 'edit') {
@@ -707,6 +726,10 @@
   async function onStepContextSelect(action) {
     if (action === 'copy-id') {
       copyIdToClipboard('step', ctxStepId)
+      return
+    }
+    if (action === 'secrets') {
+      if (ctxStepId != null) openSecrets({ kind: 'step', id: ctxStepId })
       return
     }
     const found = findStepRef(ctxStepId)
@@ -1118,6 +1141,11 @@
           return
         }
       }
+      return
+    }
+    if (kind === 'template') {
+      templatesFocusId = id
+      templatesOpen = true
     }
   }
 
@@ -1241,6 +1269,7 @@
   }
 
   onMount(() => {
+    void refreshTemplates()
     // Native swipe hosts (Android HubActivity, quest=192) drive tab switches
     // through this instead of a full page reload — keeps the header mounted
     // and lets setView()'s own transition animate the change.
@@ -1332,7 +1361,7 @@
     onViewChange={(v) => setView(v)}
     onOpenSettings={openSettings}
     onOpenTemplates={openTemplates}
-    onOpenSecrets={openSecrets}
+    onOpenSecrets={() => openSecrets()}
     onOpenTags={openTags}
     onOpenCreateQuestline={openCreateQuestline}
     onOpenCreateQuest={() => openCreate()}
@@ -1538,11 +1567,26 @@
   {quests}
   {notes}
   {attachments}
-  onClose={() => (templatesOpen = false)}
-  onChanged={() => load({ silent: true })}
+  focusId={templatesFocusId}
+  onClose={() => {
+    templatesOpen = false
+    templatesFocusId = null
+  }}
+  onChanged={() => {
+    void load({ silent: true })
+    void refreshTemplates()
+  }}
+  onOpenSecrets={(id) => openSecrets({ kind: 'template', id })}
 />
 
-<SecretsModal open={secretsOpen} onClose={() => (secretsOpen = false)} />
+<SecretsModal
+  open={secretsOpen}
+  owner={secretsOwner}
+  {quests}
+  {questlines}
+  labels={refLabels}
+  onClose={() => (secretsOpen = false)}
+/>
 
 <TagsModal open={tagsOpen} onClose={() => (tagsOpen = false)} />
 

@@ -1,8 +1,8 @@
 /** Tokens agents already paste: note=12, quest=23, … */
 
-export const REF_RE = /\b(note|quest|questline|step|attachment)=(\d+)\b/g
+export const REF_RE = /\b(note|quest|questline|step|attachment|template)=(\d+)\b/g
 
-export const REF_KINDS = ['note', 'quest', 'questline', 'step', 'attachment']
+export const REF_KINDS = ['note', 'quest', 'questline', 'step', 'attachment', 'template']
 
 /**
  * @param {string} text

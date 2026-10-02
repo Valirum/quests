@@ -417,6 +417,13 @@ func (s *Server) resolveRefs(r *http.Request, list []refs.Ref) []map[string]any 
 					}
 				}
 			}
+		case "template":
+			t, err := s.Store.GetTemplate(r.Context(), ref.ID)
+			if err == nil {
+				if title, ok := t["title"].(string); ok {
+					row["title"] = title
+				}
+			}
 		case "attachment":
 			a, err := s.Store.GetAttachment(r.Context(), ref.ID)
 			if err == nil {

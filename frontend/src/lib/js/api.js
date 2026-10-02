@@ -146,24 +146,43 @@ export function emitTemplate(id) {
   return request(`/api/templates/${id}/emit`, { method: 'POST' })
 }
 
-/** Only the secret *names* — GET never returns values, see setTemplateSecret. */
-export async function listTemplateSecrets(templateId) {
-  const { keys } = await request(`/api/templates/${templateId}/secrets`)
-  return keys || []
+const SECRET_OWNER_PATH = {
+  questline: 'questlines',
+  template: 'templates',
+  quest: 'quests',
+  step: 'steps',
+}
+
+/** Kinds that can own secrets (a secret is inherited step > quest > template > questline). */
+export const SECRET_OWNER_KINDS = Object.keys(SECRET_OWNER_PATH)
+
+/** @param {string} kind @param {number} id */
+function secretsPath(kind, id) {
+  return `/api/${SECRET_OWNER_PATH[kind]}/${id}/secrets`
+}
+
+/**
+ * Secret *names* for an owner — GET never returns values.
+ * `keys` are set on the owner itself, `inherited` ({ key, from, id }) come from
+ * a more general owner.
+ * @param {string} kind @param {number} id
+ * @returns {Promise<{ keys: string[], inherited: { key: string, from: string, id: number }[] }>}
+ */
+export async function listSecrets(kind, id) {
+  const out = await request(secretsPath(kind, id))
+  return { keys: out?.keys || [], inherited: out?.inherited || [] }
 }
 
 /** Write-only: sets/overwrites one secret. Never readable back through the API. */
-export function setTemplateSecret(templateId, key, value) {
-  return request(`/api/templates/${templateId}/secrets/${encodeURIComponent(key)}`, {
+export function setSecret(kind, id, key, value) {
+  return request(`${secretsPath(kind, id)}/${encodeURIComponent(key)}`, {
     method: 'PUT',
     body: JSON.stringify({ value }),
   })
 }
 
-export function deleteTemplateSecret(templateId, key) {
-  return request(`/api/templates/${templateId}/secrets/${encodeURIComponent(key)}`, {
-    method: 'DELETE',
-  })
+export function deleteSecret(kind, id, key) {
+  return request(`${secretsPath(kind, id)}/${encodeURIComponent(key)}`, { method: 'DELETE' })
 }
 
 export function getHero() {

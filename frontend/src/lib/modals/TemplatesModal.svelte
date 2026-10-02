@@ -32,10 +32,14 @@
   import ModalHead from './ModalHead.svelte'
   import ModalFoot from './ModalFoot.svelte'
   import { toast } from '../js/toasts.svelte.js'
+  import { copyText } from '../js/clipboard.js'
+  import ContextMenu from '../ui/ContextMenu.svelte'
   import { untrack } from 'svelte'
 
-  /** @type {{ open: boolean, quests?: any[], notes?: any[], attachments?: any[], onClose: () => void, onChanged: () => void }} */
-  let { open = false, quests = [], notes = [], attachments = [], onClose, onChanged } = $props()
+  /** `focusId` opens that template for editing (a template=N link);
+   * `onOpenSecrets(id)` opens the secrets manager on a template.
+   * @type {{ open: boolean, quests?: any[], notes?: any[], attachments?: any[], focusId?: number | null, onClose: () => void, onChanged: () => void, onOpenSecrets?: (id: number) => void }} */
+  let { open = false, quests = [], notes = [], attachments = [], focusId = null, onClose, onChanged, onOpenSecrets } = $props()
 
   const LOCAL_TZ = localTimeZone() || 'Europe/Moscow'
   const WORKDAYS = [0, 1, 2, 3, 4]
@@ -390,6 +394,69 @@
     }
   }
 
+  // Right-click menu on a template row: the buttons' actions plus id/secrets.
+  let ctxOpen = $state(false)
+  let ctxX = $state(0)
+  let ctxY = $state(0)
+  let ctxId = $state(/** @type {number | null} */ (null))
+  let ctxTemplate = $derived(templates.find((t) => t.id === ctxId) ?? null)
+  let ctxItems = $derived(
+    ctxTemplate
+      ? [
+          { id: 'copy-id', label: `Копировать template=${ctxTemplate.id}` },
+          { id: 'sep-copy', sep: true },
+          { id: 'edit', label: 'Редактировать' },
+          { id: 'emit', label: 'Эмитировать сейчас' },
+          { id: 'duplicate', label: 'Дублировать (копия выключена)' },
+          { id: 'toggle', label: ctxTemplate.enabled ? 'Выключить' : 'Включить' },
+          { id: 'sep-secrets', sep: true },
+          { id: 'secrets', label: 'Секреты' },
+        ]
+      : [],
+  )
+
+  /** @param {MouseEvent} event @param {any} t */
+  function openTemplateMenu(event, t) {
+    event.preventDefault()
+    event.stopPropagation()
+    ctxId = t.id
+    ctxX = event.clientX
+    ctxY = event.clientY
+    ctxOpen = true
+  }
+
+  async function onTemplateMenuSelect(action) {
+    const t = ctxTemplate
+    if (!t) return
+    if (action === 'copy-id') {
+      try {
+        await copyText(`template=${t.id}`)
+        toast(`Скопировано template=${t.id}`, { kind: 'success', ttl: 1600 })
+      } catch (e) {
+        toast(e.message || String(e), { kind: 'error' })
+      }
+    } else if (action === 'edit') openEdit(t)
+    else if (action === 'emit') await onEmit(t)
+    else if (action === 'duplicate') await onCopy(t)
+    else if (action === 'toggle') await onToggleEnabled(t)
+    else if (action === 'secrets') onOpenSecrets?.(t.id)
+  }
+
+  // A template=N link opens the modal straight on that template's edit form —
+  // once per opening, so going back to the list stays on the list.
+  let focusApplied = false
+  $effect(() => {
+    if (!open) {
+      focusApplied = false
+      return
+    }
+    if (focusId == null || focusApplied || view !== 'list') return
+    const t = templates.find((x) => x.id === focusId)
+    if (!t) return
+    focusApplied = true
+    untrack(() => openEdit(t))
+  })
+
   async function onToggleEnabled(t) {
     try {
       await updateTemplate(t.id, { enabled: !t.enabled })
@@ -490,7 +557,7 @@
       {:else}
         <ul class="tpl-list">
           {#each templates as t (t.id)}
-            <li class="tpl-row" class:tpl-row--off={!t.enabled}>
+            <li class="tpl-row" class:tpl-row--off={!t.enabled} oncontextmenu={(e) => openTemplateMenu(e, t)}>
               <button type="button" class="tpl-row__main" onclick={() => openEdit(t)}>
                 <span class="tpl-row__title">
                   {t.title}
@@ -777,6 +844,15 @@
     </form>
   {/if}
 </ModalShell>
+
+<ContextMenu
+  open={ctxOpen}
+  x={ctxX}
+  y={ctxY}
+  items={ctxItems}
+  onSelect={onTemplateMenuSelect}
+  onClose={() => (ctxOpen = false)}
+/>
 
 <ConfirmModal
   open={deleteConfirmOpen}

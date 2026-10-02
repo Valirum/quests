@@ -89,8 +89,8 @@ server = MCPServer(
         + _guide_pointer +
         "Use list_questlines then list_quests to browse "
         "missions; list_notes for the knowledge vault. get_base_context for one "
-        "entity's own fields (quest/step/questline — accepts a pasted ref like "
-        "quest=23 / step=252 / questline=3); get_note_context for a note's own "
+        "entity's own fields (quest/step/questline/template — accepts a pasted ref like "
+        "quest=23 / step=252 / questline=3 / template=5); get_note_context for a note's own "
         "fields plus refs/backlinks/children (e.g. note=5). get_active_context for "
         "live/pending work; get_inactive_context for completed/failed/archived "
         "history with full steps — together they cover every quest, full detail. "
@@ -313,12 +313,12 @@ def _parse_ref(ref: str) -> tuple[str, int]:
     # "attachment" was missing here, so ref="attachment=N" pasted straight
     # from a description raised "bad ref" instead of the guided error below.
     text = (ref or "").strip()
-    for kind in ("questline", "quest", "step", "note", "attachment"):
+    for kind in ("questline", "quest", "step", "note", "attachment", "template"):
         prefix = f"{kind}="
         if text.startswith(prefix):
             return kind, int(text[len(prefix) :].strip())
     raise ValueError(
-        f"bad ref {ref!r}; expected quest=N, step=N, questline=N, note=N, or attachment=N"
+        f"bad ref {ref!r}; expected quest=N, step=N, questline=N, template=N, note=N, or attachment=N"
     )
 
 
@@ -435,6 +435,8 @@ def get_base_context(
 ) -> dict[str, Any]:
     if ref:
         kind, eid = _parse_ref(ref)
+        if kind == "template":
+            return _api_get(f"/api/templates/{eid}")
         if kind == "note":
             raise ValueError("get_base_context does not support notes; use get_note_context")
         if kind == "attachment":
