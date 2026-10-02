@@ -390,3 +390,15 @@ func attachTags(ctx context.Context, st *store.Store, tmpl templateRow, questID 
 	}
 	return st.CopyTemplateTagsToQuest(ctx, tmpl.ID, questID)
 }
+
+// followQuestlineCategory enforces the same rule as the REST API: a quest in a
+// questline always carries that questline's category, whatever the template or
+// the emitted spec said. A questline without a category leaves it alone.
+func followQuestlineCategory(ctx context.Context, st *store.Store, q *domain.Quest) {
+	if q.QuestlineID == nil {
+		return
+	}
+	if c, err := st.QuestlineCategory(ctx, *q.QuestlineID); err == nil && c != nil {
+		q.CategoryID = c
+	}
+}

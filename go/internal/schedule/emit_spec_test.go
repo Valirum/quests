@@ -230,6 +230,32 @@ func TestMaterializeDueCreatesTheQuestTheCommandPrinted(t *testing.T) {
 	}
 }
 
+// A quest in a questline carries the questline's category, as in the REST API:
+// neither the template's own category nor one the command prints may drift away.
+func TestMaterializeDueQuestlineCategoryWins(t *testing.T) {
+	for name, cmd := range map[string]string{
+		"template category": `echo '{"title":"a"}'`,
+		"printed category":  `echo '{"title":"a","category":"home"}'`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			st := openEmitSpecDB(t)
+			insertTemplate(t, st, 8, `title, emit_pool_command, questline_id, category_id`,
+				`'Шаблон', '`+strings.ReplaceAll(cmd, "'", "''")+`', 1, 2`)
+			ids, err := MaterializeDue(context.Background(), st, events.New(), time.Now(), rand.New(rand.NewSource(1)))
+			if err != nil || len(ids) != 1 {
+				t.Fatalf("created %v, err %v", ids, err)
+			}
+			q, err := st.GetQuest(context.Background(), ids[0])
+			if err != nil {
+				t.Fatal(err)
+			}
+			if q.CategoryID == nil || *q.CategoryID != 1 {
+				t.Errorf("category = %v, want the questline's (1)", q.CategoryID)
+			}
+		})
+	}
+}
+
 // Nothing printed means no quest and no failure; the template's own steps are
 // not used as a fallback when a command is configured.
 func TestMaterializeDueNothingPrintedCreatesNothing(t *testing.T) {

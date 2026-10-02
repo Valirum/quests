@@ -275,6 +275,7 @@ func materializeDue(ctx context.Context, st *store.Store, hub *events.Hub, now t
 		if spec != nil {
 			applyResolvedSpec(ctx, st, &q, tmpl, spec, now)
 		}
+		followQuestlineCategory(ctx, st, &q)
 		tid := tmpl.ID
 		q.TemplateID = &tid
 		pk := key
@@ -1019,6 +1020,7 @@ func MaterializeTemplateManual(ctx context.Context, st *store.Store, hub *events
 	if spec != nil {
 		applyResolvedSpec(ctx, st, &q, tmpl, spec, now)
 	}
+	followQuestlineCategory(ctx, st, &q)
 	tid := tmpl.ID
 	q.TemplateID = &tid
 	pk := key
