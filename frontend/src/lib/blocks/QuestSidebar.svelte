@@ -17,8 +17,8 @@
    *   matchedQuests: any[],
    *   listedQuests: any[],
    *   byCategory: any[],
-   *   delayedQuests: any[],
-   *   delayedOpen: boolean,
+   *   frozenQuests: any[],
+   *   frozenOpen: boolean,
    *   selectedId: number | null,
    *   searchQuery: string,
    *   showAllQuests: boolean,
@@ -31,7 +31,7 @@
    *   onLineContextMenu: (event: MouseEvent, line: any) => void,
    *   onToggleCategory: (key: string) => void,
    *   onToggleLine: (catKey: string, lineKey: string) => void,
-   *   onToggleDelayed: () => void,
+   *   onToggleFrozen: () => void,
    *   categories: any[],
    *   scopeCategoryId: number | null,
    *   scopeQuestlineId: number | null,
@@ -47,8 +47,8 @@
     matchedQuests,
     listedQuests,
     byCategory,
-    delayedQuests,
-    delayedOpen,
+    frozenQuests,
+    frozenOpen,
     selectedId,
     searchQuery = $bindable(''),
     showAllQuests = $bindable(false),
@@ -61,7 +61,7 @@
     onLineContextMenu,
     onToggleCategory,
     onToggleLine,
-    onToggleDelayed,
+    onToggleFrozen,
     categories,
     scopeCategoryId,
     scopeQuestlineId,
@@ -138,7 +138,7 @@
       class="quest-row"
       class:quest-row--active={q.id === selectedId}
       class:quest-row--pinned={q.pinned}
-      class:quest-row--inactive={isQuestInactive(q) && q.status !== 'delayed'}
+      class:quest-row--inactive={isQuestInactive(q) && q.status !== 'frozen'}
       style:--tag-n={q.tags?.length || 0}
       onclick={() => onSelect(q.id)}
       oncontextmenu={(e) => onQuestContextMenu(e, q)}
@@ -191,23 +191,23 @@
     </button>
   {/snippet}
 
-  {#if delayedQuests.length > 0}
-    <div class="sidebar__delayed">
+  {#if frozenQuests.length > 0}
+    <div class="sidebar__frozen">
       <button
         type="button"
-        class="sidebar__delayed-toggle"
-        aria-expanded={delayedOpen}
-        onclick={onToggleDelayed}
+        class="sidebar__frozen-toggle"
+        aria-expanded={frozenOpen}
+        onclick={onToggleFrozen}
       >
-        <span class="sidebar__delayed-label">Отложено</span>
-        <span class="sidebar__delayed-hint">{delayedQuests.length}</span>
-        <span class="sidebar__delayed-chevron" aria-hidden="true">
-          <Icon name={delayedOpen ? 'chevron-down' : 'chevron-right'} size={12} />
+        <span class="sidebar__frozen-label">Заморожено</span>
+        <span class="sidebar__frozen-hint">{frozenQuests.length}</span>
+        <span class="sidebar__frozen-chevron" aria-hidden="true">
+          <Icon name={frozenOpen ? 'chevron-down' : 'chevron-right'} size={12} />
         </span>
       </button>
-      {#if delayedOpen}
-        <div class="sidebar__delayed-body">
-          {#each delayedQuests as q (q.id)}
+      {#if frozenOpen}
+        <div class="sidebar__frozen-body">
+          {#each frozenQuests as q (q.id)}
             {@render questRow(q)}
           {/each}
         </div>

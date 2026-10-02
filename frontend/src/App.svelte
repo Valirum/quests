@@ -141,10 +141,10 @@
   let categoryOpen = $state(/** @type {Record<string, boolean>} */ ({}))
   /** Open state for questline subgroups: `${bucket}:${catKey}:${lineKey}` → boolean. */
   let lineOpen = $state(/** @type {Record<string, boolean>} */ ({}))
-  /** Sidebar "Отложено (N)" tab — collapsed by default. */
-  let delayedOpen = $state(false)
-  function toggleDelayed() {
-    delayedOpen = !delayedOpen
+  /** Sidebar "Заморожено (N)" tab — collapsed by default. */
+  let frozenOpen = $state(false)
+  function toggleFrozen() {
+    frozenOpen = !frozenOpen
   }
 
   let modalOpen = $state(false)
@@ -242,7 +242,7 @@
         { id: 'delay-90', label: '90 мин' },
         { id: 'delay-120', label: '120 мин' },
       ]
-      if (status === 'delayed') {
+      if (status === 'frozen') {
         delayChildren.push(
           { id: 'sep-undelay', sep: true },
           { id: 'status:active', label: 'Вернуть в активные' },
@@ -338,10 +338,10 @@
   let byCategory = $derived(
     groupQuestsByCategory(scopedQuests, categories, questlines),
   )
-  /** "Отложено" — own sidebar tab, independent of showAllQuests/OPEN_STATUSES. */
-  let delayedQuests = $derived(
+  /** "Заморожено" — own sidebar tab, independent of showAllQuests/OPEN_STATUSES. */
+  let frozenQuests = $derived(
     matchedQuests.filter((q) => {
-      if (q.status !== 'delayed') return false
+      if (q.status !== 'frozen') return false
       if (scopeCategoryId != null && (q.category_id ?? null) !== scopeCategoryId) return false
       if (scopeQuestlineId != null && q.questline_id !== scopeQuestlineId) return false
       return true
@@ -1424,9 +1424,9 @@
         {matchedQuests}
         {listedQuests}
         {byCategory}
-        {delayedQuests}
-        {delayedOpen}
-        onToggleDelayed={toggleDelayed}
+        {frozenQuests}
+        {frozenOpen}
+        onToggleFrozen={toggleFrozen}
         {categories}
         {scopeCategoryId}
         {scopeQuestlineId}

@@ -20,7 +20,7 @@
   --color-info: #00f5ff;
 
   --color-status-active: var(--color-accent);
-  --color-status-delayed: var(--color-info);
+  --color-status-frozen: var(--color-info);
   --color-status-expired: var(--color-warning);
   --color-status-completed: var(--color-success);
   --color-status-failed: var(--color-danger);

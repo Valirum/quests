@@ -24,7 +24,7 @@ class ApiClient(private val base: String, private val token: String?) {
     suspend fun health(): JSONObject = getJson("/api/health", auth = true)
 
     suspend fun activeQuests(): List<JSONObject> {
-        val body = request("GET", "/api/quests?status=active&status=delayed", auth = true)
+        val body = request("GET", "/api/quests?status=active&status=frozen", auth = true)
         val arr = JSONArray(body)
         return (0 until arr.length()).map { arr.getJSONObject(it) }
     }

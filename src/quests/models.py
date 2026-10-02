@@ -21,7 +21,7 @@ class QuestStatus(str, Enum):
 
     active = "active"
     expired = "expired"
-    delayed = "delayed"  # manual "отложено" — postponed by the user, not auto-set
+    frozen = "frozen"  # manual "заморожено" — parked by the user, not auto-set
     completed = "completed"
     failed = "failed"
     archived = "archived"

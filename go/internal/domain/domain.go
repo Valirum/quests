@@ -7,7 +7,7 @@ type QuestStatus string
 const (
 	StatusActive    QuestStatus = "active"
 	StatusExpired   QuestStatus = "expired"
-	StatusDelayed   QuestStatus = "delayed" // manual "отложено" — not the old auto-overdue meaning, see StatusExpired
+	StatusFrozen    QuestStatus = "frozen" // manual "заморожено" — parked by the user, not the auto-overdue StatusExpired
 	StatusCompleted QuestStatus = "completed"
 	StatusFailed    QuestStatus = "failed"
 	StatusArchived  QuestStatus = "archived"
@@ -173,7 +173,7 @@ func SyncStatusFromSteps(q *Quest, now time.Time) {
 			break
 		}
 	}
-	if allDone && (q.Status == StatusActive || q.Status == StatusExpired || q.Status == StatusDelayed || q.Status == StatusFailed) {
+	if allDone && (q.Status == StatusActive || q.Status == StatusExpired || q.Status == StatusFrozen || q.Status == StatusFailed) {
 		q.Status = StatusCompleted
 	} else if !allDone && q.Status == StatusCompleted {
 		q.Status = StatusActive

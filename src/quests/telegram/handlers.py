@@ -382,7 +382,7 @@ def build_router(
             return
         qid = int(parts[1])
         new_status = parts[2]
-        if new_status not in {"active", "completed", "failed", "expired", "delayed"}:
+        if new_status not in {"active", "completed", "failed", "expired", "frozen"}:
             await query.answer("unknown status")
             return
         try:
