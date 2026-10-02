@@ -28,7 +28,7 @@ var attrLabelRU = map[string]string{
 	"int": "Интеллект", "wis": "Мудрость", "cha": "Харизма",
 }
 var sigMult = map[string]float64{
-	"common": 1, "uncommon": 1.25, "epic": 1.75, "legendary": 2.5,
+	"insignificant": 0.75, "common": 1, "uncommon": 1.25, "epic": 1.75, "legendary": 2.5,
 }
 
 func progressToNext(rank int) int {

@@ -186,6 +186,7 @@ def system_prompt(*, now_local: str, tz_name: str) -> str:
         f"Сейчас локально: {now_local} ({tz_name}). От него считай все минуты.\n"
         f"category_slug — один из: {cats}, либо null если неясно.\n"
         f"significance — один из: {sigs} (по умолчанию common; "
+        "insignificant — для мелких, малозначимых дел; "
         "epic/legendary только если пользователь явно сказал «эпик/легендарн…» "
         "или сравнимая важность).\n"
         "pinned=true ТОЛЬКО если пользователь явно просит закрепить "

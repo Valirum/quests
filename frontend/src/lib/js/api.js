@@ -422,6 +422,7 @@ export const TEMPLATE_FREQ_LABELS = {
 
 /** @type {{ id: string, label: string }[]} */
 export const QUEST_SIGNIFICANCES = [
+  { id: 'insignificant', label: 'незначительное' },
   { id: 'common', label: 'обычное' },
   { id: 'uncommon', label: 'необычное' },
   { id: 'epic', label: 'эпическое' },

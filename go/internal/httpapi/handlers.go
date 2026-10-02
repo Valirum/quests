@@ -233,6 +233,10 @@ func (s *Server) createQuest(w http.ResponseWriter, r *http.Request) {
 	if body.Significance == "" {
 		body.Significance = domain.SigCommon
 	}
+	if !body.Significance.Valid() {
+		writeErr(w, http.StatusUnprocessableEntity, "invalid significance")
+		return
+	}
 	now := timeutil.NowUTC()
 	var deadline *time.Time
 	if body.DeadlineAt != nil && strings.TrimSpace(*body.DeadlineAt) != "" {
@@ -375,6 +379,10 @@ func (s *Server) patchQuest(w http.ResponseWriter, r *http.Request) {
 	if v, ok := raw["significance"]; ok {
 		var sg domain.Significance
 		_ = json.Unmarshal(v, &sg)
+		if !sg.Valid() {
+			writeErr(w, http.StatusUnprocessableEntity, "invalid significance")
+			return
+		}
 		q.Significance = sg
 	}
 	if v, ok := raw["pinned"]; ok {

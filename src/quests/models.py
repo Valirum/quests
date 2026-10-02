@@ -49,6 +49,7 @@ class TemplateEmitOutcome(str, Enum):
 class QuestSignificance(str, Enum):
     """Game-style rarity (not priority)."""
 
+    insignificant = "insignificant"  # незначительное
     common = "common"  # обычное
     uncommon = "uncommon"  # необычное
     epic = "epic"  # эпическое
@@ -56,6 +57,7 @@ class QuestSignificance(str, Enum):
 
 
 SIGNIFICANCE_LABEL_RU: dict[str, str] = {
+    QuestSignificance.insignificant.value: "незначительное",
     QuestSignificance.common.value: "обычное",
     QuestSignificance.uncommon.value: "необычное",
     QuestSignificance.epic.value: "эпическое",

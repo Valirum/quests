@@ -19,7 +19,7 @@ export function periodBadge(q) {
 
 export function significanceLabel(q) {
   const id = q?.significance || 'common'
-  return QUEST_SIGNIFICANCES.find((s) => s.id === id)?.label || 'обычное'
+  return QUEST_SIGNIFICANCES.find((s) => s.id === id)?.label || id
 }
 
 /** Fraction only when the quest is quantified (more than one step-unit). */

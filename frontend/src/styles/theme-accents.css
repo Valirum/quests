@@ -3,6 +3,9 @@
  * Selectors are slightly more specific so they win over scoped component rules.
  */
 
+.sig-badge.sig-badge[data-sig='insignificant'] {
+  color: var(--color-fg-subtle);
+}
 .sig-badge.sig-badge[data-sig='common'] {
   color: var(--color-sig-common);
 }
@@ -36,6 +39,10 @@
  * option is quiet and the picked one carries the colour.
  */
 
+.opt-slider__opt--sig[data-sig='insignificant'] {
+  --opt-color: var(--color-fg-subtle);
+  --opt-color-on: var(--color-fg-muted);
+}
 .opt-slider__opt--sig[data-sig='common'] {
   --opt-color: var(--color-sig-common);
   --opt-color-on: var(--color-sig-common-on);

@@ -16,11 +16,21 @@ const (
 type Significance string
 
 const (
-	SigCommon    Significance = "common"
-	SigUncommon  Significance = "uncommon"
-	SigEpic      Significance = "epic"
-	SigLegendary Significance = "legendary"
+	SigInsignificant Significance = "insignificant"
+	SigCommon        Significance = "common"
+	SigUncommon      Significance = "uncommon"
+	SigEpic          Significance = "epic"
+	SigLegendary     Significance = "legendary"
 )
+
+// Valid reports whether s is one of the known significance levels.
+func (s Significance) Valid() bool {
+	switch s {
+	case SigInsignificant, SigCommon, SigUncommon, SigEpic, SigLegendary:
+		return true
+	}
+	return false
+}
 
 type Category struct {
 	ID        int64  `json:"id"`

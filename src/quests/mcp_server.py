@@ -47,6 +47,15 @@ from quests.envload import load_dotenv_files
 from quests.refs import resolve_category_id as _shared_resolve_category_id
 from quests.refs import resolve_questline_id as _shared_resolve_questline_id
 
+_SIGNIFICANCES = ("insignificant", "common", "uncommon", "epic", "legendary")
+
+
+def _check_significance(value: str) -> str:
+    if value not in _SIGNIFICANCES:
+        raise ValueError(f"significance must be one of: {', '.join(_SIGNIFICANCES)} (got {value!r})")
+    return value
+
+
 API_BASE = (os.environ.get("QUESTS_API") or f"http://{HOST}:{PORT}").rstrip("/")
 
 # IDs of your own vault notes holding the agent guide / session-report parent.
@@ -873,7 +882,7 @@ def create_template(
     if line_id is not None:
         body["questline_id"] = line_id
     if significance is not None:
-        body["significance"] = significance
+        body["significance"] = _check_significance(significance)
     if pinned is not None:
         body["pinned"] = bool(pinned)
     if enabled is not None:
@@ -954,7 +963,7 @@ def update_template(
         if line_id is not None:
             body["questline_id"] = line_id
     if significance is not None:
-        body["significance"] = significance
+        body["significance"] = _check_significance(significance)
     if pinned is not None:
         body["pinned"] = bool(pinned)
     if enabled is not None:
@@ -1398,7 +1407,7 @@ def create_quest(
             raise ValueError(f"bad status {status!r}; expected one of {sorted(ALLOWED_STATUS)}")
         body["status"] = st
     if significance is not None:
-        body["significance"] = significance
+        body["significance"] = _check_significance(significance)
     if pinned is not None:
         body["pinned"] = bool(pinned)
     if automated is not None:
@@ -1604,7 +1613,7 @@ def update_quest(
             )
         body["status"] = st
     if significance is not None:
-        body["significance"] = significance
+        body["significance"] = _check_significance(significance)
     if pinned is not None:
         body["pinned"] = bool(pinned)
     if sort_order is not None:

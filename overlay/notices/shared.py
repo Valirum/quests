@@ -8,6 +8,7 @@ from gi.repository import GLib, Gtk
 from ..stylepacks import _load_pack, active_pack
 
 SIGNIFICANCE_LABEL_RU = {
+    "insignificant": "незначительное",
     "common": "обычное",
     "uncommon": "необычное",
     "epic": "эпическое",

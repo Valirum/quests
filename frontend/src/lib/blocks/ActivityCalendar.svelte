@@ -86,7 +86,7 @@
 
   function sigKey(q) {
     const s = String(q?.significance || 'common').toLowerCase()
-    if (['common', 'uncommon', 'epic', 'legendary'].includes(s)) return s
+    if (['insignificant', 'common', 'uncommon', 'epic', 'legendary'].includes(s)) return s
     return 'common'
   }
 
