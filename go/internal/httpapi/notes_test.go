@@ -267,3 +267,45 @@ func TestPrivateNoteHidesDescriptionOnlyFromMCP(t *testing.T) {
 		t.Fatalf("non-private note must be visible via mcp too, got %v", g["description"])
 	}
 }
+
+// Regression: get_note_context (GET /api/context?note=N) used the raw
+// notePayload, bypassing the private-note redaction that list/get already
+// had — found 2026-10-02 when a note marked private right after this feature
+// shipped still leaked its description through this path.
+func TestPrivateNoteHidesDescriptionViaContextEndpointToo(t *testing.T) {
+	s := newAttachmentServer(t, "", "", 0)
+	h := s.Handler()
+
+	raw, _ := json.Marshal(map[string]any{
+		"title": "Пароль", "description": "sk-super-secret", "is_private": true,
+	})
+	r := httptest.NewRequest(http.MethodPost, "/api/notes", bytes.NewReader(raw))
+	r.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	var created map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &created); err != nil {
+		t.Fatal(err)
+	}
+	id := int64(created["id"].(float64))
+
+	for _, path := range []string{
+		fmt.Sprintf("/api/context?note=%d", id),
+	} {
+		r := httptest.NewRequest(http.MethodGet, path, nil)
+		r.Header.Set("X-Quests-Source", "mcp")
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		var out map[string]any
+		if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil {
+			t.Fatal(err)
+		}
+		note, ok := out["note"].(map[string]any)
+		if !ok {
+			t.Fatalf("%s: no note object in response: %v", path, out)
+		}
+		if note["description"] == "sk-super-secret" {
+			t.Fatalf("%s: private description leaked via get_note_context: %v", path, note["description"])
+		}
+	}
+}

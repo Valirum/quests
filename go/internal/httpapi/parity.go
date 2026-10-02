@@ -562,7 +562,7 @@ func (s *Server) getNoteContext(w http.ResponseWriter, r *http.Request, id int64
 		writeErr(w, 500, err.Error())
 		return
 	}
-	payload := s.notePayload(r, n)
+	payload := s.notePayloadFiltered(r, n)
 	payload["attachments"] = s.attachmentsForOwner(r.Context(), ownerNote, n.ID, true)
 	writeJSON(w, 200, map[string]any{
 		"focus":       map[string]any{"type": "note", "id": n.ID},
