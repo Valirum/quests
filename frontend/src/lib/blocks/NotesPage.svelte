@@ -331,6 +331,37 @@
     }
   }
 
+  /** Title commits on blur/Enter, independent of the description draft. */
+  async function commitTitle() {
+    const id = selectedId
+    if (id == null || titleReadonly) return
+    const t = title.trim()
+    if (t === saved.title) {
+      title = saved.title
+      return
+    }
+    if (!t) {
+      title = saved.title
+      return
+    }
+    try {
+      detail = await updateNote(id, { title: t })
+      saved = { ...saved, title: t }
+      title = t
+      onChanged()
+    } catch (e) {
+      error = e.message || String(e)
+      toast(error, { kind: 'error' })
+    }
+  }
+
+  function onTitleKeydown(event) {
+    if (event.key === 'Enter') {
+      event.preventDefault()
+      titleEl?.blur()
+    }
+  }
+
   function onRenameKeydown(event) {
     if (event.key === 'Enter') {
       event.preventDefault()
@@ -722,13 +753,14 @@
   }
 
   function setParentFromMenu(action) {
-    if (action === 'root') parentId = ''
-    else parentId = action
+    if (selectedId == null) return
+    reparentNote(selectedId, action === 'root' ? null : Number(action))
   }
 
   /** @param {number | null} id */
   function setParentCrumb(id) {
-    parentId = id == null ? '' : String(id)
+    if (selectedId == null) return
+    reparentNote(selectedId, id)
   }
 
   /** @param {MouseEvent} event */
@@ -1000,25 +1032,10 @@
     return true
   }
 
-  /** Stage a reparent from a tree drag — like picking a new parent from the
-   * breadcrumb picker, this only touches the local draft/form; nothing is
-   * sent to the server until the note is explicitly saved.
+  /** Reparent from a tree drag — saved immediately, like the breadcrumb picker.
    * @param {number} id @param {number | null} newParentId */
   function moveNoteTo(id, newParentId) {
-    const n = noteById(id)
-    if (!n) return
-    const pid = newParentId == null ? '' : String(newParentId)
-    if (id === selectedId) {
-      parentId = pid
-      return
-    }
-    const draft = getNoteDraft(id) || fromRow(n)
-    if (draft.parentId === pid) return
-    const next = { ...draft, parentId: pid }
-    // Dragging it back to its own saved parent should drop the draft
-    // entirely, not leave a no-op "unsaved" marker on the row.
-    if (draftsEqual(next, fromRow(n))) clearNoteDraft(id)
-    else putNoteDraft(id, next)
+    return reparentNote(id, newParentId)
   }
 
   function onRowDragStart(event, id) {
@@ -1288,6 +1305,8 @@
                 readonly={titleReadonly}
                 title={titleReadonly ? 'Двойной клик — править заголовок' : undefined}
                 ondblclick={startTitleEdit}
+                onblur={commitTitle}
+                onkeydown={onTitleKeydown}
               />
             </span>
             {#if dirty}<span class="notes__unsaved" title="Несохранено">*</span>{/if}
@@ -1297,7 +1316,7 @@
               type="button"
               class="btn btn--icon"
               class:notes__pin--on={pinned}
-              onclick={() => (pinned = !pinned)}
+              onclick={() => selectedId != null && togglePinNote(selectedId)}
               title={pinned ? 'Открепить' : 'Закрепить'}
               aria-label={pinned ? 'Открепить' : 'Закрепить'}
               aria-pressed={pinned}
@@ -1308,7 +1327,7 @@
               type="button"
               class="btn btn--icon notes__status-btn notes__status-btn--readme"
               class:notes__status-btn--on={isReadme}
-              onclick={() => (isReadme = !isReadme)}
+              onclick={() => selectedId != null && toggleReadmeNote(selectedId)}
               title={isReadme ? 'Снять README (прочитано)' : 'Пометить README (прочитать)'}
               aria-label={isReadme ? 'Снять README' : 'Пометить README'}
               aria-pressed={isReadme}
@@ -1319,7 +1338,7 @@
               type="button"
               class="btn btn--icon notes__status-btn notes__status-btn--private"
               class:notes__status-btn--on={isPrivate}
-              onclick={() => (isPrivate = !isPrivate)}
+              onclick={() => selectedId != null && togglePrivateNote(selectedId)}
               title={isPrivate ? 'Снять PRIVATE' : 'Пометить PRIVATE (скрыть от MCP)'}
               aria-label={isPrivate ? 'Снять PRIVATE' : 'Пометить PRIVATE'}
               aria-pressed={isPrivate}
@@ -1330,7 +1349,7 @@
               type="button"
               class="btn btn--icon notes__status-btn notes__status-btn--category"
               class:notes__status-btn--on={isCategory}
-              onclick={() => (isCategory = !isCategory)}
+              onclick={() => selectedId != null && toggleCategoryNote(selectedId)}
               title={isCategory ? 'Снять CATEGORY' : 'Пометить CATEGORY (папка-агрегатор)'}
               aria-label={isCategory ? 'Снять CATEGORY' : 'Пометить CATEGORY'}
               aria-pressed={isCategory}
