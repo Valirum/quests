@@ -120,8 +120,8 @@
       .sort((a, b) => {
         const ta = a.created_at || ''
         const tb = b.created_at || ''
-        if (ta !== tb) return ta > tb ? -1 : 1
-        return (b.id || 0) - (a.id || 0)
+        if (ta !== tb) return ta < tb ? -1 : 1
+        return (a.id || 0) - (b.id || 0)
       })
   })
 
