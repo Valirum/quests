@@ -301,6 +301,8 @@
                   сбой
                 {:else if step.run_mode === 'once'}
                   разово
+                {:else if step.run_mode === 'watch'}
+                  наблюдение {step.check_interval_seconds || '?'}s
                 {:else}
                   auto {step.check_interval_seconds || '?'}s
                 {/if}

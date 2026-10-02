@@ -95,6 +95,9 @@ type Tag struct {
 const (
 	RunModePoll = "poll"
 	RunModeOnce = "once"
+	// RunModeWatch is poll that keeps going after the step reached its maximum
+	// (a step that follows another quest and may be re-opened when it grows).
+	RunModeWatch = "watch"
 
 	RunIdle    = "idle"
 	RunRunning = "running"

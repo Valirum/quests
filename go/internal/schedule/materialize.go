@@ -563,7 +563,7 @@ func loadTemplateSteps(ctx context.Context, st *store.Store, tmpl templateRow, r
 			st.CheckCommand = &c
 			st.WaitPrevious = s.WaitPrevious
 			st.RunMode = s.RunMode
-			if st.RunMode == domain.RunModePoll {
+			if st.RunMode == domain.RunModePoll || st.RunMode == domain.RunModeWatch {
 				iv := 15
 				if s.CheckIntervalSeconds.Valid {
 					iv = int(s.CheckIntervalSeconds.Int64)

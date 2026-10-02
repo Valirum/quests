@@ -104,6 +104,10 @@ func (r *CheckRunner) FailStaleRunning(ctx context.Context) {
 	}
 }
 
+// watchDoneInterval is the minimum poll gap for a watch step that is already
+// closed (seconds).
+const watchDoneInterval = 60
+
 func (r *CheckRunner) Tick(ctx context.Context) {
 	active := domain.StatusActive
 	quests, err := r.Store.ListQuests(ctx, store.ListFilter{Status: &active})
@@ -115,15 +119,22 @@ func (r *CheckRunner) Tick(ctx context.Context) {
 	for _, q := range quests {
 		for i := range q.Steps {
 			st := q.Steps[i]
-			if st.CheckCommand == nil || strings.TrimSpace(*st.CheckCommand) == "" || st.Done {
-				continue
-			}
-			if st.WaitPrevious && i > 0 && !q.Steps[i-1].Done {
+			if st.CheckCommand == nil || strings.TrimSpace(*st.CheckCommand) == "" {
 				continue
 			}
 			mode := st.RunMode
 			if mode == "" {
 				mode = domain.RunModePoll
+			}
+			watch := mode == domain.RunModeWatch
+			// A closed step is final — except a watch step, which keeps following
+			// whatever it mirrors (only while its quest is active: Tick lists
+			// active quests only, on purpose, to bound the polling).
+			if st.Done && !watch {
+				continue
+			}
+			if st.WaitPrevious && i > 0 && !q.Steps[i-1].Done {
+				continue
 			}
 			if mode == domain.RunModeOnce {
 				if st.RunStatus != nil {
@@ -138,6 +149,9 @@ func (r *CheckRunner) Tick(ctx context.Context) {
 			iv := 15
 			if st.CheckIntervalSeconds != nil && *st.CheckIntervalSeconds >= 15 {
 				iv = *st.CheckIntervalSeconds
+			}
+			if watch && st.Done && iv < watchDoneInterval {
+				iv = watchDoneInterval // nothing to report until it grows: poll lazily
 			}
 			if st.CheckLastRunAt != nil && now.Sub(*st.CheckLastRunAt) < time.Duration(iv)*time.Second {
 				continue

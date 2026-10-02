@@ -408,3 +408,98 @@ func TestCheckPollInvalidTotalIgnored(t *testing.T) {
 		t.Fatalf("want 2/5, got %d/%d", step.ProgressCurrent, step.ProgressTotal)
 	}
 }
+
+func watchStep(cmd string, total, current int, mode string) domain.Step {
+	iv := 15
+	return domain.Step{
+		Title: "mirror", ProgressTotal: total, ProgressCurrent: current, SortOrder: 0,
+		CheckCommand: &cmd, CheckIntervalSeconds: &iv, RunMode: mode,
+	}
+}
+
+func tickAndGet(t *testing.T, st *store.Store, id int64) domain.Quest {
+	t.Helper()
+	r := NewCheckRunner(st, events.New())
+	r.Tick(context.Background())
+	r.Wait()
+	got, err := st.GetQuest(context.Background(), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return got
+}
+
+// A watch step that already reached its maximum keeps being polled: when the
+// followed quest grows, the step re-opens (and so does its quest).
+func TestCheckWatchReopensClosedStepWhenTotalGrows(t *testing.T) {
+	st := openChecksDB(t)
+	q := seedQuest(t, st, []domain.Step{watchStep(`printf '{"progress":3,"total":5}'`, 3, 3, domain.RunModeWatch)})
+	got := tickAndGet(t, st, q.ID)
+	step := got.Steps[0]
+	if step.ProgressTotal != 5 || step.ProgressCurrent != 3 || step.Done {
+		t.Fatalf("want 3/5 re-opened, got %d/%d done=%v", step.ProgressCurrent, step.ProgressTotal, step.Done)
+	}
+	if got.Status != domain.StatusActive {
+		t.Fatalf("status=%s, want active", got.Status)
+	}
+}
+
+// Plain poll steps stay final once closed — the old behaviour.
+func TestCheckPollKeepsClosedStepFinal(t *testing.T) {
+	st := openChecksDB(t)
+	q := seedQuest(t, st, []domain.Step{watchStep(`printf '{"progress":3,"total":5}'`, 3, 3, domain.RunModePoll)})
+	step := tickAndGet(t, st, q.ID).Steps[0]
+	if step.ProgressTotal != 3 || !step.Done {
+		t.Fatalf("closed poll step must not be polled, got %d/%d done=%v", step.ProgressCurrent, step.ProgressTotal, step.Done)
+	}
+}
+
+// Watching is limited to active quests: a completed quest's watch step is not
+// polled (this bounds the polling load, deliberately).
+func TestCheckWatchIgnoresInactiveQuests(t *testing.T) {
+	st := openChecksDB(t)
+	now := timeutil.NowUTC()
+	step := watchStep(`printf '{"progress":3,"total":5}'`, 3, 3, domain.RunModeWatch)
+	step.Done = true
+	q, err := st.CreateQuest(context.Background(), domain.Quest{
+		Title: "done-parent", Status: domain.StatusCompleted, Significance: domain.SigCommon,
+		CreatedAt: now, UpdatedAt: now, Automated: true, Steps: []domain.Step{step},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := tickAndGet(t, st, q.ID)
+	if got.Steps[0].ProgressTotal != 3 || got.Status != domain.StatusCompleted {
+		t.Fatalf("completed quest must be left alone, got total=%d status=%s", got.Steps[0].ProgressTotal, got.Status)
+	}
+}
+
+// A closed watch step polls at most once a minute, an open one at its interval.
+func TestCheckWatchClosedStepIsPolledLazily(t *testing.T) {
+	st := openChecksDB(t)
+	q := seedQuest(t, st, []domain.Step{watchStep(`printf '{"progress":3,"total":5}'`, 3, 3, domain.RunModeWatch)})
+	ctx := context.Background()
+	recent := timeutil.NowUTC().Add(-30 * time.Second) // past 15s, not past 60s
+	if _, err := st.DB.ExecContext(ctx, `UPDATE queststep SET check_last_run_at = ? WHERE quest_id = ?`, timeutil.ToDBUTC(recent), q.ID); err != nil {
+		t.Skipf("cannot seed check_last_run_at: %v", err)
+	}
+	step := tickAndGet(t, st, q.ID).Steps[0]
+	if step.ProgressTotal != 3 {
+		t.Fatalf("closed watch step polled after only 30s, total=%d", step.ProgressTotal)
+	}
+	old := timeutil.NowUTC().Add(-90 * time.Second)
+	if _, err := st.DB.ExecContext(ctx, `UPDATE queststep SET check_last_run_at = ? WHERE quest_id = ?`, timeutil.ToDBUTC(old), q.ID); err != nil {
+		t.Fatal(err)
+	}
+	if got := tickAndGet(t, st, q.ID).Steps[0]; got.ProgressTotal != 5 {
+		t.Fatalf("closed watch step should be polled after 90s, total=%d", got.ProgressTotal)
+	}
+}
+
+func TestNormalizeRunModeKeepsWatch(t *testing.T) {
+	for in, want := range map[string]string{"watch": "watch", " WATCH ": "watch", "once": "once", "poll": "poll", "": "poll", "bogus": "poll"} {
+		if got := store.NormalizeRunMode(in); got != want {
+			t.Errorf("NormalizeRunMode(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

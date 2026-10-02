@@ -52,7 +52,7 @@
 
   function useMirrorCheck(s, questId) {
     s.check_command = `quests progress ${questId}`
-    s.run_mode = 'poll'
+    s.run_mode = 'watch'
     s.open = true
   }
 

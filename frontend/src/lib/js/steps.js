@@ -16,12 +16,17 @@ export function newStepKey() {
   return `s-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`
 }
 
+/** @param {any} mode */
+function normalizeRunMode(mode) {
+  return mode === 'once' || mode === 'watch' ? mode : 'poll'
+}
+
 function checkDraft(s) {
   return {
     check_command: s?.check_command ?? '',
     check_interval_seconds: s?.check_interval_seconds != null ? String(s.check_interval_seconds) : '',
     wait_previous: Boolean(s?.wait_previous),
-    run_mode: s?.run_mode === 'once' ? 'once' : 'poll',
+    run_mode: normalizeRunMode(s?.run_mode),
   }
 }
 
@@ -64,7 +69,7 @@ export function checkPayload(s) {
     check_command: cmd || null,
     check_interval_seconds: cmd ? interval : null,
     wait_previous: cmd ? Boolean(s.wait_previous) : false,
-    run_mode: cmd && s.run_mode === 'once' ? 'once' : 'poll',
+    run_mode: cmd ? normalizeRunMode(s.run_mode) : 'poll',
   }
 }
 

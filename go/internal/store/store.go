@@ -670,8 +670,11 @@ func NormalizeCheck(cmd *string, interval *int) (*string, *int) {
 }
 
 func NormalizeRunMode(s string) string {
-	if strings.EqualFold(strings.TrimSpace(s), domain.RunModeOnce) {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case domain.RunModeOnce:
 		return domain.RunModeOnce
+	case domain.RunModeWatch:
+		return domain.RunModeWatch
 	}
 	return domain.RunModePoll
 }
@@ -690,7 +693,7 @@ func NormalizeStepCheck(st *domain.Step) {
 		st.RunStatus = nil
 		return
 	}
-	if st.RunMode == domain.RunModePoll && st.CheckIntervalSeconds == nil {
+	if (st.RunMode == domain.RunModePoll || st.RunMode == domain.RunModeWatch) && st.CheckIntervalSeconds == nil {
 		v := 15
 		st.CheckIntervalSeconds = &v
 	}
