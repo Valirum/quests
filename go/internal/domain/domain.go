@@ -1,6 +1,10 @@
 package domain
 
-import "time"
+import (
+	"fmt"
+	"strings"
+	"time"
+)
 
 type QuestStatus string
 
@@ -23,13 +27,53 @@ const (
 	SigLegendary     Significance = "legendary"
 )
 
+// SignificanceValues lists the valid levels, lowest first.
+var SignificanceValues = []Significance{SigInsignificant, SigCommon, SigUncommon, SigEpic, SigLegendary}
+
 // Valid reports whether s is one of the known significance levels.
 func (s Significance) Valid() bool {
-	switch s {
-	case SigInsignificant, SigCommon, SigUncommon, SigEpic, SigLegendary:
-		return true
+	for _, v := range SignificanceValues {
+		if s == v {
+			return true
+		}
 	}
 	return false
+}
+
+// StatusValues lists the valid quest statuses.
+var StatusValues = []QuestStatus{StatusActive, StatusExpired, StatusFrozen, StatusCompleted, StatusFailed, StatusArchived}
+
+// Valid reports whether s is one of the known quest statuses.
+func (s QuestStatus) Valid() bool {
+	for _, v := range StatusValues {
+		if s == v {
+			return true
+		}
+	}
+	return false
+}
+
+// InvalidSignificanceMsg is the 422 detail for an unknown significance. It
+// lists the valid values so an API/MCP caller can fix the request in one retry.
+func InvalidSignificanceMsg(got string) string {
+	return fmt.Sprintf("invalid significance %q; expected one of: %s", got, joinValues(SignificanceValues))
+}
+
+// InvalidStatusMsg is the 422 detail for an unknown quest status.
+func InvalidStatusMsg(got string) string {
+	msg := fmt.Sprintf("invalid status %q; expected one of: %s", got, joinValues(StatusValues))
+	if got == "delayed" {
+		msg += ` ("delayed" was renamed to "frozen")`
+	}
+	return msg
+}
+
+func joinValues[T ~string](vals []T) string {
+	out := make([]string, len(vals))
+	for i, v := range vals {
+		out[i] = string(v)
+	}
+	return strings.Join(out, ", ")
 }
 
 type Category struct {

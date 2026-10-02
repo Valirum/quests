@@ -168,7 +168,7 @@ func (s *Store) CreateTemplate(ctx context.Context, body map[string]any) (Templa
 	tz := asStringDef(body["timezone"], "Europe/Moscow")
 	sig := asStringDef(body["significance"], "common")
 	if !domain.Significance(sig).Valid() {
-		return nil, errBad("invalid significance")
+		return nil, errBad(domain.InvalidSignificanceMsg(sig))
 	}
 	emitMode := asStringDef(body["emit_mode"], "fixed")
 	emitChance := asFloat(body["emit_chance"], 1.0)
@@ -211,7 +211,7 @@ func (s *Store) CreateTemplate(ctx context.Context, body map[string]any) (Templa
 func (s *Store) UpdateTemplate(ctx context.Context, id int64, body map[string]any) (TemplateRead, error) {
 	if v, ok := body["significance"]; ok {
 		if sg, _ := v.(string); !domain.Significance(sg).Valid() {
-			return nil, errBad("invalid significance")
+			return nil, errBad(domain.InvalidSignificanceMsg(sg))
 		}
 	}
 	cur, err := s.GetTemplate(ctx, id)

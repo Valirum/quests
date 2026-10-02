@@ -172,6 +172,10 @@ func (s *Server) listQuests(w http.ResponseWriter, r *http.Request) {
 	var f store.ListFilter
 	if st := r.URL.Query().Get("status"); st != "" {
 		s := domain.QuestStatus(st)
+		if !s.Valid() {
+			writeErr(w, http.StatusUnprocessableEntity, domain.InvalidStatusMsg(st))
+			return
+		}
 		f.Status = &s
 	}
 	if p := r.URL.Query().Get("pinned"); p != "" {
@@ -230,11 +234,15 @@ func (s *Server) createQuest(w http.ResponseWriter, r *http.Request) {
 	if body.Status == "" {
 		body.Status = domain.StatusActive
 	}
+	if !body.Status.Valid() {
+		writeErr(w, http.StatusUnprocessableEntity, domain.InvalidStatusMsg(string(body.Status)))
+		return
+	}
 	if body.Significance == "" {
 		body.Significance = domain.SigCommon
 	}
 	if !body.Significance.Valid() {
-		writeErr(w, http.StatusUnprocessableEntity, "invalid significance")
+		writeErr(w, http.StatusUnprocessableEntity, domain.InvalidSignificanceMsg(string(body.Significance)))
 		return
 	}
 	now := timeutil.NowUTC()
@@ -374,13 +382,17 @@ func (s *Server) patchQuest(w http.ResponseWriter, r *http.Request) {
 	if v, ok := raw["status"]; ok {
 		var st domain.QuestStatus
 		_ = json.Unmarshal(v, &st)
+		if !st.Valid() {
+			writeErr(w, http.StatusUnprocessableEntity, domain.InvalidStatusMsg(string(st)))
+			return
+		}
 		q.Status = st
 	}
 	if v, ok := raw["significance"]; ok {
 		var sg domain.Significance
 		_ = json.Unmarshal(v, &sg)
 		if !sg.Valid() {
-			writeErr(w, http.StatusUnprocessableEntity, "invalid significance")
+			writeErr(w, http.StatusUnprocessableEntity, domain.InvalidSignificanceMsg(string(sg)))
 			return
 		}
 		q.Significance = sg
