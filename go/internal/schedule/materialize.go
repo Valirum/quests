@@ -22,7 +22,7 @@ import (
 )
 
 // emitPoolTimeout bounds how long emit_pool_command may run per attempt.
-const emitPoolTimeout = 20 * time.Second
+var emitPoolTimeout = 20 * time.Second
 
 // emitPoolMaxAttempts caps retries of a failing/invalid emit_pool_command
 // within one period before giving up (outcome=error) until the next period.
@@ -917,6 +917,7 @@ func execEmitPoolCommand(parent context.Context, st *store.Store, templateID int
 		cmd = exec.CommandContext(ctx, "sh", "-c", command)
 	}
 
+	killTree(cmd)
 	cmd.Env = os.Environ()
 	for name, value := range secrets {
 		cmd.Env = append(cmd.Env, name+"="+value)

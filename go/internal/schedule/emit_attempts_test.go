@@ -204,3 +204,22 @@ func TestEmitPoolSuccessClearsRetryAt(t *testing.T) {
 		t.Fatalf("retry_at should be cleared after a success, got %q", *retry)
 	}
 }
+
+// A timed-out command must come back at the timeout, not when its child
+// processes decide to exit (sh -c "sleep 30" used to hold the pipe for 30s).
+func TestExecEmitPoolCommandTimeoutKillsChildren(t *testing.T) {
+	old := emitPoolTimeout
+	emitPoolTimeout = 500 * time.Millisecond
+	t.Cleanup(func() { emitPoolTimeout = old })
+
+	st := openTemplateSecretsDB(t)
+	start := time.Now()
+	_, info, err := execEmitPoolCommand(context.Background(), st, 50, `sleep 30; echo '[{"title":"late"}]'`)
+	elapsed := time.Since(start)
+	if err == nil || info.Status != "timeout" {
+		t.Fatalf("want timeout, got %v / %+v", err, info)
+	}
+	if elapsed > 4*time.Second {
+		t.Fatalf("timeout took %s, the child process kept the pipe open", elapsed)
+	}
+}
