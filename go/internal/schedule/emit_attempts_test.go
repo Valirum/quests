@@ -25,11 +25,13 @@ func TestEmitAttemptsLogFailureThenSuccess(t *testing.T) {
 	st := openTemplateSecretsDB(t)
 	ctx := context.Background()
 	fail := poolTemplate(5, `echo boom >&2; exit 3`, 1)
-	if _, _, _, err := resolveEmitPool(ctx, st, fail, "p1", time.Now(), rand.New(rand.NewSource(1))); err != nil {
+	now := time.Now()
+	if _, _, _, err := resolveEmitPool(ctx, st, fail, "p1", now, rand.New(rand.NewSource(1))); err != nil {
 		t.Fatal(err)
 	}
 	ok := poolTemplate(5, `echo '[{"title":"a","ref":"r1"},{"title":"b","ref":"r2"}]'`, 1)
-	if _, _, _, err := resolveEmitPool(ctx, st, ok, "p1", time.Now(), rand.New(rand.NewSource(1))); err != nil {
+	later := now.Add(emitPoolRetryDelays[0] + time.Second) // past the pause
+	if _, _, _, err := resolveEmitPool(ctx, st, ok, "p1", later, rand.New(rand.NewSource(1))); err != nil {
 		t.Fatal(err)
 	}
 
@@ -89,8 +91,10 @@ func TestEmitAttemptsMaskTemplateSecrets(t *testing.T) {
 		t.Fatal(err)
 	}
 	var last string
+	at := time.Now()
 	for i := 0; i < emitPoolMaxAttempts; i++ {
-		_, _, last, _ = resolveEmitPool(ctx, st, poolTemplate(10, cmd, 1), "q", time.Now(), rand.New(rand.NewSource(1)))
+		_, _, last, _ = resolveEmitPool(ctx, st, poolTemplate(10, cmd, 1), "q", at, rand.New(rand.NewSource(1)))
+		at = at.Add(time.Hour) // past any retry pause
 	}
 	if last == "" || strings.Contains(last, "s3cr3t-pw") || !strings.Contains(last, "***") {
 		t.Fatalf("failed-quest trace must be non-empty and masked, got %q", last)
@@ -137,5 +141,66 @@ func TestEmitAttemptLogIsTrimmed(t *testing.T) {
 	}
 	if n != 200 {
 		t.Fatalf("want log trimmed to 200 rows, got %d", n)
+	}
+}
+
+// A failed run schedules its retry; ticks before that must not run the command
+// again (no new attempt, no new log row), the first tick after it must.
+func TestEmitPoolRetryPauseIsHonored(t *testing.T) {
+	st := openEmitPoolDB(t)
+	ctx := context.Background()
+	rng := rand.New(rand.NewSource(1))
+	tmpl := poolTemplate(20, `exit 9`, 1)
+	now := time.Now()
+
+	if _, _, _, err := resolveEmitPool(ctx, st, tmpl, "p", now, rng); err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range []time.Duration{0, 15 * time.Second, 45 * time.Second, emitPoolRetryDelays[0] - time.Second} {
+		if _, _, _, err := resolveEmitPool(ctx, st, tmpl, "p", now.Add(d), rng); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var attempts, runs int
+	if err := st.DB.QueryRow(`SELECT attempts FROM templateemitroll WHERE template_id = 20`).Scan(&attempts); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.DB.QueryRow(`SELECT COUNT(*) FROM templateemitattempt WHERE template_id = 20`).Scan(&runs); err != nil {
+		t.Fatal(err)
+	}
+	if attempts != 1 || runs != 1 {
+		t.Fatalf("pause ignored: attempts=%d log rows=%d, want 1/1", attempts, runs)
+	}
+
+	if _, _, _, err := resolveEmitPool(ctx, st, tmpl, "p", now.Add(emitPoolRetryDelays[0]+time.Second), rng); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.DB.QueryRow(`SELECT attempts FROM templateemitroll WHERE template_id = 20`).Scan(&attempts); err != nil {
+		t.Fatal(err)
+	}
+	if attempts != 2 {
+		t.Fatalf("retry after the pause should run: attempts=%d, want 2", attempts)
+	}
+}
+
+// A success after a failure clears the pending retry.
+func TestEmitPoolSuccessClearsRetryAt(t *testing.T) {
+	st := openEmitPoolDB(t)
+	ctx := context.Background()
+	rng := rand.New(rand.NewSource(1))
+	now := time.Now()
+	if _, _, _, err := resolveEmitPool(ctx, st, poolTemplate(21, `exit 1`, 1), "p", now, rng); err != nil {
+		t.Fatal(err)
+	}
+	ok := poolTemplate(21, `echo '[{"title":"a"}]'`, 1)
+	if _, _, _, err := resolveEmitPool(ctx, st, ok, "p", now.Add(emitPoolRetryDelays[0]+time.Second), rng); err != nil {
+		t.Fatal(err)
+	}
+	var retry *string
+	if err := st.DB.QueryRow(`SELECT retry_at FROM templateemitroll WHERE template_id = 21`).Scan(&retry); err != nil {
+		t.Fatal(err)
+	}
+	if retry != nil {
+		t.Fatalf("retry_at should be cleared after a success, got %q", *retry)
 	}
 }

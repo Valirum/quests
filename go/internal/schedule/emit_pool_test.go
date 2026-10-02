@@ -22,6 +22,7 @@ CREATE TABLE templateemitroll (
 	scheduled_at DATETIME,
 	attempts INTEGER NOT NULL DEFAULT 0,
 	picked_refs TEXT,
+	retry_at DATETIME,
 	created_at DATETIME NOT NULL,
 	updated_at DATETIME NOT NULL
 );
@@ -178,8 +179,12 @@ func TestResolveEmitPoolRetryThenError(t *testing.T) {
 	rng := rand.New(rand.NewSource(1))
 
 	var lastRollID int64
+	now := time.Now()
 	for i := 1; i <= emitPoolMaxAttempts; i++ {
-		items, rollID, failMsg, err := resolveEmitPool(context.Background(), st, tmpl, "p", time.Now(), rng)
+		if i > 1 { // each retry only runs once its pause has passed
+			now = now.Add(emitPoolRetryDelays[i-2] + time.Second)
+		}
+		items, rollID, failMsg, err := resolveEmitPool(context.Background(), st, tmpl, "p", now, rng)
 		if err != nil {
 			t.Fatalf("attempt %d: unexpected error: %v", i, err)
 		}

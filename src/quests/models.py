@@ -477,6 +477,9 @@ class TemplateEmitRoll(SQLModel, table=True):
     scheduled_at: Optional[datetime] = None
     # emit_pool_command failures this period (capped at 3, then outcome=error).
     attempts: int = 0
+    # Earliest time of the next retry after a failed run (UTC naive); NULL when
+    # nothing is pending.
+    retry_at: Optional[datetime] = None
     # JSON array of chosen items' `ref` (or a title/description hash when no
     # ref was given), used to exclude recent picks on later periods.
     picked_refs: Optional[str] = None

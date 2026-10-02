@@ -26,7 +26,12 @@ const emitPoolTimeout = 20 * time.Second
 
 // emitPoolMaxAttempts caps retries of a failing/invalid emit_pool_command
 // within one period before giving up (outcome=error) until the next period.
-const emitPoolMaxAttempts = 3
+const emitPoolMaxAttempts = 4
+
+// emitPoolRetryDelays is the pause after the 1st, 2nd, … failed run before
+// the next one (len == emitPoolMaxAttempts-1): a brief outage of whatever the
+// command talks to must not burn all attempts within a single minute.
+var emitPoolRetryDelays = []time.Duration{time.Minute, 5 * time.Minute, 15 * time.Minute}
 
 func defaultTZ() string {
 	if v := strings.TrimSpace(os.Getenv("QUESTS_TZ")); v != "" {
@@ -74,6 +79,12 @@ type templateStepRow struct {
 
 // MaterializeDue creates quest instances for due templates (fixed + surprise).
 func MaterializeDue(ctx context.Context, st *store.Store, hub *events.Hub, now time.Time, rng *rand.Rand) ([]int64, error) {
+	return materializeDue(ctx, st, hub, now, rng, nil)
+}
+
+// materializeDue is MaterializeDue; a non-nil runner makes emit_pool commands
+// run in the background (the maintenance loop's mode) instead of inline.
+func materializeDue(ctx context.Context, st *store.Store, hub *events.Hub, now time.Time, rng *rand.Rand, runner *poolRunner) ([]int64, error) {
 	if rng == nil {
 		rng = rand.New(rand.NewSource(time.Now().UnixNano()))
 	}
@@ -193,7 +204,7 @@ func MaterializeDue(ctx context.Context, st *store.Store, hub *events.Hub, now t
 		var poolQuestDesc string
 		var steps []domain.Step
 		if usePool {
-			items, rollID, failMsg, perr := resolveEmitPool(ctx, st, tmpl, key, now, rng)
+			items, rollID, failMsg, perr := resolveEmitPoolOpts(ctx, st, tmpl, key, now, rng, poolOpts{runner: runner})
 			if perr != nil {
 				return created, perr
 			}
@@ -613,15 +624,28 @@ func (it poolItem) key() string {
 // became "error") — the caller uses it to materialize a failed quest
 // carrying the trace, since nothing else surfaces this to the user.
 func resolveEmitPool(ctx context.Context, st *store.Store, tmpl templateRow, periodKey string, now time.Time, rng *rand.Rand) (items []poolItem, rollID int64, failMsg string, err error) {
+	return resolveEmitPoolOpts(ctx, st, tmpl, periodKey, now, rng, poolOpts{})
+}
+
+// poolOpts tunes resolveEmitPoolOpts. ignorePause lets a manual run
+// ("materialize now") go ahead even while a retry pause is pending; runner,
+// when set, runs the command off the calling goroutine (see poolRunner) and a
+// not-yet-finished command makes the call a no-op.
+type poolOpts struct {
+	ignorePause bool
+	runner      *poolRunner
+}
+
+func resolveEmitPoolOpts(ctx context.Context, st *store.Store, tmpl templateRow, periodKey string, now time.Time, rng *rand.Rand, opts poolOpts) (items []poolItem, rollID int64, failMsg string, err error) {
 	var id int64
 	var outcome string
 	var attempts int
-	var pickedRefs sql.NullString
+	var pickedRefs, retryAt sql.NullString
 	isNew := false
 	qerr := st.DB.QueryRowContext(ctx, `
-		SELECT id, outcome, attempts, picked_refs FROM templateemitroll
+		SELECT id, outcome, attempts, picked_refs, retry_at FROM templateemitroll
 		WHERE template_id = ? AND period_key = ?`, tmpl.ID, periodKey).
-		Scan(&id, &outcome, &attempts, &pickedRefs)
+		Scan(&id, &outcome, &attempts, &pickedRefs, &retryAt)
 	if qerr == sql.ErrNoRows {
 		isNew = true
 	} else if qerr != nil {
@@ -630,9 +654,26 @@ func resolveEmitPool(ctx context.Context, st *store.Store, tmpl templateRow, per
 	if !isNew && (outcome == "materialized" || outcome == "error" || outcome == "miss") {
 		return nil, id, "", nil
 	}
+	// A failed run scheduled its own retry: until then the tick leaves it alone.
+	if !isNew && retryAt.Valid && !opts.ignorePause {
+		if at, perr := timeutil.ParseFlexible(retryAt.String); perr == nil && now.Before(at) {
+			return nil, id, "", nil
+		}
+	}
 
 	attemptNo := attempts + 1
-	rawItems, info, execErr := execEmitPoolCommand(ctx, st, tmpl.ID, tmpl.EmitPoolCommand.String)
+	var rawItems []poolItem
+	var info execInfo
+	var execErr error
+	if opts.runner != nil {
+		var ready bool
+		rawItems, info, execErr, ready = opts.runner.exec(ctx, st, tmpl.ID, periodKey, tmpl.EmitPoolCommand.String)
+		if !ready {
+			return nil, id, "", nil // still running; a later tick collects it
+		}
+	} else {
+		rawItems, info, execErr = execEmitPoolCommand(ctx, st, tmpl.ID, tmpl.EmitPoolCommand.String)
+	}
 	rec := store.EmitAttempt{
 		TemplateID: tmpl.ID, PeriodKey: periodKey, At: now, Attempt: attemptNo,
 		Status: info.Status, DurationMS: info.Duration.Milliseconds(), Items: len(rawItems),
@@ -645,26 +686,31 @@ func resolveEmitPool(ctx context.Context, st *store.Store, tmpl templateRow, per
 		}
 	}
 	if execErr != nil {
-		rec.Message = execErr.Error()
-		record()
 		attempts++
 		newOutcome := "scheduled"
+		var nextRetry any
 		if attempts >= emitPoolMaxAttempts {
 			newOutcome = "error"
+			rec.Message = "giving up: attempts exhausted\n" + execErr.Error()
+		} else {
+			delay := emitPoolRetryDelays[min(attempts-1, len(emitPoolRetryDelays)-1)]
+			nextRetry = timeutil.ToDBUTC(now.Add(delay))
+			rec.Message = fmt.Sprintf("retry in %s\n", delay) + execErr.Error()
 		}
+		record()
 		if isNew {
 			res, err := st.DB.ExecContext(ctx, `
-				INSERT INTO templateemitroll (template_id, period_key, outcome, attempts, created_at, updated_at)
-				VALUES (?, ?, ?, ?, ?, ?)`,
-				tmpl.ID, periodKey, newOutcome, attempts, timeutil.ToDBUTC(now), timeutil.ToDBUTC(now))
+				INSERT INTO templateemitroll (template_id, period_key, outcome, attempts, retry_at, created_at, updated_at)
+				VALUES (?, ?, ?, ?, ?, ?, ?)`,
+				tmpl.ID, periodKey, newOutcome, attempts, nextRetry, timeutil.ToDBUTC(now), timeutil.ToDBUTC(now))
 			if err != nil {
 				return nil, 0, "", err
 			}
 			id, _ = res.LastInsertId()
 		} else {
 			if _, err := st.DB.ExecContext(ctx, `
-				UPDATE templateemitroll SET outcome = ?, attempts = ?, updated_at = ? WHERE id = ?`,
-				newOutcome, attempts, timeutil.ToDBUTC(now), id); err != nil {
+				UPDATE templateemitroll SET outcome = ?, attempts = ?, retry_at = ?, updated_at = ? WHERE id = ?`,
+				newOutcome, attempts, nextRetry, timeutil.ToDBUTC(now), id); err != nil {
 				return nil, 0, "", err
 			}
 		}
@@ -787,7 +833,7 @@ func persistEmitPoolOutcome(ctx context.Context, st *store.Store, id int64, isNe
 		return res.LastInsertId()
 	}
 	_, err := st.DB.ExecContext(ctx, `
-		UPDATE templateemitroll SET outcome = ?, picked_refs = ?, updated_at = ? WHERE id = ?`,
+		UPDATE templateemitroll SET outcome = ?, picked_refs = ?, retry_at = NULL, updated_at = ? WHERE id = ?`,
 		outcome, nullStrIfEmpty(pickedRefsJSON), timeutil.ToDBUTC(now), id)
 	return id, err
 }
@@ -1067,7 +1113,7 @@ func MaterializeTemplateManual(ctx context.Context, st *store.Store, hub *events
 	var poolQuestDesc string
 	var steps []domain.Step
 	if usePool {
-		items, rollID, _, perr := resolveEmitPool(ctx, st, tmpl, key, now, rng)
+		items, rollID, _, perr := resolveEmitPoolOpts(ctx, st, tmpl, key, now, rng, poolOpts{ignorePause: true})
 		if perr != nil {
 			return 0, perr
 		}
