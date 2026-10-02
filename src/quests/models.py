@@ -442,6 +442,24 @@ class QuestTemplateRead(QuestTemplateBase):
         return to_utc_iso(value)
 
 
+class TemplateEmitAttempt(SQLModel, table=True):
+    """One emit_pool_command execution (log for explaining a miss/error)."""
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    template_id: int = Field(foreign_key="questtemplate.id")
+    period_key: str = Field(max_length=32)
+    at: datetime = Field(default_factory=utcnow)
+    attempt: int = 1
+    # ok | error | timeout | bad_json
+    status: str = Field(max_length=16)
+    duration_ms: int = 0
+    items: int = 0
+    picked: int = 0
+    # JSON array of picked refs; message is masked (template secrets removed).
+    picked_refs: Optional[str] = None
+    message: Optional[str] = None
+
+
 class TemplateEmitRoll(SQLModel, table=True):
     """One surprise roll per template period (miss / wait / done)."""
 

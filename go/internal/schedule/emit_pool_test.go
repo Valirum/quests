@@ -25,6 +25,19 @@ CREATE TABLE templateemitroll (
 	created_at DATETIME NOT NULL,
 	updated_at DATETIME NOT NULL
 );
+CREATE TABLE templateemitattempt (
+	id INTEGER PRIMARY KEY,
+	template_id INTEGER NOT NULL,
+	period_key TEXT NOT NULL,
+	at DATETIME NOT NULL,
+	attempt INTEGER NOT NULL DEFAULT 1,
+	status TEXT NOT NULL,
+	duration_ms INTEGER NOT NULL DEFAULT 0,
+	items INTEGER NOT NULL DEFAULT 0,
+	picked INTEGER NOT NULL DEFAULT 0,
+	picked_refs TEXT,
+	message TEXT
+);
 `
 
 func openEmitPoolDB(t *testing.T) *store.Store {

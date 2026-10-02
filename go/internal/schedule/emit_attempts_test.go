@@ -1,0 +1,141 @@
+package schedule
+
+import (
+	"context"
+	"math/rand"
+	"strings"
+	"testing"
+	"time"
+)
+
+func attemptsFor(t *testing.T, st interface {
+	ListEmitAttempts(context.Context, int64, int) ([]map[string]any, error)
+}, templateID int64) []map[string]any {
+	t.Helper()
+	rows, err := st.ListEmitAttempts(context.Background(), templateID, 50)
+	if err != nil {
+		t.Fatalf("ListEmitAttempts: %v", err)
+	}
+	return rows
+}
+
+// Every execution leaves a row: the failures with their trace, the success
+// with item/pick counts and the picked refs.
+func TestEmitAttemptsLogFailureThenSuccess(t *testing.T) {
+	st := openTemplateSecretsDB(t)
+	ctx := context.Background()
+	fail := poolTemplate(5, `echo boom >&2; exit 3`, 1)
+	if _, _, _, err := resolveEmitPool(ctx, st, fail, "p1", time.Now(), rand.New(rand.NewSource(1))); err != nil {
+		t.Fatal(err)
+	}
+	ok := poolTemplate(5, `echo '[{"title":"a","ref":"r1"},{"title":"b","ref":"r2"}]'`, 1)
+	if _, _, _, err := resolveEmitPool(ctx, st, ok, "p1", time.Now(), rand.New(rand.NewSource(1))); err != nil {
+		t.Fatal(err)
+	}
+
+	rows := attemptsFor(t, st, 5)
+	if len(rows) != 2 {
+		t.Fatalf("want 2 attempts, got %d: %+v", len(rows), rows)
+	}
+	okRow, failRow := rows[0], rows[1] // newest first
+	if failRow["status"] != "error" || failRow["attempt"].(int64) != 1 || !strings.Contains(failRow["message"].(string), "boom") {
+		t.Errorf("bad failure row: %+v", failRow)
+	}
+	if okRow["status"] != "ok" || okRow["attempt"].(int64) != 2 || okRow["items"].(int64) != 2 || okRow["picked"].(int64) != 1 {
+		t.Errorf("bad success row: %+v", okRow)
+	}
+	if refs := okRow["picked_refs"].([]string); len(refs) != 1 {
+		t.Errorf("want one picked ref, got %v", refs)
+	}
+}
+
+func TestEmitAttemptsLogEmptyPoolMiss(t *testing.T) {
+	st := openTemplateSecretsDB(t)
+	if _, _, _, err := resolveEmitPool(context.Background(), st, poolTemplate(6, `echo '[]'`, 0), "p", time.Now(), rand.New(rand.NewSource(1))); err != nil {
+		t.Fatal(err)
+	}
+	rows := attemptsFor(t, st, 6)
+	if len(rows) != 1 || rows[0]["status"] != "ok" || !strings.Contains(rows[0]["message"].(string), "miss: pool is empty") {
+		t.Fatalf("unexpected rows: %+v", rows)
+	}
+}
+
+// The reason the log exists next to template secrets: a script that echoes a
+// credential must not leak it into the attempt log or the failed quest trace.
+func TestEmitAttemptsMaskTemplateSecrets(t *testing.T) {
+	st := openTemplateSecretsDB(t)
+	ctx := context.Background()
+	if err := st.SetTemplateSecret(ctx, 9, "MAIL_PASSWORD", "s3cr3t-pw"); err != nil {
+		t.Fatal(err)
+	}
+	cmd := "#!/bin/sh\necho \"login failed for $MAIL_PASSWORD\" >&2\necho \"not json $MAIL_PASSWORD\"\nexit 1\n"
+	if _, _, _, err := resolveEmitPool(ctx, st, poolTemplate(9, cmd, 1), "p", time.Now(), rand.New(rand.NewSource(1))); err != nil {
+		t.Fatal(err)
+	}
+	rows := attemptsFor(t, st, 9)
+	if len(rows) != 1 {
+		t.Fatalf("want 1 row, got %+v", rows)
+	}
+	msg := rows[0]["message"].(string)
+	if strings.Contains(msg, "s3cr3t-pw") {
+		t.Fatalf("secret leaked into attempt log: %q", msg)
+	}
+	if !strings.Contains(msg, "login failed for ***") {
+		t.Errorf("expected masked stderr in %q", msg)
+	}
+
+	// Exhausting attempts must not leak it through the failed-quest trace either.
+	if err := st.SetTemplateSecret(ctx, 10, "MAIL_PASSWORD", "s3cr3t-pw"); err != nil {
+		t.Fatal(err)
+	}
+	var last string
+	for i := 0; i < emitPoolMaxAttempts; i++ {
+		_, _, last, _ = resolveEmitPool(ctx, st, poolTemplate(10, cmd, 1), "q", time.Now(), rand.New(rand.NewSource(1)))
+	}
+	if last == "" || strings.Contains(last, "s3cr3t-pw") || !strings.Contains(last, "***") {
+		t.Fatalf("failed-quest trace must be non-empty and masked, got %q", last)
+	}
+}
+
+func TestExecEmitPoolCommandMasksFailureTrace(t *testing.T) {
+	st := openTemplateSecretsDB(t)
+	ctx := context.Background()
+	if err := st.SetTemplateSecret(ctx, 11, "TOKEN", "tok-12345"); err != nil {
+		t.Fatal(err)
+	}
+	_, info, err := execEmitPoolCommand(ctx, st, 11, "#!/bin/sh\necho \"bad $TOKEN\" >&2\nexit 2\n")
+	if err == nil || info.Status != "error" {
+		t.Fatalf("want error status, got %v / %+v", err, info)
+	}
+	if strings.Contains(err.Error(), "tok-12345") || strings.Contains(info.Stderr, "tok-12345") {
+		t.Fatalf("secret leaked: %v / %q", err, info.Stderr)
+	}
+	_, info, err = execEmitPoolCommand(ctx, st, 11, "#!/bin/sh\necho \"not-json $TOKEN\"\n")
+	if err == nil || info.Status != "bad_json" || strings.Contains(err.Error(), "tok-12345") {
+		t.Fatalf("bad_json case: %v / %+v", err, info)
+	}
+}
+
+func TestEmitAttemptLogIsTrimmed(t *testing.T) {
+	st := openTemplateSecretsDB(t)
+	ctx := context.Background()
+	tmpl := poolTemplate(12, `echo '[]'`, 0)
+	for i := 0; i < 205; i++ {
+		// distinct period keys, each a fresh roll
+		_, _, _, _ = resolveEmitPool(ctx, st, tmpl, "p"+time.Duration(i).String(), time.Now(), rand.New(rand.NewSource(1)))
+	}
+	rows, err := st.ListEmitAttempts(ctx, 12, 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) > 50 { // limit clamps to the default when out of range
+		t.Fatalf("list should clamp, got %d", len(rows))
+	}
+	var n int
+	if err := st.DB.QueryRow(`SELECT COUNT(*) FROM templateemitattempt WHERE template_id = 12`).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 200 {
+		t.Fatalf("want log trimmed to 200 rows, got %d", n)
+	}
+}

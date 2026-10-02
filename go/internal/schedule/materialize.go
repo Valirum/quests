@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"math/rand"
 	"os"
 	"os/exec"
@@ -630,8 +631,22 @@ func resolveEmitPool(ctx context.Context, st *store.Store, tmpl templateRow, per
 		return nil, id, "", nil
 	}
 
-	rawItems, execErr := execEmitPoolCommand(ctx, st, tmpl.ID, tmpl.EmitPoolCommand.String)
+	attemptNo := attempts + 1
+	rawItems, info, execErr := execEmitPoolCommand(ctx, st, tmpl.ID, tmpl.EmitPoolCommand.String)
+	rec := store.EmitAttempt{
+		TemplateID: tmpl.ID, PeriodKey: periodKey, At: now, Attempt: attemptNo,
+		Status: info.Status, DurationMS: info.Duration.Milliseconds(), Items: len(rawItems),
+		Message: info.Stderr,
+	}
+	// Logging never fails the roll: it's diagnostics, not state.
+	record := func() {
+		if rerr := st.RecordEmitAttempt(ctx, rec); rerr != nil {
+			log.Printf("emit attempt log (template %d): %v", tmpl.ID, rerr)
+		}
+	}
 	if execErr != nil {
+		rec.Message = execErr.Error()
+		record()
 		attempts++
 		newOutcome := "scheduled"
 		if attempts >= emitPoolMaxAttempts {
@@ -667,6 +682,8 @@ func resolveEmitPool(ctx context.Context, st *store.Store, tmpl templateRow, per
 		}
 	}
 	if len(positive) == 0 {
+		rec.Message = joinNote("miss: pool is empty (no item with positive weight)", rec.Message)
+		record()
 		id, err := persistEmitPoolOutcome(ctx, st, id, isNew, tmpl.ID, periodKey, "miss", attempts, "", now)
 		if err != nil {
 			return nil, 0, "", err
@@ -726,6 +743,8 @@ func resolveEmitPool(ctx context.Context, st *store.Store, tmpl templateRow, per
 		picked = weightedPickWithoutReplacement(candidates, tmpl.EmitPoolPick, rng)
 	}
 	if len(picked) == 0 {
+		rec.Message = joinNote(fmt.Sprintf("miss: all %d item(s) were shown in recent periods", len(positive)), rec.Message)
+		record()
 		id, err := persistEmitPoolOutcome(ctx, st, id, isNew, tmpl.ID, periodKey, "miss", attempts, "", now)
 		if err != nil {
 			return nil, 0, "", err
@@ -741,6 +760,10 @@ func resolveEmitPool(ctx context.Context, st *store.Store, tmpl templateRow, per
 	if err != nil {
 		return nil, 0, "", err
 	}
+	rec.Picked = len(picked)
+	rec.PickedRefs = keys
+	rec.Message = joinNote(fmt.Sprintf("picked %d of %d", len(picked), len(positive)), rec.Message)
+	record()
 	id, err = persistEmitPoolOutcome(ctx, st, id, isNew, tmpl.ID, periodKey, "scheduled", attempts, string(refsJSON), now)
 	if err != nil {
 		return nil, 0, "", err
@@ -791,28 +814,57 @@ func nullStrIfEmpty(s string) any {
 // from templatesecret instead (see store.ResolveTemplateSecrets) — set via
 // PUT /api/templates/{id}/secrets/{key}, injected only here, never returned
 // by any read endpoint or MCP tool.
-func execEmitPoolCommand(parent context.Context, st *store.Store, templateID int64, command string) ([]poolItem, error) {
+// execInfo is what one emit_pool_command run leaves behind for the attempt
+// log. Status is "ok" or, for a failed run, "error" | "timeout" | "bad_json".
+// Stderr/Message never contain template secret values.
+type execInfo struct {
+	Status   string
+	Duration time.Duration
+	Stderr   string
+}
+
+// maskSecrets replaces every template secret value in s with "***", so a
+// script that echoes a credential (or whose error text carries it) can't
+// leak it into the attempt log or the failed quest's description.
+func maskSecrets(s string, secrets map[string]string) string {
+	for _, v := range secrets {
+		if len(v) >= 4 {
+			s = strings.ReplaceAll(s, v, "***")
+		}
+	}
+	return s
+}
+
+func execEmitPoolCommand(parent context.Context, st *store.Store, templateID int64, command string) (items []poolItem, info execInfo, err error) {
 	ctx, cancel := context.WithTimeout(parent, emitPoolTimeout)
 	defer cancel()
+	started := time.Now()
+	info.Status = "error"
+	defer func() { info.Duration = time.Since(started) }()
+
+	var secrets map[string]string
+	if sec, serr := st.ResolveTemplateSecrets(ctx, templateID); serr == nil {
+		secrets = sec
+	}
 
 	var cmd *exec.Cmd
 	if strings.HasPrefix(strings.TrimLeft(command, " \t\r\n"), "#!") {
-		f, err := os.CreateTemp("", "quests-emit-pool-*")
-		if err != nil {
-			return nil, err
+		f, ferr := os.CreateTemp("", "quests-emit-pool-*")
+		if ferr != nil {
+			return nil, info, ferr
 		}
 		scriptPath := f.Name()
 		defer os.Remove(scriptPath)
 		_, writeErr := f.WriteString(command)
 		closeErr := f.Close()
 		if writeErr != nil {
-			return nil, writeErr
+			return nil, info, writeErr
 		}
 		if closeErr != nil {
-			return nil, closeErr
+			return nil, info, closeErr
 		}
-		if err := os.Chmod(scriptPath, 0o700); err != nil {
-			return nil, err
+		if cerr := os.Chmod(scriptPath, 0o700); cerr != nil {
+			return nil, info, cerr
 		}
 		cmd = exec.CommandContext(ctx, scriptPath)
 	} else {
@@ -820,34 +872,49 @@ func execEmitPoolCommand(parent context.Context, st *store.Store, templateID int
 	}
 
 	cmd.Env = os.Environ()
-	if secrets, err := st.ResolveTemplateSecrets(ctx, templateID); err == nil {
-		for name, value := range secrets {
-			cmd.Env = append(cmd.Env, name+"="+value)
-		}
+	for name, value := range secrets {
+		cmd.Env = append(cmd.Env, name+"="+value)
 	}
-	if home, err := os.UserHomeDir(); err == nil {
+	if home, herr := os.UserHomeDir(); herr == nil {
 		cmd.Dir = home
 	}
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
+	runErr := cmd.Run()
+	info.Stderr = truncate(maskSecrets(stderr.String(), secrets), 4000)
+	if runErr != nil {
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			info.Status = "timeout"
+		}
 		// stderr rides along in the error text — it's the only trace of what
-		// went wrong once attempts run out, since nothing else logs this.
-		return nil, fmt.Errorf("%w\nstderr:\n%s", err, truncate(stderr.String(), 4000))
+		// went wrong once attempts run out (also kept in the attempt log).
+		msg := maskSecrets(runErr.Error(), secrets)
+		return nil, info, fmt.Errorf("%s\nstderr:\n%s", msg, info.Stderr)
 	}
-	var items []poolItem
-	if err := json.Unmarshal(stdout.Bytes(), &items); err != nil {
-		return nil, fmt.Errorf("invalid JSON on stdout: %w\nstdout:\n%s", err, truncate(stdout.String(), 4000))
+	var parsed []poolItem
+	if jerr := json.Unmarshal(stdout.Bytes(), &parsed); jerr != nil {
+		info.Status = "bad_json"
+		return nil, info, fmt.Errorf("invalid JSON on stdout: %s\nstdout:\n%s",
+			maskSecrets(jerr.Error(), secrets), truncate(maskSecrets(stdout.String(), secrets), 4000))
 	}
-	out := make([]poolItem, 0, len(items))
-	for _, it := range items {
+	out := make([]poolItem, 0, len(parsed))
+	for _, it := range parsed {
 		if strings.TrimSpace(it.Title) == "" {
 			continue
 		}
 		out = append(out, it)
 	}
-	return out, nil
+	info.Status = "ok"
+	return out, info, nil
+}
+
+// joinNote prefixes the attempt's own verdict to whatever stderr it produced.
+func joinNote(note, stderr string) string {
+	if stderr == "" {
+		return note
+	}
+	return note + "\nstderr:\n" + stderr
 }
 
 func truncate(s string, n int) string {

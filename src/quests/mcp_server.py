@@ -1036,6 +1036,26 @@ def delete_template_secret(template_id: int, key: str) -> dict[str, Any]:
     return {"template_id": template_id, "key": key, "deleted": True}
 
 
+@server.tool(
+    description=(
+        "Execution log of a template's emit_pool_command, newest first "
+        "(GET /api/templates/{id}/emit-attempts). One row per run: period_key, "
+        "attempt number within the period, status (ok | error | timeout | "
+        "bad_json), duration_ms, items returned, picked count + refs, and a "
+        "message (the verdict like 'miss: pool is empty', plus stderr/trace). "
+        "Template secret values are masked as *** in messages. Use it to find "
+        "out why a template shows emit_pool_last_outcome=miss/error. "
+        "limit defaults to 50 (max 200); the server keeps the last 200 per template."
+    )
+)
+def list_emit_attempts(template_id: int, limit: int | None = None) -> dict[str, Any]:
+    return _api(
+        "GET",
+        f"/api/templates/{template_id}/emit-attempts",
+        query={"limit": limit},
+    )
+
+
 # Mirrors go/internal/schedule/materialize.go: emitPoolTimeout (20s) and the
 # shebang-body-vs-sh-one-liner dispatch of execEmitPoolCommand. Kept in sync by
 # hand — this is a dry-run, not the scheduler's own execution path.

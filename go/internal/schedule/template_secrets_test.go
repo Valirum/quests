@@ -49,7 +49,7 @@ func TestExecEmitPoolCommandInjectsTemplateSecret(t *testing.T) {
 	command := `#!/bin/sh
 printf '[{"title":"%s","weight":1}]' "$MY_SECRET"
 `
-	items, err := execEmitPoolCommand(context.Background(), st, templateID, command)
+	items, _, err := execEmitPoolCommand(context.Background(), st, templateID, command)
 	if err != nil {
 		t.Fatalf("execEmitPoolCommand: %v", err)
 	}
@@ -70,7 +70,7 @@ func TestExecEmitPoolCommandNoSecretsIsFine(t *testing.T) {
 	command := `#!/bin/sh
 printf '[{"title":"%s","weight":1}]' "$MY_SECRET"
 `
-	items, err := execEmitPoolCommand(context.Background(), st, templateID, command)
+	items, _, err := execEmitPoolCommand(context.Background(), st, templateID, command)
 	if err != nil {
 		t.Fatalf("execEmitPoolCommand: %v", err)
 	}
