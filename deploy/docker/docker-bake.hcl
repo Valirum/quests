@@ -7,15 +7,15 @@
 # CI sets API_IMAGE / BOT_IMAGE / STT_IMAGE / TAG via --set / bake-action vars.
 
 variable "API_IMAGE" {
-  default = "quests-api:local"
+  default = "quests-api"
 }
 
 variable "BOT_IMAGE" {
-  default = "quests-bot:local"
+  default = "quests-bot"
 }
 
 variable "STT_IMAGE" {
-  default = "quests-stt:local"
+  default = "quests-stt"
 }
 
 variable "TAG" {
