@@ -270,7 +270,8 @@
 
 {#snippet stepList(q)}
   {#if q.steps?.length}
-    {@const pipe = q.steps.some((s) => s.check_command || s.wait_previous)}
+    <!-- A pipeline is steps chained with wait_previous; auto-checks alone (poll/once/watch) are not one. -->
+    {@const pipe = q.steps.some((s) => s.wait_previous)}
     {@const currentId = pipe ? q.steps.find((s) => !s.done)?.id : null}
     <ol class="step-list" class:step-list--pipe={pipe}>
       {#each q.steps as step, i (step.id)}
