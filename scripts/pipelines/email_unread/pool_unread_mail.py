@@ -11,14 +11,12 @@ Keep this file and the template in sync by hand when either changes.
 
 Logs into WorldClient (MDaemon webmail) the same way the web UI does —
 IMAP (993/143) is closed on this server, HTTP is the only option — lists
-unread messages in the inbox, and prints a JSON array on stdout in the
-shape quests' emit_pool expects:
+unread messages in the inbox, and prints ONE quest object on stdout (shape
+of POST /api/quests; the template supplies the defaults), one step per
+unread message. No unread mail prints `null` = no quest this period.
 
-  [{"title": "...", "description": "...", "weight": 1, "ref": "mail:<id>"}]
-
-`ref` is the message id, so quests' own anti-repeat (picked_refs history
-in templateemitroll) keeps already-surfaced mail from reappearing in a
-later roll even if it's still unread server-side.
+There is no repeat protection: whatever is still unread is listed again
+in the next period's quest.
 
 Deliberately does NOT fetch message bodies: opening a message via
 View=Message marks it read server-side (confirmed by hand — this is not
@@ -110,17 +108,15 @@ def main():
     session_id = login(opener, host, user, password)
     unread = fetch_unread(opener, host, session_id)
 
-    pool = [
+    steps = [
         {
             "title": f"{m['from'] or '?'}: {m['subject'] or '(без темы)'}",
             "description": f"Получено: {m['date'] or '?'}",
-            "weight": 1,
-            "ref": f"mail:{m['id']}",
         }
         for m in unread
         if m["id"]
     ]
-    print(json.dumps(pool, ensure_ascii=False))
+    print(json.dumps({"steps": steps} if steps else None, ensure_ascii=False))
 
 
 if __name__ == "__main__":

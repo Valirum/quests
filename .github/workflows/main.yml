@@ -71,8 +71,6 @@ jobs:
               # code is via HTTP.
               - 'src/quests/telegram/**'
               - 'src/quests/llm/**'
-              - 'src/quests/mcp_server.py'
-              - 'src/quests/cli.py'
               - 'src/quests/config.py'
               - 'src/quests/envload.py'
               - 'pyproject.toml'
