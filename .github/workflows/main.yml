@@ -188,18 +188,18 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # bake-action has no `vars` input (the old `vars:` block was silently
+      # ignored, so TAG stayed "local"); HCL variables come from the environment.
+      # API_IMAGE/BOT_IMAGE/STT_IMAGE are already exported via GITHUB_ENV above.
       - uses: docker/bake-action@v6
+        env:
+          TAG: ${{ github.sha }}
+          MAIN_TAG: "false"
         with:
           source: .
           files: deploy/docker/docker-bake.hcl
           targets: ${{ steps.meta.outputs.targets }}
           push: true
-          vars: |
-            API_IMAGE=${{ env.API_IMAGE }}
-            BOT_IMAGE=${{ env.BOT_IMAGE }}
-            STT_IMAGE=${{ env.STT_IMAGE }}
-            TAG=${{ github.sha }}
-            MAIN_TAG=false
           set: |
             *.cache-from=type=gha,scope=quests
             *.cache-to=type=gha,mode=max,scope=quests
