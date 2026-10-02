@@ -20,8 +20,12 @@ export class UnauthorizedError extends Error {
 async function request(path, options = {}) {
   const res = await fetch(`${BASE}${path}`, {
     credentials: 'same-origin',
-    headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
     ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Quests-Source': 'web',
+      ...(options.headers || {}),
+    },
   })
   if (res.status === 401) {
     if (onUnauthorized) onUnauthorized()

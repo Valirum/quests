@@ -18,7 +18,7 @@ func (s *Store) ListTemplates(ctx context.Context, enabled *bool) ([]TemplateRea
 	q := `
 		SELECT t.id, t.title, t.description, t.pinned, t.sort_order, t.duration_seconds, t.freq, t.weekdays,
 			t.enabled, t.timezone, t.deadline_time, t.significance, t.emit_mode, t.emit_chance,
-			t.emit_window_start, t.emit_window_end, t.emit_pool_command, t.emit_pool_pick,
+			t.emit_window_start, t.emit_window_end, t.emit_pool_command, t.emit_limits,
 			t.reward_attrs, t.category_id, t.questline_id,
 			t.created_at, t.updated_at, t.automated,
 			c.slug, c.label, c.color, l.title, l.color, l.icon, l.custom_icon, l.updated_at, l.id
@@ -111,7 +111,7 @@ func (s *Store) GetTemplate(ctx context.Context, id int64) (TemplateRead, error)
 	row := s.DB.QueryRowContext(ctx, `
 		SELECT t.id, t.title, t.description, t.pinned, t.sort_order, t.duration_seconds, t.freq, t.weekdays,
 			t.enabled, t.timezone, t.deadline_time, t.significance, t.emit_mode, t.emit_chance,
-			t.emit_window_start, t.emit_window_end, t.emit_pool_command, t.emit_pool_pick,
+			t.emit_window_start, t.emit_window_end, t.emit_pool_command, t.emit_limits,
 			t.reward_attrs, t.category_id, t.questline_id,
 			t.created_at, t.updated_at, t.automated,
 			c.slug, c.label, c.color, l.title, l.color, l.icon, l.custom_icon, l.updated_at, l.id
@@ -172,11 +172,9 @@ func (s *Store) CreateTemplate(ctx context.Context, body map[string]any) (Templa
 	}
 	emitMode := asStringDef(body["emit_mode"], "fixed")
 	emitChance := asFloat(body["emit_chance"], 1.0)
-	// <=0 is a real value ("take everything new" — see resolveEmitPool in
-	// go/internal/schedule/materialize.go), not an input error to round up.
-	emitPoolPick := asInt(body["emit_pool_pick"], 1)
-	if emitPoolPick < 0 {
-		emitPoolPick = 0
+	emitLimits, err := emitLimitsColumn(body["emit_limits"])
+	if err != nil {
+		return nil, errBad(err.Error())
 	}
 	colorCat := nullI64(asI64Ptr(body["category_id"]))
 	lineID := nullI64(asI64Ptr(body["questline_id"]))
@@ -185,13 +183,13 @@ func (s *Store) CreateTemplate(ctx context.Context, body map[string]any) (Templa
 		INSERT INTO questtemplate (
 			title, description, pinned, sort_order, duration_seconds, freq, weekdays, enabled, timezone,
 			deadline_time, significance, emit_mode, emit_chance, emit_window_start, emit_window_end,
-			emit_pool_command, emit_pool_pick,
+			emit_pool_command, emit_limits,
 			reward_attrs, category_id, questline_id, created_at, updated_at, automated
 		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		title, desc, boolInt(pinned), sortOrder, nullInt(asIntPtr(body["duration_seconds"])), freq, weekdays, boolInt(enabled), tz,
 		nullStr(asStringPtr(body["deadline_time"])), sig, emitMode, emitChance,
 		nullStr(asStringPtr(body["emit_window_start"])), nullStr(asStringPtr(body["emit_window_end"])),
-		nullStr(asStringPtr(body["emit_pool_command"])), emitPoolPick,
+		nullStr(asStringPtr(body["emit_pool_command"])), emitLimits,
 		nullStr(asStringPtr(body["reward_attrs"])), colorCat, lineID,
 		timeutil.ToDBUTC(now), timeutil.ToDBUTC(now), boolInt(asBool(body["automated"], false)),
 	)
@@ -226,15 +224,15 @@ func (s *Store) UpdateTemplate(ctx context.Context, id int64, body map[string]an
 		merged[k] = v
 	}
 	now := timeutil.NowUTC()
-	emitPoolPick := asInt(merged["emit_pool_pick"], 1)
-	if emitPoolPick < 0 {
-		emitPoolPick = 0
+	emitLimits, lerr := emitLimitsColumn(merged["emit_limits"])
+	if lerr != nil {
+		return nil, errBad(lerr.Error())
 	}
 	_, err = s.DB.ExecContext(ctx, `
 		UPDATE questtemplate SET
 			title=?, description=?, pinned=?, sort_order=?, duration_seconds=?, freq=?, weekdays=?,
 			enabled=?, timezone=?, deadline_time=?, significance=?, emit_mode=?, emit_chance=?,
-			emit_window_start=?, emit_window_end=?, emit_pool_command=?, emit_pool_pick=?,
+			emit_window_start=?, emit_window_end=?, emit_pool_command=?, emit_limits=?,
 			reward_attrs=?, category_id=?, questline_id=?,
 			updated_at=?, automated=?
 		WHERE id=?`,
@@ -245,7 +243,7 @@ func (s *Store) UpdateTemplate(ctx context.Context, id int64, body map[string]an
 		asStringDef(merged["timezone"], "Europe/Moscow"), nullStr(asStringPtr(merged["deadline_time"])),
 		asStringDef(merged["significance"], "common"), asStringDef(merged["emit_mode"], "fixed"),
 		asFloat(merged["emit_chance"], 1.0), nullStr(asStringPtr(merged["emit_window_start"])),
-		nullStr(asStringPtr(merged["emit_window_end"])), nullStr(asStringPtr(merged["emit_pool_command"])), emitPoolPick,
+		nullStr(asStringPtr(merged["emit_window_end"])), nullStr(asStringPtr(merged["emit_pool_command"])), emitLimits,
 		nullStr(asStringPtr(merged["reward_attrs"])),
 		nullI64(asI64Ptr(merged["category_id"])), nullI64(asI64Ptr(merged["questline_id"])),
 		timeutil.ToDBUTC(now), boolInt(asBool(merged["automated"], false)), id,
@@ -473,9 +471,9 @@ func (s *Store) loadTemplateStepsRead(ctx context.Context, tid int64) ([]map[str
 func scanTemplate(row rowScanner) (TemplateRead, error) {
 	var id int64
 	var title, desc, freq, weekdays, tz, sig, emitMode string
-	var pinned, enabled, sortOrder, automated, emitPoolPick int
+	var pinned, enabled, sortOrder, automated int
 	var dur sql.NullInt64
-	var deadline, ewStart, ewEnd, emitPoolCommand, reward sql.NullString
+	var deadline, ewStart, ewEnd, emitPoolCommand, emitLimits, reward sql.NullString
 	var emitChance float64
 	var catID, lineID sql.NullInt64
 	var created, updated sql.NullString
@@ -485,7 +483,7 @@ func scanTemplate(row rowScanner) (TemplateRead, error) {
 	err := row.Scan(
 		&id, &title, &desc, &pinned, &sortOrder, &dur, &freq, &weekdays,
 		&enabled, &tz, &deadline, &sig, &emitMode, &emitChance,
-		&ewStart, &ewEnd, &emitPoolCommand, &emitPoolPick,
+		&ewStart, &ewEnd, &emitPoolCommand, &emitLimits,
 		&reward, &catID, &lineID,
 		&created, &updated, &automated,
 		&cSlug, &cLabel, &cColor, &lTitle, &lColor, &lIcon, &lCustom, &lUpdated, &lID,
@@ -497,7 +495,7 @@ func scanTemplate(row rowScanner) (TemplateRead, error) {
 		"id": id, "title": title, "description": desc, "pinned": pinned != 0, "sort_order": sortOrder,
 		"freq": freq, "weekdays": weekdays, "enabled": enabled != 0, "timezone": tz,
 		"significance": sig, "emit_mode": emitMode, "emit_chance": emitChance,
-		"emit_pool_pick":   emitPoolPick,
+		"emit_limits":      nil,
 		"duration_seconds": nil, "deadline_time": nil, "emit_window_start": nil, "emit_window_end": nil,
 		"emit_pool_command": nil,
 		"reward_attrs":      nil, "category_id": nil, "questline_id": nil,
@@ -505,6 +503,12 @@ func scanTemplate(row rowScanner) (TemplateRead, error) {
 		"questline_title": nil, "questline_color": nil, "questline_icon": nil, "questline_icon_url": nil,
 		"automated":              automated != 0,
 		"emit_pool_last_outcome": nil,
+	}
+	if emitLimits.Valid && strings.TrimSpace(emitLimits.String) != "" {
+		var lim map[string]any
+		if json.Unmarshal([]byte(emitLimits.String), &lim) == nil {
+			tr["emit_limits"] = lim
+		}
 	}
 	if dur.Valid {
 		tr["duration_seconds"] = int(dur.Int64)
@@ -644,4 +648,30 @@ func asFloat(v any, def float64) float64 {
 }
 func itoa64(n int64) string {
 	return strconv.FormatInt(n, 10)
+}
+
+// emitLimitsColumn turns the emit_limits value of a create/update body (a JSON
+// object, or the same as a string) into the column value: validated, NULL when
+// empty. Updates merge over the stored object, so it may come back as a map.
+func emitLimitsColumn(v any) (any, error) {
+	var raw string
+	switch t := v.(type) {
+	case nil:
+		return nil, nil
+	case string:
+		raw = t
+	default:
+		b, err := json.Marshal(t)
+		if err != nil {
+			return nil, fmt.Errorf("emit_limits: %v", err)
+		}
+		raw = string(b)
+	}
+	if strings.TrimSpace(raw) == "" || strings.TrimSpace(raw) == "null" || strings.TrimSpace(raw) == "{}" {
+		return nil, nil
+	}
+	if _, err := ParseEmitLimits(raw); err != nil {
+		return nil, err
+	}
+	return raw, nil
 }

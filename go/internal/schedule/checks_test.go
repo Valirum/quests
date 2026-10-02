@@ -52,7 +52,8 @@ CREATE TABLE quest (
 	completed_at DATETIME,
 	template_id INTEGER,
 	period_key TEXT,
-	automated INTEGER NOT NULL DEFAULT 0
+	automated INTEGER NOT NULL DEFAULT 0,
+	source TEXT
 );
 CREATE TABLE queststep (
 	id INTEGER PRIMARY KEY,

@@ -86,7 +86,8 @@
   /** Shell command run per roll; stdout must be a JSON array of
    * {title, description?, weight?, ref?}. Empty = no pool (normal template). */
   let emitPoolCommand = $state('')
-  let emitPoolPick = $state(1)
+  /** JSON text of the emit limits (empty = defaults) */
+  let emitLimitsText = $state('')
   let durationHours = $state('')
   let durationMinutes = $state('')
   let steps = $state(/** @type {ReturnType<typeof templateStepDraft>[]} */ ([]))
@@ -121,6 +122,17 @@
   let isSurprise = $derived(emitMode === 'surprise')
   let hasDeadline = $derived(!isSurprise && Boolean(deadlineHour))
   let hasPool = $derived(Boolean(emitPoolCommand.trim()))
+
+  /** @param {string} text */
+  function parseLimits(text) {
+    try {
+      const v = JSON.parse(text)
+      if (v && typeof v === 'object' && !Array.isArray(v)) return v
+    } catch {
+      /* falls through to the error below */
+    }
+    throw new Error('Лимиты: нужен JSON-объект, например {"max_steps": 50}')
+  }
   let weekdayIds = $derived(new Set([...weekdays].map(String)))
 
   let lineOptions = $derived(
@@ -171,13 +183,7 @@
       .join(' · '),
   )
 
-  let poolSummary = $derived(
-    !hasPool
-      ? 'без пула'
-      : Number(emitPoolPick) === 0
-        ? 'пул · все новые'
-        : `пул · ${Number(emitPoolPick) || 1} шт. за бросок`,
-  )
+  let poolSummary = $derived(!hasPool ? 'без команды' : emitLimitsText.trim() ? 'команда · свои лимиты' : 'команда')
 
   let stepsSummary = $derived.by(() => {
     const n = steps.filter((s) => s.title.trim()).length
@@ -229,7 +235,7 @@
     catTouched = false
     emitChancePct = t ? Math.round(Math.max(0, Math.min(1, Number(t.emit_chance) || 1)) * 100) : 100
     emitPoolCommand = t?.emit_pool_command ?? ''
-    emitPoolPick = t ? Math.max(0, Number.isFinite(Number(t.emit_pool_pick)) ? Number(t.emit_pool_pick) : 1) : 1
+    emitLimitsText = t?.emit_limits ? JSON.stringify(t.emit_limits) : ''
     const ws = parseClock(t?.emit_window_start, '09', '00')
     const we = parseClock(t?.emit_window_end, '18', '00')
     windowStartHour = ws.hour
@@ -335,7 +341,7 @@
       weekdays: [...weekdays].sort((a, b) => a - b).join(','),
       timezone: timezone.trim() || LOCAL_TZ,
       emit_pool_command: emitPoolCommand.trim() || null,
-      emit_pool_pick: Math.max(0, Number.isFinite(Number(emitPoolPick)) ? Number(emitPoolPick) : 1),
+      emit_limits: emitLimitsText.trim() ? parseLimits(emitLimitsText) : null,
       category_id: categoryId === '' ? null : Number(categoryId),
       questline_id: questlineId === '' ? null : Number(questlineId),
       tag_ids: selectedTags.map((t) => t.id),
@@ -370,10 +376,16 @@
       formError = 'Нужен заголовок'
       return
     }
-    const payload = buildPayload()
-    // A pool roll replaces the template's own steps with its picks, so the
-    // "constant" steps below are just an unused fallback while a command is
-    // set — don't force filling one in.
+    let payload
+    try {
+      payload = buildPayload()
+    } catch (e) {
+      formError = e.message || String(e)
+      secPool = true
+      return
+    }
+    // The command's quest brings its own steps, so the "constant" steps below
+    // are just a fallback while a command is set — don't force filling one in.
     if (!payload.steps.length && !hasPool) {
       formError = 'Нужен хотя бы один шаг'
       secSteps = true
@@ -519,7 +531,7 @@
     return [
       days,
       mode,
-      t.emit_pool_command && `пул (${t.emit_pool_pick ?? 1})`,
+      t.emit_pool_command && 'команда',
       t.questline_title,
       t.category_label,
       QUEST_SIGNIFICANCES.find((x) => x.id === t.significance)?.label || 'обычное',
@@ -778,9 +790,9 @@
         <div class="field">
           <span class="label">
             Команда или скрипт пула
-            <HelpTip label="Как работает пул">
-              <p>Запускается на каждое появление. stdout — JSON-массив <code>{'{title, description?, weight?, ref?}'}</code>; выбранные пункты становятся шагами квеста вместо шагов шаблона.</p>
-              <p>«Штук за бросок» — сколько пунктов взять случайно по весу. 0 — взять все новые (без повторов по <code>ref</code>): для очередей вроде непрочитанной почты.</p>
+            <HelpTip label="Как работает команда">
+              <p>Запускается при каждом появлении. stdout — один квест в JSON: <code>{'{title?, description?, significance?, questline?, tags?, deadline_at?, steps: [{title, check_command?, …}]}'}</code>. Заданное в нём перекрывает поля шаблона, остальное берётся из шаблона. Пустой вывод, <code>null</code> или <code>{'{}'}</code> — квеста в этот день нет.</p>
+              <p>Повторы команда не отслеживает: пока письмо не прочитано, квест про него будет появляться снова.</p>
               <p>Текст с <code>#!</code> в первой строке — целый скрипт, запускается своим интерпретатором. Секреты — в меню «Секреты», в скрипт приходят переменными окружения.</p>
             </HelpTip>
           </span>
@@ -793,18 +805,21 @@
           ></textarea>
         </div>
         {#if hasPool}
-          <div class="inline-line">
-            брать
-            <input type="number" min="0" step="1" bind:value={emitPoolPick} aria-label="Штук за бросок" />
-            шт. за бросок
-            <span class="hint">0 — все новые</span>
-          </div>
+          <label class="field">
+            <span class="label">
+              Лимиты ответа (JSON, необязательно)
+              <HelpTip label="Лимиты ответа">
+                <p>Ограничения на квест, который печатает команда. По умолчанию: <code>max_steps</code> 30, <code>max_title</code> 200, <code>max_description</code> 20000, <code>max_command</code> 2000. Указывайте только то, что меняете.</p>
+              </HelpTip>
+            </span>
+            <input type="text" class="mono" placeholder={'{"max_steps": 50}'} bind:value={emitLimitsText} spellcheck="false" />
+          </label>
         {/if}
       </FormSection>
 
       <FormSection title="Шаги" summary={stepsSummary} bind:open={secSteps}>
         {#if hasPool}
-          <p class="hint">Пока задан пул, шаги берутся из него — эти запасные.</p>
+          <p class="hint">Пока задана команда, шаги берутся из её квеста — эти запасные, на случай если она не напечатала шаги.</p>
         {/if}
         <StepsEditor bind:steps variant="template" />
       </FormSection>

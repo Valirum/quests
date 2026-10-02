@@ -54,14 +54,14 @@ func TestExecEmitPoolCommandInjectsTemplateSecret(t *testing.T) {
 	}
 
 	command := `#!/bin/sh
-printf '[{"title":"%s","weight":1}]' "$MY_SECRET"
+printf '{"title":"%s"}' "$MY_SECRET"
 `
-	items, _, err := execEmitPoolCommand(context.Background(), st, templateID, command)
+	out, _, err := execEmitPoolCommand(context.Background(), st, templateID, command)
 	if err != nil {
 		t.Fatalf("execEmitPoolCommand: %v", err)
 	}
-	if len(items) != 1 || items[0].Title != "hunter2" {
-		t.Fatalf("want [{title:hunter2}], got %+v", items)
+	if out.Spec == nil || out.Spec.Title == nil || *out.Spec.Title != "hunter2" {
+		t.Fatalf("want {title:hunter2}, got %+v", out)
 	}
 }
 
@@ -75,14 +75,16 @@ func TestExecEmitPoolCommandNoSecretsIsFine(t *testing.T) {
 	const templateID = int64(7)
 
 	command := `#!/bin/sh
-printf '[{"title":"%s","weight":1}]' "$MY_SECRET"
+printf '{"title":"%s"}' "$MY_SECRET"
 `
-	items, _, err := execEmitPoolCommand(context.Background(), st, templateID, command)
+	out, _, err := execEmitPoolCommand(context.Background(), st, templateID, command)
 	if err != nil {
 		t.Fatalf("execEmitPoolCommand: %v", err)
 	}
-	if len(items) != 0 {
-		t.Fatalf("want no items (blank title dropped), got %+v", items)
+	// An unset $MY_SECRET leaves an empty title: still a valid (title-less)
+	// object, and the secret value itself is nowhere in it.
+	if out.Spec == nil || out.Spec.Title == nil || *out.Spec.Title != "" {
+		t.Fatalf("want a spec with an empty title, got %+v", out)
 	}
 }
 

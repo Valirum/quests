@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -220,6 +221,21 @@ func (s *Server) getQuest(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, out)
 }
 
+// sourcePattern limits what a client may put into quest.source (a short label
+// like "web", "cli", "mcp", "telegram"); "template:<id>" is reserved for the
+// scheduler.
+var sourcePattern = regexp.MustCompile(`^[a-z][a-z0-9_.-]{0,31}$`)
+
+// requestSource is how the quest being created was made, from the
+// X-Quests-Source header the clients set; "api" when absent or not a plain label.
+func requestSource(r *http.Request) *string {
+	v := strings.ToLower(strings.TrimSpace(r.Header.Get("X-Quests-Source")))
+	if !sourcePattern.MatchString(v) {
+		v = "api"
+	}
+	return &v
+}
+
 func (s *Server) createQuest(w http.ResponseWriter, r *http.Request) {
 	var body domain.QuestCreate
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -291,6 +307,7 @@ func (s *Server) createQuest(w http.ResponseWriter, r *http.Request) {
 		CreatedAt:       now,
 		UpdatedAt:       now,
 		Automated:       body.Automated,
+		Source:          requestSource(r),
 	}
 	if len(body.Steps) == 0 {
 		q.Steps = []domain.Step{{Title: body.Title, ProgressTotal: 1, SortOrder: 0}}

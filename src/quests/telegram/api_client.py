@@ -36,7 +36,9 @@ class QuestsApi:
     ) -> Any:
         url = f"{self.base}{path}"
         params = {k: v for k, v in (query or {}).items() if v is not None} or None
-        headers = {"Authorization": f"Bearer {self._token}"} if self._token else None
+        headers = {"X-Quests-Source": "telegram"}
+        if self._token:
+            headers["Authorization"] = f"Bearer {self._token}"
         try:
             async with self._session.request(
                 method.upper(),
@@ -95,7 +97,9 @@ class QuestsApi:
     async def preview_actions(self, text: str) -> dict:
         """LLM action-batch dry-run (may take up to a few minutes)."""
         url = f"{self.base}/api/llm/actions/preview"
-        headers = {"Authorization": f"Bearer {self._token}"} if self._token else None
+        headers = {"X-Quests-Source": "telegram"}
+        if self._token:
+            headers["Authorization"] = f"Bearer {self._token}"
         try:
             async with self._session.request(
                 "POST",

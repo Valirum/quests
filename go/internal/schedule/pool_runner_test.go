@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/valirum/quests/go/internal/domain"
 )
 
 func withInlineWait(t *testing.T, d time.Duration) {
@@ -60,7 +62,7 @@ func TestPoolRunnerSlowCommandDoesNotBlockAndRunsOnce(t *testing.T) {
 		t.Fatalf("5 ticks took %s: the slow command blocked the caller", elapsed)
 	}
 
-	var got []poolItem
+	var got []domain.Step
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) && len(got) == 0 {
 		time.Sleep(100 * time.Millisecond)

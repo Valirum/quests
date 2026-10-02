@@ -140,6 +140,7 @@ type Quest struct {
 	CompletedAt     *time.Time
 	TemplateID      *int64
 	PeriodKey       *string
+	Source          *string // 'template:<id>' or the creating client; nil = unknown
 	Automated       bool
 
 	CategorySlug       *string

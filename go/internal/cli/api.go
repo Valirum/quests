@@ -19,6 +19,9 @@ type Client struct {
 	// Token is the bearer credential for a instance with accounts enabled.
 	// Defaults to QUESTS_API_TOKEN; empty against an open local instance.
 	Token string
+	// Source is sent as X-Quests-Source (how the quests this client creates are
+	// labelled); "cli" by default.
+	Source string
 }
 
 func NewClient(base string, asJSON bool) *Client {
@@ -31,6 +34,7 @@ func NewClient(base string, asJSON bool) *Client {
 		HTTP:   &http.Client{Timeout: 30 * time.Second},
 		AsJSON: asJSON,
 		Token:  strings.TrimSpace(os.Getenv("QUESTS_API_TOKEN")),
+		Source: "cli",
 	}
 }
 
@@ -84,6 +88,7 @@ func (c *Client) Do(method, path string, query map[string]string, body any) (jso
 		return nil, err
 	}
 	req.Header.Set("Accept", "application/json")
+	req.Header.Set("X-Quests-Source", c.Source)
 	if c.Token != "" {
 		req.Header.Set("Authorization", "Bearer "+c.Token)
 	}

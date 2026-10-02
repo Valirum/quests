@@ -43,6 +43,7 @@ func NewExecutor(apiBase, token string) *Executor {
 	c := cli.NewClient(apiBase, true)
 	// Loopback calls to our own API must carry credentials once accounts are on.
 	c.Token = token
+	c.Source = "assistant"
 	return &Executor{Client: c}
 }
 

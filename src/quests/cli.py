@@ -58,7 +58,7 @@ def api_request(
         if q:
             url = f"{url}?{urllib.parse.urlencode(q)}"
     data = None
-    headers = {"Accept": "application/json"}
+    headers = {"Accept": "application/json", "X-Quests-Source": "cli"}
     # Bearer token for an instance with accounts enabled; empty when open.
     token = (os.environ.get("QUESTS_API_TOKEN") or "").strip()
     if token:

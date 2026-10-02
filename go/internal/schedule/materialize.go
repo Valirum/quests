@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -58,7 +57,7 @@ type templateRow struct {
 	EmitWindowStart sql.NullString
 	EmitWindowEnd   sql.NullString
 	EmitPoolCommand sql.NullString
-	EmitPoolPick    int
+	EmitLimits      sql.NullString
 	RewardAttrs     sql.NullString
 	CategoryID      sql.NullInt64
 	QuestlineID     sql.NullInt64
@@ -94,7 +93,7 @@ func materializeDue(ctx context.Context, st *store.Store, hub *events.Hub, now t
 	rows, err := st.DB.QueryContext(ctx, `
 		SELECT id, title, description, pinned, sort_order, duration_seconds, freq, weekdays,
 			enabled, timezone, deadline_time, significance, emit_mode, emit_chance,
-			emit_window_start, emit_window_end, emit_pool_command, emit_pool_pick,
+			emit_window_start, emit_window_end, emit_pool_command, emit_limits,
 			reward_attrs, category_id, questline_id, automated
 		FROM questtemplate WHERE enabled = 1 ORDER BY sort_order, id`)
 	if err != nil {
@@ -108,7 +107,7 @@ func materializeDue(ctx context.Context, st *store.Store, hub *events.Hub, now t
 		if err := rows.Scan(
 			&t.ID, &t.Title, &t.Description, &pinned, &t.SortOrder, &t.DurationSeconds, &t.Freq, &t.Weekdays,
 			&enabled, &t.Timezone, &t.DeadlineTime, &t.Significance, &t.EmitMode, &t.EmitChance,
-			&t.EmitWindowStart, &t.EmitWindowEnd, &t.EmitPoolCommand, &t.EmitPoolPick,
+			&t.EmitWindowStart, &t.EmitWindowEnd, &t.EmitPoolCommand, &t.EmitLimits,
 			&t.RewardAttrs, &t.CategoryID, &t.QuestlineID, &automated,
 		); err != nil {
 			return nil, err
@@ -201,43 +200,45 @@ func materializeDue(ctx context.Context, st *store.Store, hub *events.Hub, now t
 		var poolRollID int64
 		var poolFailed bool
 		var poolFailMsg string
-		var poolQuestDesc string
-		var steps []domain.Step
+		var spec *resolvedSpec
 		if usePool {
-			items, rollID, failMsg, perr := resolveEmitPoolOpts(ctx, st, tmpl, key, now, rng, poolOpts{runner: runner})
+			res, perr := resolveEmit(ctx, st, tmpl, key, now, poolOpts{runner: runner})
 			if perr != nil {
 				return created, perr
 			}
-			poolRollID = rollID
+			poolRollID = res.RollID
 			switch {
-			case failMsg != "":
-				// Attempts just ran out — nothing else surfaces this (no logging
-				// in execEmitPoolCommand), so materialize a failed quest with the
-				// last attempt's trace instead of silently doing nothing.
+			case res.FailMsg != "":
+				// Attempts just ran out — materialize a failed quest with the last
+				// attempt's trace instead of silently doing nothing.
 				poolFailed = true
-				poolFailMsg = failMsg
-				steps = []domain.Step{{
-					Title:         "Почини команду пула шаблона «" + tmpl.Title + "»",
-					ProgressTotal: 1,
-				}}
-			case len(items) == 0:
-				// retry pending, or empty/zero-weight pool (miss)
+				poolFailMsg = res.FailMsg
+			case res.Spec == nil:
+				// retry pending, still running, or "no quest this period"
 				continue
 			default:
-				steps = stepsFromPoolItems(items)
-				poolQuestDesc = questDescriptionFromPool(items)
+				spec = res.Spec
 			}
-		} else {
+		}
+		var steps []domain.Step
+		switch {
+		case poolFailed:
+			steps = []domain.Step{{
+				Title:         "Почини команду пула шаблона «" + tmpl.Title + "»",
+				ProgressTotal: 1,
+			}}
+		case spec != nil && len(spec.Steps) > 0:
+			steps = spec.Steps
+		default:
 			steps, err = loadTemplateSteps(ctx, st, tmpl, rng)
 			if err != nil {
 				return created, err
 			}
 		}
 
-		desc := applyPoolQuestDescription(tmpl.Description, poolQuestDesc)
 		q := domain.Quest{
 			Title:           tmpl.Title,
-			Description:     desc,
+			Description:     tmpl.Description,
 			Status:          domain.StatusActive,
 			Significance:    domain.Significance(tmpl.Significance),
 			Pinned:          tmpl.Pinned,
@@ -271,17 +272,22 @@ func materializeDue(ctx context.Context, st *store.Store, hub *events.Hub, now t
 			v := tmpl.QuestlineID.Int64
 			q.QuestlineID = &v
 		}
+		if spec != nil {
+			applyResolvedSpec(ctx, st, &q, tmpl, spec, now)
+		}
 		tid := tmpl.ID
 		q.TemplateID = &tid
 		pk := key
 		q.PeriodKey = &pk
+		source := fmt.Sprintf("template:%d", tmpl.ID)
+		q.Source = &source
 
 		// Create without auto quest_created — we emit quest_appeared.
 		createdQ, err := st.CreateQuestAppeared(ctx, q)
 		if err != nil {
 			return created, err
 		}
-		if err := st.CopyTemplateTagsToQuest(ctx, tmpl.ID, createdQ.ID); err != nil {
+		if err := attachTags(ctx, st, tmpl, createdQ.ID, spec); err != nil {
 			return created, err
 		}
 		if surpriseRollID.Valid {
@@ -607,76 +613,73 @@ func (it poolItem) effectiveWeight() float64 {
 	return *it.Weight
 }
 
-func (it poolItem) key() string {
-	if strings.TrimSpace(it.Ref) != "" {
-		return it.Ref
-	}
-	return it.Title + "\x00" + it.Description
+// emitResult is what one tick learns about a template's emit command.
+// Spec is set when there is a quest to create now (the command printed one, or
+// an old-style item list that was converted); nil means nothing this tick
+// (pending retry, still running, or "no quest this period"). FailMsg is
+// non-empty exactly when this call is the one that exhausted the attempts
+// (outcome just became "error") — the caller then creates a failed quest
+// carrying the trace, since nothing else surfaces it to the user.
+type emitResult struct {
+	Spec    *resolvedSpec
+	RollID  int64
+	FailMsg string
 }
 
-// resolveEmitPool drives one template's emit_pool_command for the current
-// period: executes it (with retry-on-failure up to emitPoolMaxAttempts),
-// weighted-picks emit_pool_pick items excluding recent picks, and persists
-// state in templateemitroll so repeated ticks don't re-roll or re-exec.
-// Returns an empty slice when there is nothing to materialize this tick
-// (pending retry, empty/zero-weight pool = miss). failMsg is non-empty
-// exactly when this call is the one that exhausted attempts (outcome just
-// became "error") — the caller uses it to materialize a failed quest
-// carrying the trace, since nothing else surfaces this to the user.
-func resolveEmitPool(ctx context.Context, st *store.Store, tmpl templateRow, periodKey string, now time.Time, rng *rand.Rand) (items []poolItem, rollID int64, failMsg string, err error) {
-	return resolveEmitPoolOpts(ctx, st, tmpl, periodKey, now, rng, poolOpts{})
-}
-
-// poolOpts tunes resolveEmitPoolOpts. ignorePause lets a manual run
-// ("materialize now") go ahead even while a retry pause is pending; runner,
-// when set, runs the command off the calling goroutine (see poolRunner) and a
-// not-yet-finished command makes the call a no-op.
+// poolOpts tunes resolveEmit. ignorePause lets a manual run ("materialize
+// now") go ahead even while a retry pause is pending; runner, when set, runs
+// the command off the calling goroutine (see poolRunner) and a not-yet-finished
+// command makes the call a no-op.
 type poolOpts struct {
 	ignorePause bool
 	runner      *poolRunner
 }
 
-func resolveEmitPoolOpts(ctx context.Context, st *store.Store, tmpl templateRow, periodKey string, now time.Time, rng *rand.Rand, opts poolOpts) (items []poolItem, rollID int64, failMsg string, err error) {
+// resolveEmit drives one template's emit_pool_command for the current period:
+// runs it (retrying with pauses on failure, up to emitPoolMaxAttempts),
+// validates the quest it printed against the template's limits and persists the
+// outcome in templateemitroll so repeated ticks don't re-run or re-create.
+func resolveEmit(ctx context.Context, st *store.Store, tmpl templateRow, periodKey string, now time.Time, opts poolOpts) (emitResult, error) {
 	var id int64
 	var outcome string
 	var attempts int
-	var pickedRefs, retryAt sql.NullString
+	var retryAt sql.NullString
 	isNew := false
 	qerr := st.DB.QueryRowContext(ctx, `
-		SELECT id, outcome, attempts, picked_refs, retry_at FROM templateemitroll
+		SELECT id, outcome, attempts, retry_at FROM templateemitroll
 		WHERE template_id = ? AND period_key = ?`, tmpl.ID, periodKey).
-		Scan(&id, &outcome, &attempts, &pickedRefs, &retryAt)
+		Scan(&id, &outcome, &attempts, &retryAt)
 	if qerr == sql.ErrNoRows {
 		isNew = true
 	} else if qerr != nil {
-		return nil, 0, "", qerr
+		return emitResult{}, qerr
 	}
 	if !isNew && (outcome == "materialized" || outcome == "error" || outcome == "miss") {
-		return nil, id, "", nil
+		return emitResult{RollID: id}, nil
 	}
 	// A failed run scheduled its own retry: until then the tick leaves it alone.
 	if !isNew && retryAt.Valid && !opts.ignorePause {
 		if at, perr := timeutil.ParseFlexible(retryAt.String); perr == nil && now.Before(at) {
-			return nil, id, "", nil
+			return emitResult{RollID: id}, nil
 		}
 	}
 
 	attemptNo := attempts + 1
-	var rawItems []poolItem
+	var out emitOutput
 	var info execInfo
 	var execErr error
 	if opts.runner != nil {
 		var ready bool
-		rawItems, info, execErr, ready = opts.runner.exec(ctx, st, tmpl.ID, periodKey, tmpl.EmitPoolCommand.String)
+		out, info, execErr, ready = opts.runner.exec(ctx, st, tmpl.ID, periodKey, tmpl.EmitPoolCommand.String)
 		if !ready {
-			return nil, id, "", nil // still running; a later tick collects it
+			return emitResult{RollID: id}, nil // still running; a later tick collects it
 		}
 	} else {
-		rawItems, info, execErr = execEmitPoolCommand(ctx, st, tmpl.ID, tmpl.EmitPoolCommand.String)
+		out, info, execErr = execEmitPoolCommand(ctx, st, tmpl.ID, tmpl.EmitPoolCommand.String)
 	}
 	rec := store.EmitAttempt{
 		TemplateID: tmpl.ID, PeriodKey: periodKey, At: now, Attempt: attemptNo,
-		Status: info.Status, DurationMS: info.Duration.Milliseconds(), Items: len(rawItems),
+		Status: info.Status, DurationMS: info.Duration.Milliseconds(),
 		Message: info.Stderr,
 	}
 	// Logging never fails the roll: it's diagnostics, not state.
@@ -685,6 +688,34 @@ func resolveEmitPoolOpts(ctx context.Context, st *store.Store, tmpl templateRow,
 			log.Printf("emit attempt log (template %d): %v", tmpl.ID, rerr)
 		}
 	}
+
+	var resolved *resolvedSpec
+	var note string
+	if execErr == nil {
+		spec := out.Spec
+		if out.Legacy != nil {
+			spec = legacySpec(out.Legacy)
+			if strings.TrimSpace(tmpl.Description) != "" {
+				spec.Description = nil // old rule: the template's own description wins
+			}
+			note = "old-style item list (converted to one quest)"
+		}
+		if spec != nil {
+			lim, lerr := store.ParseEmitLimits(tmpl.EmitLimits.String)
+			if lerr != nil {
+				lim = store.DefaultEmitLimits()
+				log.Printf("emit limits (template %d): %v; using defaults", tmpl.ID, lerr)
+			}
+			var rerr error
+			resolved, rerr = resolveEmitSpec(ctx, st, spec, lim)
+			if rerr != nil {
+				execErr = fmt.Errorf("invalid quest: %w", rerr)
+				info.Status = "bad_spec"
+				rec.Status = "bad_spec"
+			}
+		}
+	}
+
 	if execErr != nil {
 		attempts++
 		newOutcome := "scheduled"
@@ -704,117 +735,52 @@ func resolveEmitPoolOpts(ctx context.Context, st *store.Store, tmpl templateRow,
 				VALUES (?, ?, ?, ?, ?, ?, ?)`,
 				tmpl.ID, periodKey, newOutcome, attempts, nextRetry, timeutil.ToDBUTC(now), timeutil.ToDBUTC(now))
 			if err != nil {
-				return nil, 0, "", err
+				return emitResult{}, err
 			}
 			id, _ = res.LastInsertId()
 		} else {
 			if _, err := st.DB.ExecContext(ctx, `
 				UPDATE templateemitroll SET outcome = ?, attempts = ?, retry_at = ?, updated_at = ? WHERE id = ?`,
 				newOutcome, attempts, nextRetry, timeutil.ToDBUTC(now), id); err != nil {
-				return nil, 0, "", err
+				return emitResult{}, err
 			}
 		}
 		if newOutcome == "error" {
-			return nil, id, execErr.Error(), nil
+			return emitResult{RollID: id, FailMsg: execErr.Error()}, nil
 		}
-		return nil, id, "", nil
+		return emitResult{RollID: id}, nil
 	}
-	items = rawItems
 
-	positive := make([]poolItem, 0, len(items))
-	for _, it := range items {
-		if it.effectiveWeight() > 0 {
-			positive = append(positive, it)
-		}
-	}
-	if len(positive) == 0 {
-		rec.Message = joinNote("miss: pool is empty (no item with positive weight)", rec.Message)
+	if resolved == nil {
+		rec.Message = joinNote("miss: the command printed no quest", rec.Message)
 		record()
 		id, err := persistEmitPoolOutcome(ctx, st, id, isNew, tmpl.ID, periodKey, "miss", attempts, "", now)
 		if err != nil {
-			return nil, 0, "", err
+			return emitResult{}, err
 		}
-		return nil, id, "", nil
+		return emitResult{RollID: id}, nil
 	}
 
-	excludeDepth := len(positive) - 1
-	excluded := map[string]struct{}{}
-	if excludeDepth > 0 {
-		rows, err := st.DB.QueryContext(ctx, `
-			SELECT picked_refs FROM templateemitroll
-			WHERE template_id = ? AND period_key != ? AND picked_refs IS NOT NULL
-			ORDER BY period_key DESC LIMIT ?`, tmpl.ID, periodKey, excludeDepth)
-		if err != nil {
-			return nil, 0, "", err
-		}
-		for rows.Next() {
-			var raw string
-			if err := rows.Scan(&raw); err != nil {
-				rows.Close()
-				return nil, 0, "", err
-			}
-			var keys []string
-			if json.Unmarshal([]byte(raw), &keys) == nil {
-				for _, k := range keys {
-					excluded[k] = struct{}{}
-				}
-			}
-		}
-		if err := rows.Err(); err != nil {
-			rows.Close()
-			return nil, 0, "", err
-		}
-		rows.Close()
+	rec.Items = len(resolved.Steps)
+	rec.Picked = 1
+	title := resolved.Title
+	if title == "" {
+		title = tmpl.Title
 	}
-
-	candidates := make([]poolItem, 0, len(positive))
-	for _, it := range positive {
-		if _, skip := excluded[it.key()]; !skip {
-			candidates = append(candidates, it)
-		}
+	msg := fmt.Sprintf("quest «%s», %d step(s)", title, len(resolved.Steps))
+	if note != "" {
+		msg += "; " + note
 	}
-
-	// emit_pool_pick <= 0 means "take everything new" instead of a weighted
-	// sample of N — the anti-repeat filter above already excludes what was
-	// recently shown, so this is "whatever's left", not "the whole pool
-	// every time" (that would make an unread-mail-style pool re-list the
-	// same items forever since nothing here marks them consumed upstream).
-	var picked []poolItem
-	if tmpl.EmitPoolPick <= 0 {
-		picked = candidates
-	} else {
-		if len(candidates) < tmpl.EmitPoolPick {
-			candidates = positive // not enough non-recent variants — fall back to the full pool
-		}
-		picked = weightedPickWithoutReplacement(candidates, tmpl.EmitPoolPick, rng)
+	if len(resolved.Ignored) > 0 {
+		msg += "; ignored fields: " + strings.Join(resolved.Ignored, ", ")
 	}
-	if len(picked) == 0 {
-		rec.Message = joinNote(fmt.Sprintf("miss: all %d item(s) were shown in recent periods", len(positive)), rec.Message)
-		record()
-		id, err := persistEmitPoolOutcome(ctx, st, id, isNew, tmpl.ID, periodKey, "miss", attempts, "", now)
-		if err != nil {
-			return nil, 0, "", err
-		}
-		return nil, id, "", nil
-	}
-
-	keys := make([]string, 0, len(picked))
-	for _, it := range picked {
-		keys = append(keys, it.key())
-	}
-	refsJSON, err := json.Marshal(keys)
-	if err != nil {
-		return nil, 0, "", err
-	}
-	rec.Picked = len(picked)
-	rec.PickedRefs = keys
-	rec.Message = joinNote(fmt.Sprintf("picked %d of %d", len(picked), len(positive)), rec.Message)
+	rec.Message = joinNote(msg, rec.Message)
 	record()
-	id, err = persistEmitPoolOutcome(ctx, st, id, isNew, tmpl.ID, periodKey, "scheduled", attempts, string(refsJSON), now)
+	id, err := persistEmitPoolOutcome(ctx, st, id, isNew, tmpl.ID, periodKey, "scheduled", attempts, "", now)
 	if err != nil {
-		return nil, 0, "", err
+		return emitResult{}, err
 	}
-	return picked, id, "", nil
+	return emitResult{Spec: resolved, RollID: id}, nil
 }
 
 // persistEmitPoolOutcome returns the row's id — for a new row this is the
@@ -874,7 +840,7 @@ func maskSecrets(s string, secrets map[string]string) string {
 	return store.MaskSecrets(s, secrets)
 }
 
-func execEmitPoolCommand(parent context.Context, st *store.Store, templateID int64, command string) (items []poolItem, info execInfo, err error) {
+func execEmitPoolCommand(parent context.Context, st *store.Store, templateID int64, command string) (out emitOutput, info execInfo, err error) {
 	ctx, cancel := context.WithTimeout(parent, emitPoolTimeout)
 	defer cancel()
 	started := time.Now()
@@ -890,20 +856,20 @@ func execEmitPoolCommand(parent context.Context, st *store.Store, templateID int
 	if strings.HasPrefix(strings.TrimLeft(command, " \t\r\n"), "#!") {
 		f, ferr := os.CreateTemp("", "quests-emit-pool-*")
 		if ferr != nil {
-			return nil, info, ferr
+			return emitOutput{}, info, ferr
 		}
 		scriptPath := f.Name()
 		defer os.Remove(scriptPath)
 		_, writeErr := f.WriteString(command)
 		closeErr := f.Close()
 		if writeErr != nil {
-			return nil, info, writeErr
+			return emitOutput{}, info, writeErr
 		}
 		if closeErr != nil {
-			return nil, info, closeErr
+			return emitOutput{}, info, closeErr
 		}
 		if cerr := os.Chmod(scriptPath, 0o700); cerr != nil {
-			return nil, info, cerr
+			return emitOutput{}, info, cerr
 		}
 		cmd = exec.CommandContext(ctx, scriptPath)
 	} else {
@@ -930,23 +896,16 @@ func execEmitPoolCommand(parent context.Context, st *store.Store, templateID int
 		// stderr rides along in the error text — it's the only trace of what
 		// went wrong once attempts run out (also kept in the attempt log).
 		msg := maskSecrets(runErr.Error(), secrets)
-		return nil, info, fmt.Errorf("%s\nstderr:\n%s", msg, info.Stderr)
+		return emitOutput{}, info, fmt.Errorf("%s\nstderr:\n%s", msg, info.Stderr)
 	}
-	var parsed []poolItem
-	if jerr := json.Unmarshal(stdout.Bytes(), &parsed); jerr != nil {
+	parsed, perr := parseEmitOutput(stdout.Bytes())
+	if perr != nil {
 		info.Status = "bad_json"
-		return nil, info, fmt.Errorf("invalid JSON on stdout: %s\nstdout:\n%s",
-			maskSecrets(jerr.Error(), secrets), truncate(maskSecrets(stdout.String(), secrets), 4000))
-	}
-	out := make([]poolItem, 0, len(parsed))
-	for _, it := range parsed {
-		if strings.TrimSpace(it.Title) == "" {
-			continue
-		}
-		out = append(out, it)
+		return emitOutput{}, info, fmt.Errorf("%s\nstdout:\n%s",
+			maskSecrets(perr.Error(), secrets), truncate(maskSecrets(stdout.String(), secrets), 4000))
 	}
 	info.Status = "ok"
-	return out, info, nil
+	return parsed, info, nil
 }
 
 // joinNote prefixes the attempt's own verdict to whatever stderr it produced.
@@ -965,74 +924,6 @@ func truncate(s string, n int) string {
 	return s[:n] + "…"
 }
 
-// weightedPickWithoutReplacement draws up to m items from candidates,
-// each draw weighted by effectiveWeight among what remains.
-func weightedPickWithoutReplacement(candidates []poolItem, m int, rng *rand.Rand) []poolItem {
-	pool := append([]poolItem(nil), candidates...)
-	picked := make([]poolItem, 0, m)
-	for len(picked) < m && len(pool) > 0 {
-		total := 0.0
-		for _, it := range pool {
-			total += it.effectiveWeight()
-		}
-		if total <= 0 {
-			break
-		}
-		r := rng.Float64() * total
-		idx := len(pool) - 1
-		acc := 0.0
-		for j, it := range pool {
-			acc += it.effectiveWeight()
-			if r < acc {
-				idx = j
-				break
-			}
-		}
-		picked = append(picked, pool[idx])
-		pool = append(pool[:idx], pool[idx+1:]...)
-	}
-	return picked
-}
-
-func stepsFromPoolItems(items []poolItem) []domain.Step {
-	out := make([]domain.Step, 0, len(items))
-	for i, it := range items {
-		desc := it.Description
-		if strings.TrimSpace(it.Ref) != "" {
-			if desc != "" {
-				desc += "\n\n" + it.Ref
-			} else {
-				desc = it.Ref
-			}
-		}
-		out = append(out, domain.Step{
-			Title: it.Title, Description: desc,
-			ProgressCurrent: 0, ProgressTotal: 1, SortOrder: i,
-		})
-	}
-	return out
-}
-
-// questDescriptionFromPool returns the first non-empty quest_description in
-// pick order. Used only when the template's own description is empty.
-func questDescriptionFromPool(items []poolItem) string {
-	for _, it := range items {
-		if s := strings.TrimSpace(it.QuestDescription); s != "" {
-			return it.QuestDescription
-		}
-	}
-	return ""
-}
-
-// applyPoolQuestDescription fills an empty template description from the pool.
-// A non-empty template description is never overwritten.
-func applyPoolQuestDescription(tmplDesc, poolDesc string) string {
-	if strings.TrimSpace(tmplDesc) == "" && poolDesc != "" {
-		return poolDesc
-	}
-	return tmplDesc
-}
-
 // ErrTemplateNotFound is returned by MaterializeTemplateManual when id is missing.
 var ErrTemplateNotFound = errors.New("template not found")
 
@@ -1042,12 +933,12 @@ func loadTemplateRow(ctx context.Context, st *store.Store, id int64) (templateRo
 	err := st.DB.QueryRowContext(ctx, `
 		SELECT id, title, description, pinned, sort_order, duration_seconds, freq, weekdays,
 			enabled, timezone, deadline_time, significance, emit_mode, emit_chance,
-			emit_window_start, emit_window_end, emit_pool_command, emit_pool_pick,
+			emit_window_start, emit_window_end, emit_pool_command, emit_limits,
 			reward_attrs, category_id, questline_id, automated
 		FROM questtemplate WHERE id = ?`, id).Scan(
 		&t.ID, &t.Title, &t.Description, &pinned, &t.SortOrder, &t.DurationSeconds, &t.Freq, &t.Weekdays,
 		&enabled, &t.Timezone, &t.DeadlineTime, &t.Significance, &t.EmitMode, &t.EmitChance,
-		&t.EmitWindowStart, &t.EmitWindowEnd, &t.EmitPoolCommand, &t.EmitPoolPick,
+		&t.EmitWindowStart, &t.EmitWindowEnd, &t.EmitPoolCommand, &t.EmitLimits,
 		&t.RewardAttrs, &t.CategoryID, &t.QuestlineID, &automated,
 	)
 	if err == sql.ErrNoRows {
@@ -1104,23 +995,18 @@ func MaterializeTemplateManual(ctx context.Context, st *store.Store, hub *events
 
 	usePool := tmpl.EmitPoolCommand.Valid && strings.TrimSpace(tmpl.EmitPoolCommand.String) != ""
 	var poolRollID int64
-	var poolQuestDesc string
-	var steps []domain.Step
+	var spec *resolvedSpec
 	if usePool {
-		items, rollID, _, perr := resolveEmitPoolOpts(ctx, st, tmpl, key, now, rng, poolOpts{ignorePause: true})
+		res, perr := resolveEmit(ctx, st, tmpl, key, now, poolOpts{ignorePause: true})
 		if perr != nil {
 			return 0, perr
 		}
-		poolRollID = rollID
-		if len(items) == 0 {
-			steps, err = loadTemplateSteps(ctx, st, tmpl, rng)
-			if err != nil {
-				return 0, err
-			}
-		} else {
-			steps = stepsFromPoolItems(items)
-			poolQuestDesc = questDescriptionFromPool(items)
-		}
+		poolRollID = res.RollID
+		spec = res.Spec
+	}
+	var steps []domain.Step
+	if spec != nil && len(spec.Steps) > 0 {
+		steps = spec.Steps
 	} else {
 		steps, err = loadTemplateSteps(ctx, st, tmpl, rng)
 		if err != nil {
@@ -1128,10 +1014,9 @@ func MaterializeTemplateManual(ctx context.Context, st *store.Store, hub *events
 		}
 	}
 
-	desc := applyPoolQuestDescription(tmpl.Description, poolQuestDesc)
 	q := domain.Quest{
 		Title:           tmpl.Title,
-		Description:     desc,
+		Description:     tmpl.Description,
 		Status:          domain.StatusActive,
 		Significance:    domain.Significance(tmpl.Significance),
 		Pinned:          tmpl.Pinned,
@@ -1158,16 +1043,21 @@ func MaterializeTemplateManual(ctx context.Context, st *store.Store, hub *events
 		v := tmpl.QuestlineID.Int64
 		q.QuestlineID = &v
 	}
+	if spec != nil {
+		applyResolvedSpec(ctx, st, &q, tmpl, spec, now)
+	}
 	tid := tmpl.ID
 	q.TemplateID = &tid
 	pk := key
 	q.PeriodKey = &pk
+	source := fmt.Sprintf("template:%d", tmpl.ID)
+	q.Source = &source
 
 	createdQ, err := st.CreateQuestAppeared(ctx, q)
 	if err != nil {
 		return 0, err
 	}
-	if err := st.CopyTemplateTagsToQuest(ctx, tmpl.ID, createdQ.ID); err != nil {
+	if err := attachTags(ctx, st, tmpl, createdQ.ID, spec); err != nil {
 		return 0, err
 	}
 	if usePool && poolRollID != 0 {

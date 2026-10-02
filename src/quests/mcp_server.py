@@ -150,7 +150,7 @@ def _api(
         if q:
             url = f"{url}?{urllib.parse.urlencode(q)}"
     data = None
-    headers = {"Accept": "application/json"}
+    headers = {"Accept": "application/json", "X-Quests-Source": "mcp"}
     # Bearer token for an instance with accounts enabled; empty when the API is open.
     token = (os.environ.get("QUESTS_API_TOKEN") or "").strip()
     if token:
@@ -802,36 +802,36 @@ def get_template(template_id: int) -> dict[str, Any]:
         "etc.) — a full inline script. quests writes that text to a temp file and "
         "executes it directly (its own shebang picks the interpreter), so the "
         "script lives in this DB row, not a path on whichever host runs the "
-        "scheduler — nothing to hand-deploy. Either way stdout must be a JSON "
-        "array of {title, description?, quest_description?, weight?, ref?}; emit_pool_pick items are "
-        "drawn weighted-without-replacement each roll and become the created "
-        "quest's steps, replacing `steps` below for that roll. description goes "
-        "to the step; quest_description fills the quest description only when "
-        "the template's own description is empty (first non-empty among picked "
-        "items). emit_pool_pick<=0 "
-        "means take everything new instead of N random ones: no weighted "
-        "sampling, just whatever's left after the anti-repeat filter below — use "
-        "this for a pool that must not silently drop items (e.g. unread mail), "
-        "since a weighted N-of-M sample would. ref feeds anti-repeat "
-        "(recently-picked items are excluded from the next roll); omit it and "
-        "title+description is used as the identity instead. An empty pool that "
-        "roll means no quest that period — not an error. If the command/script "
-        "fails 3 rolls running (bad creds, network, non-zero exit, invalid "
-        "JSON — nothing about this is logged anywhere else), the *next* "
-        "materialize still creates a quest: status=failed, description holds the "
-        "last attempt's stderr/parse-error trace, so the failure is visible in "
-        "the journal instead of only queryable in templateemitroll. Secrets shared "
-        "by every script belong in the *server's* root .env (auto-loaded into "
-        "its environment); a secret specific to just this template — use "
-        "set_template_secret instead, never hardcode either kind in the script "
-        "— unless the user explicitly asks for hardcoded placeholder/mock "
-        "values for a one-off manual test. "
+        "scheduler — nothing to hand-deploy. Either way stdout must be ONE quest "
+        "as a JSON object shaped like create_quest's body: title?, description?, "
+        "significance?, pinned?, automated?, deadline_at? (absolute) + "
+        "duration_seconds?, questline?/questline_id?, category?/category_id?, "
+        "tags? (slugs or ids), steps? [{title, description?, progress_total?, "
+        "check_command?, check_interval_seconds?, run_mode?, wait_previous?}]. What "
+        "it sets overrides the template's own fields, the rest comes from the "
+        "template (and the template's steps are the fallback when it prints none). "
+        "Fields outside this list are ignored and named in the attempt log. null, {} "
+        "or nothing printed means no quest this period — not an error. There is no "
+        "repeat protection: if the command keeps printing the same thing (an unread "
+        "mail), the quest keeps coming back, by design. emit_limits (JSON object, "
+        "keys max_steps=30 / max_title=200 / max_description=20000 / max_command=2000) "
+        "overrides the size limits for this template. (The old format, a JSON array "
+        "of {title, description?, quest_description?} items, is still accepted for now "
+        "and becomes the steps of one quest.) If the command fails or prints an "
+        "invalid quest (non-zero exit, timeout, bad JSON, limits, unknown "
+        "questline/tag, bad significance), it is retried with growing pauses "
+        "(1/5/15 min, 4 attempts); after that the *next* materialize creates a quest "
+        "with status=failed whose description holds the last attempt's trace; every "
+        "attempt is in list_emit_attempts. Secrets: shared by every script go in the "
+        "*server's* root .env; a secret specific to this template (or its "
+        "questline/quests/steps) — use set_secret (owner 'template=N'), never "
+        "hardcode either kind in the script — unless the user explicitly asks for "
+        "hardcoded placeholder/mock values for a one-off manual test. "
         "category/questline accept an id or a name/substring, resolved the same "
         "way as create_quest's. "
         "steps: same shape as create_quest's `steps` — the template's own "
-        "fallback whenever a roll isn't pool-driven (or the pool comes up empty "
-        "for surprise mode, though fixed+pool with an empty result skips the "
-        "period instead of falling back)."
+        "steps, used when there is no emit_pool_command or the quest it prints has "
+        "no steps."
     )
 )
 def create_template(
@@ -845,7 +845,7 @@ def create_template(
     emit_window_start: str | None = None,
     emit_window_end: str | None = None,
     emit_pool_command: str | None = None,
-    emit_pool_pick: int | None = None,
+    emit_limits: dict[str, int] | None = None,
     deadline_time: str | None = None,
     duration_seconds: int | None = None,
     category: str | int | None = None,
@@ -871,8 +871,8 @@ def create_template(
         body["emit_window_end"] = emit_window_end
     if emit_pool_command is not None:
         body["emit_pool_command"] = emit_pool_command
-    if emit_pool_pick is not None:
-        body["emit_pool_pick"] = int(emit_pool_pick)
+    if emit_limits is not None:
+        body["emit_limits"] = emit_limits
     if deadline_time is not None:
         body["deadline_time"] = deadline_time
     if duration_seconds is not None:
@@ -918,7 +918,7 @@ def update_template(
     emit_window_start: str | None = None,
     emit_window_end: str | None = None,
     emit_pool_command: str | None = None,
-    emit_pool_pick: int | None = None,
+    emit_limits: dict[str, int] | None = None,
     deadline_time: str | None = None,
     duration_seconds: int | None = None,
     category: str | int | None = None,
@@ -950,8 +950,8 @@ def update_template(
         body["emit_window_end"] = emit_window_end
     if emit_pool_command is not None:
         body["emit_pool_command"] = emit_pool_command
-    if emit_pool_pick is not None:
-        body["emit_pool_pick"] = int(emit_pool_pick)
+    if emit_limits is not None:
+        body["emit_limits"] = emit_limits
     if deadline_time is not None:
         body["deadline_time"] = deadline_time
     if duration_seconds is not None:
@@ -1100,8 +1100,9 @@ def delete_template_secret(template_id: int, key: str) -> dict[str, Any]:
         "Execution log of a template's emit_pool_command, newest first "
         "(GET /api/templates/{id}/emit-attempts). One row per run: period_key, "
         "attempt number within the period, status (ok | error | timeout | "
-        "bad_json), duration_ms, items returned, picked count + refs, and a "
-        "message (the verdict like 'miss: pool is empty', plus stderr/trace). "
+        "bad_json | bad_spec), duration_ms, step count of the printed quest, and a "
+        "message (the verdict like 'miss: the command printed no quest' or "
+        "'quest «…», 3 step(s); ignored fields: …', plus stderr/trace). "
         "Template secret values are masked as *** in messages. Use it to find "
         "out why a template shows emit_pool_last_outcome=miss/error. "
         "limit defaults to 50 (max 200); the server keeps the last 200 per template."
@@ -1178,54 +1179,41 @@ def _run_emit_pool_command(command: str) -> dict[str, Any]:
         trace["ok"] = False
         trace["error"] = f"non-zero exit ({proc.returncode})"
         return trace
+    text = proc.stdout.strip()
     try:
-        raw = json.loads(proc.stdout) if proc.stdout.strip() else []
+        raw = json.loads(text) if text else None
     except json.JSONDecodeError as e:
         trace["ok"] = False
         trace["error"] = f"invalid JSON on stdout: {e}"
         return trace
-    if not isinstance(raw, list):
-        trace["ok"] = False
-        trace["error"] = "stdout JSON must be an array of pool items"
-        return trace
-
-    items: list[dict[str, Any]] = []
-    dropped_empty_title = 0
-    for entry in raw:
-        if not isinstance(entry, dict):
-            trace["ok"] = False
-            trace["error"] = "each pool item must be a JSON object {title, description?, quest_description?, weight?, ref?}"
-            return trace
-        title = str(entry.get("title") or "").strip()
-        if not title:
-            dropped_empty_title += 1  # scheduler silently drops empty-title items
-            continue
-        weight = entry.get("weight")
-        eff = 1.0 if weight is None else (float(weight) if float(weight) >= 0 else 0.0)
-        ref = str(entry.get("ref") or "").strip()
-        quest_description = entry.get("quest_description") or ""
-        if not isinstance(quest_description, str):
-            quest_description = str(quest_description)
-        items.append(
-            {
-                "title": title,
-                "description": entry.get("description") or "",
-                "quest_description": quest_description,
-                "weight": weight,
-                "effective_weight": eff,
-                "ref": ref or None,
-                "dedup_key": ref or f"{title}\x00{entry.get('description') or ''}",
-            }
+    known = {
+        "title", "description", "significance", "pinned", "deadline_at",
+        "duration_seconds", "questline", "questline_id", "category", "category_id",
+        "tags", "tag_ids", "automated", "steps",
+    }
+    if raw is None or raw == {} or raw == []:
+        trace["ok"] = True
+        trace["quest"] = None
+        trace["note"] = "no quest this period (null / {} / nothing printed)"
+    elif isinstance(raw, dict):
+        steps = raw.get("steps") if isinstance(raw.get("steps"), list) else []
+        trace["ok"] = True
+        trace["quest"] = raw
+        trace["steps_count"] = len(steps)
+        ignored = sorted(k for k in raw if k not in known)
+        if ignored:
+            trace["ignored_fields"] = ignored
+    elif isinstance(raw, list):
+        titles = [str(e.get("title") or "").strip() for e in raw if isinstance(e, dict)]
+        trace["ok"] = True
+        trace["legacy_items"] = [t for t in titles if t]
+        trace["note"] = (
+            "old-style item array: the server still accepts it and turns the items "
+            "into the steps of one quest, but print one quest object instead"
         )
-
-    positive = [it for it in items if it["effective_weight"] > 0]
-    trace["ok"] = True
-    trace["items"] = items
-    trace["kept_count"] = len(items)
-    trace["dropped_empty_title"] = dropped_empty_title
-    trace["positive_count"] = len(positive)
-    if len(positive) < len(items):
-        trace["zero_weight_count"] = len(items) - len(positive)
+    else:
+        trace["ok"] = False
+        trace["error"] = "stdout JSON must be a quest object (or null)"
     return trace
 
 
@@ -1236,22 +1224,19 @@ def _clip(s: str, n: int = 4000) -> str:
 
 @server.tool(
     description=(
-        "Dry-run an emit_pool_command and show the pool it would produce — the "
-        "missing half of authoring a pool template through MCP (create_template/"
+        "Dry-run an emit_pool_command and show the quest it would print — the "
+        "missing half of authoring an emitting template through MCP (create_template/"
         "update_template can already store the command). Runs it exactly as the "
         "scheduler does: a value starting with '#!' is written to a temp file "
         "and executed by its own shebang, anything else runs via `sh -c`; cwd is "
         "$HOME, env is the server process env (root .env already loaded), 20s "
         "timeout. Pass either `command` (the script/one-liner text you're "
         "drafting) or `template_id` (dry-run its stored emit_pool_command). "
-        "Returns ok plus the parsed items (title/description/weight/"
-        "effective_weight/ref/dedup_key), how many empty-title items were "
-        "dropped and how many have zero weight, or on failure the exit code and "
-        "stdout/stderr trace — the same signal the scheduler would act on. Does "
-        "NOT persist a roll, apply the anti-repeat filter across periods, or "
+        "Returns ok plus the quest object (or null = no quest this period), its "
+        "step count and any ignored (unknown) fields, or on failure the exit code "
+        "and stdout/stderr trace — the same signal the scheduler would act on. Does "
+        "NOT validate against the template's limits, persist a roll, or "
         "materialize a quest; it just shows what the command emits right now. "
-        "Note pick semantics for context: emit_pool_pick<=0 takes every new "
-        "item, >0 weighted-samples that many (excluding recently picked refs). "
         "CAUTION, two ways a green result here can still mislead: (1) this "
         "tool runs the command for real on whatever host the MCP server "
         "itself is on — not inside the API server's own environment (its "
@@ -1285,10 +1270,7 @@ def dry_run_emit_pool(
         cmd = (tmpl or {}).get("emit_pool_command")
         if not cmd or not str(cmd).strip():
             raise ValueError(f"template {template_id} has no emit_pool_command set")
-        source: dict[str, Any] = {
-            "source": f"template={template_id}",
-            "emit_pool_pick": (tmpl or {}).get("emit_pool_pick"),
-        }
+        source: dict[str, Any] = {"source": f"template={template_id}"}
         cmd = str(cmd)
     else:
         cmd = command

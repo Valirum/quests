@@ -31,6 +31,7 @@ type QuestRead struct {
 	CompletedAt      *string      `json:"completed_at"`
 	TemplateID       *int64       `json:"template_id"`
 	PeriodKey        *string      `json:"period_key"`
+	Source           *string      `json:"source"`
 	Automated        bool         `json:"automated"`
 	Steps            []StepRead   `json:"steps"`
 	StepsDone        int          `json:"steps_done"`
@@ -115,6 +116,7 @@ func ToQuestRead(q Quest, now time.Time) QuestRead {
 		CompletedAt:      toISO(q.CompletedAt),
 		TemplateID:       q.TemplateID,
 		PeriodKey:        q.PeriodKey,
+		Source:           q.Source,
 		Automated:        q.Automated,
 		StepsDone:        done,
 		StepsTotal:       total,

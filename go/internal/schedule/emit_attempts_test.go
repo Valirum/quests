@@ -20,7 +20,7 @@ func attemptsFor(t *testing.T, st interface {
 }
 
 // Every execution leaves a row: the failures with their trace, the success
-// with item/pick counts and the picked refs.
+// with the step count.
 func TestEmitAttemptsLogFailureThenSuccess(t *testing.T) {
 	st := openTemplateSecretsDB(t)
 	ctx := context.Background()
@@ -46,9 +46,6 @@ func TestEmitAttemptsLogFailureThenSuccess(t *testing.T) {
 	if okRow["status"] != "ok" || okRow["attempt"].(int64) != 2 || okRow["items"].(int64) != 2 || okRow["picked"].(int64) != 1 {
 		t.Errorf("bad success row: %+v", okRow)
 	}
-	if refs := okRow["picked_refs"].([]string); len(refs) != 1 {
-		t.Errorf("want one picked ref, got %v", refs)
-	}
 }
 
 func TestEmitAttemptsLogEmptyPoolMiss(t *testing.T) {
@@ -57,7 +54,7 @@ func TestEmitAttemptsLogEmptyPoolMiss(t *testing.T) {
 		t.Fatal(err)
 	}
 	rows := attemptsFor(t, st, 6)
-	if len(rows) != 1 || rows[0]["status"] != "ok" || !strings.Contains(rows[0]["message"].(string), "miss: pool is empty") {
+	if len(rows) != 1 || rows[0]["status"] != "ok" || !strings.Contains(rows[0]["message"].(string), "miss: the command printed no quest") {
 		t.Fatalf("unexpected rows: %+v", rows)
 	}
 }

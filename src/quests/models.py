@@ -177,6 +177,8 @@ class Quest(QuestBase, table=True):
         default=None, foreign_key="questtemplate.id", index=True
     )
     period_key: Optional[str] = Field(default=None, max_length=32, index=True)
+    # How the quest was created: 'template:<id>' or the client (web/cli/mcp/…).
+    source: Optional[str] = Field(default=None, max_length=48)
     steps: List["QuestStep"] = Relationship(
         back_populates="quest",
         sa_relationship_kwargs={
@@ -271,6 +273,7 @@ class QuestRead(QuestBase):
     completed_at: Optional[datetime] = None
     template_id: Optional[int] = None
     period_key: Optional[str] = None
+    source: Optional[str] = None
     category_slug: Optional[str] = None
     category_label: Optional[str] = None
     category_color: Optional[str] = None
@@ -330,6 +333,8 @@ class QuestTemplateBase(SQLModel):
     emit_pool_command: Optional[str] = Field(default=None, max_length=20000)
     # How many items to draw from the pool per successful roll.
     emit_pool_pick: int = Field(default=1, ge=1)
+    # Optional JSON overrides of the emit-output limits (max_steps, max_title, …).
+    emit_limits: Optional[str] = Field(default=None, max_length=1000)
     # JSON attribute weights copied onto instances, e.g. {"str":1,"int":2}.
     reward_attrs: Optional[str] = Field(default=None, max_length=500)
     category_id: Optional[int] = Field(

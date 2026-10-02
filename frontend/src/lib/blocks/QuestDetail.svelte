@@ -426,6 +426,18 @@
         <dd>{formatLocal(q.deadline_at)}</dd>
       </div>
     {/if}
+    {#if q.source}
+      <div>
+        <dt>Источник</dt>
+        <dd>
+          {#if q.source.startsWith('template:')}
+            <RefText source={`template=${q.source.slice('template:'.length)}`} {labels} {onRef} />
+          {:else}
+            {q.source}
+          {/if}
+        </dd>
+      </div>
+    {/if}
   </dl>
 
   {#if timer}

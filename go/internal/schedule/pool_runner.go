@@ -23,7 +23,7 @@ const poolRunnerKeep = 10 * time.Minute
 
 type poolJob struct {
 	done       chan struct{}
-	items      []poolItem
+	out        emitOutput
 	info       execInfo
 	err        error
 	finishedAt time.Time // set before done is closed
@@ -48,7 +48,7 @@ func poolJobKey(templateID int64, periodKey, command string) string {
 
 // exec returns the command's result once it is ready; ready=false means it is
 // still running (the caller leaves the template alone this tick).
-func (r *poolRunner) exec(ctx context.Context, st *store.Store, templateID int64, periodKey, command string) (items []poolItem, info execInfo, err error, ready bool) {
+func (r *poolRunner) exec(ctx context.Context, st *store.Store, templateID int64, periodKey, command string) (out emitOutput, info execInfo, err error, ready bool) {
 	key := poolJobKey(templateID, periodKey, command)
 
 	r.mu.Lock()
@@ -58,7 +58,7 @@ func (r *poolRunner) exec(ctx context.Context, st *store.Store, templateID int64
 		job = &poolJob{done: make(chan struct{})}
 		r.jobs[key] = job
 		go func() {
-			job.items, job.info, job.err = execEmitPoolCommand(ctx, st, templateID, command)
+			job.out, job.info, job.err = execEmitPoolCommand(ctx, st, templateID, command)
 			job.finishedAt = time.Now()
 			close(job.done)
 		}()
@@ -69,7 +69,7 @@ func (r *poolRunner) exec(ctx context.Context, st *store.Store, templateID int64
 		select {
 		case <-job.done:
 		default:
-			return nil, execInfo{}, nil, false
+			return emitOutput{}, execInfo{}, nil, false
 		}
 	} else {
 		timer := time.NewTimer(emitPoolInlineWait)
@@ -77,14 +77,14 @@ func (r *poolRunner) exec(ctx context.Context, st *store.Store, templateID int64
 		select {
 		case <-job.done:
 		case <-timer.C:
-			return nil, execInfo{}, nil, false
+			return emitOutput{}, execInfo{}, nil, false
 		}
 	}
 
 	r.mu.Lock()
 	delete(r.jobs, key)
 	r.mu.Unlock()
-	return job.items, job.info, job.err, true
+	return job.out, job.info, job.err, true
 }
 
 func (r *poolRunner) sweepLocked() {
