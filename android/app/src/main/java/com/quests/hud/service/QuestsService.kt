@@ -93,6 +93,14 @@ class QuestsService : Service() {
         try {
             val client = ApiClient(base, prefs.apiToken)
             val (revision, events) = client.eventsSince(eventsSince)
+            if (eventsSeeded && revision < eventsSince) {
+                // The hub's revision counter lives in server memory and restarts
+                // from 0 on every deploy; keeping the old high-water mark would
+                // hide every event until the counter climbed back past it.
+                Log.w(TAG, "server revision reset ($revision < $eventsSince), rewinding")
+                eventsSince = 0
+                return
+            }
             if (!eventsSeeded) {
                 // Don't replay history as heads-ups on service start — only new.
                 eventsSince = revision
