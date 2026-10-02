@@ -1028,6 +1028,63 @@ def set_template_secret(template_id: int, key: str, value: str) -> dict[str, Any
     return {"template_id": template_id, "key": key, "set": True}
 
 
+_SECRET_OWNERS = {
+    "questline": "questlines",
+    "template": "templates",
+    "quest": "quests",
+    "step": "steps",
+}
+
+
+def _secret_owner_path(owner: str) -> str:
+    kind, _, raw = (owner or "").strip().partition("=")
+    plural = _SECRET_OWNERS.get(kind.strip().lower())
+    if plural is None or not raw.strip().isdigit():
+        raise ValueError(
+            f"owner must look like 'quest=12' with kind one of {sorted(_SECRET_OWNERS)} (got {owner!r})"
+        )
+    return f"/api/{plural}/{int(raw)}/secrets"
+
+
+@server.tool(
+    description=(
+        "Secret *names* for an owner, never values (GET /api/{kind}s/{id}/secrets). "
+        "owner is 'questline=N' | 'template=N' | 'quest=N' | 'step=N'. Returns "
+        "{keys: set directly on the owner, inherited: [{key, from, id}] coming from "
+        "a more general owner}. Secrets are inherited step > quest > template > "
+        "questline: a step's check_command and a template's emit_pool_command get them "
+        "as environment variables (masked as *** in whatever they print)."
+    )
+)
+def list_secrets(owner: str) -> dict[str, Any]:
+    return _api("GET", _secret_owner_path(owner))
+
+
+@server.tool(
+    description=(
+        "Set (or overwrite) one secret on an owner (PUT /api/{kind}s/{id}/secrets/{key}); "
+        "owner is 'questline=N' | 'template=N' | 'quest=N' | 'step=N'. Write-only: the "
+        "value is never readable again. key must be an env var name "
+        "([A-Za-z_][A-Za-z0-9_]*). Everything below the owner inherits it (questline → "
+        "its quests and templates → their steps); a more specific owner overrides a "
+        "same-named secret. Anyone who can write a step command can print these values "
+        "(masking only catches the literal value), so put a secret on the narrowest "
+        "owner that needs it."
+    )
+)
+def set_secret(owner: str, key: str, value: str) -> dict[str, Any]:
+    _api("PUT", f"{_secret_owner_path(owner)}/{urllib.parse.quote(key, safe='')}", body={"value": value})
+    return {"owner": owner, "key": key, "set": True}
+
+
+@server.tool(
+    description="Remove one secret from an owner ('questline=N' | 'template=N' | 'quest=N' | 'step=N')."
+)
+def delete_secret(owner: str, key: str) -> dict[str, Any]:
+    _api("DELETE", f"{_secret_owner_path(owner)}/{urllib.parse.quote(key, safe='')}")
+    return {"owner": owner, "key": key, "deleted": True}
+
+
 @server.tool(
     description="Remove one template secret (DELETE /api/templates/{id}/secrets/{key})."
 )

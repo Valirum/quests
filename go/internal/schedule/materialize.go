@@ -869,16 +869,9 @@ type execInfo struct {
 	Stderr   string
 }
 
-// maskSecrets replaces every template secret value in s with "***", so a
-// script that echoes a credential (or whose error text carries it) can't
-// leak it into the attempt log or the failed quest's description.
+// maskSecrets hides secret values in a command's output (see store.MaskSecrets).
 func maskSecrets(s string, secrets map[string]string) string {
-	for _, v := range secrets {
-		if len(v) >= 4 {
-			s = strings.ReplaceAll(s, v, "***")
-		}
-	}
-	return s
+	return store.MaskSecrets(s, secrets)
 }
 
 func execEmitPoolCommand(parent context.Context, st *store.Store, templateID int64, command string) (items []poolItem, info execInfo, err error) {

@@ -97,6 +97,17 @@ CREATE TABLE quest_tag (
 	tag_id INTEGER NOT NULL,
 	PRIMARY KEY (quest_id, tag_id)
 );
+CREATE TABLE secret (
+	id INTEGER PRIMARY KEY,
+	questline_id INTEGER, template_id INTEGER, quest_id INTEGER, step_id INTEGER,
+	key TEXT NOT NULL,
+	value TEXT NOT NULL,
+	created_at DATETIME NOT NULL,
+	updated_at DATETIME NOT NULL
+);
+CREATE UNIQUE INDEX ux_secret_questline_id_key ON secret (questline_id, key) WHERE questline_id IS NOT NULL;
+CREATE UNIQUE INDEX ux_secret_quest_id_key ON secret (quest_id, key) WHERE quest_id IS NOT NULL;
+CREATE UNIQUE INDEX ux_secret_step_id_key ON secret (step_id, key) WHERE step_id IS NOT NULL;
 CREATE TABLE template_tag (
 	template_id INTEGER NOT NULL,
 	tag_id INTEGER NOT NULL,
@@ -501,5 +512,47 @@ func TestNormalizeRunModeKeepsWatch(t *testing.T) {
 		if got := store.NormalizeRunMode(in); got != want {
 			t.Errorf("NormalizeRunMode(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+// A check command sees the secrets of its questline (inherited) and of the step
+// itself (most specific wins), and what it prints has them masked.
+func TestCheckCommandGetsInheritedSecretsAndMasksOutput(t *testing.T) {
+	st := openChecksDB(t)
+	ctx := context.Background()
+	if _, err := st.DB.ExecContext(ctx, `INSERT INTO questline (id, title, created_at, updated_at) VALUES (7, 'line', datetime('now'), datetime('now'))`); err != nil {
+		t.Fatal(err)
+	}
+	cmd := `printf '{"progress":%s,"description":"site said %s / %s"}' "$([ "$SITE_PASS" = step-pass ] && [ "$SITE_USER" = line-user ] && echo 1 || echo 0)" "$SITE_PASS" "$SITE_USER"`
+	iv := 15
+	now := timeutil.NowUTC()
+	q, err := st.CreateQuest(ctx, domain.Quest{
+		Title: "q", Status: domain.StatusActive, Significance: domain.SigCommon,
+		CreatedAt: now, UpdatedAt: now, Automated: true,
+		QuestlineID: func() *int64 { v := int64(7); return &v }(),
+		Steps:       []domain.Step{{Title: "s", ProgressTotal: 2, SortOrder: 0, CheckCommand: &cmd, CheckIntervalSeconds: &iv, RunMode: domain.RunModePoll}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stepID := q.Steps[0].ID
+	if err := st.SetSecret(ctx, store.SecretOwner{Kind: store.SecretOwnerQuestline, ID: 7}, "SITE_USER", "line-user"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetSecret(ctx, store.SecretOwner{Kind: store.SecretOwnerQuestline, ID: 7}, "SITE_PASS", "line-pass"); err != nil {
+		t.Fatal(err)
+	}
+	// the step overrides the questline's value
+	if err := st.SetSecret(ctx, store.SecretOwner{Kind: store.SecretOwnerStep, ID: stepID}, "SITE_PASS", "step-pass"); err != nil {
+		t.Fatal(err)
+	}
+
+	got := tickAndGet(t, st, q.ID)
+	step := got.Steps[0]
+	if step.ProgressCurrent != 1 {
+		t.Fatalf("command did not see the inherited/overridden secrets: progress=%d", step.ProgressCurrent)
+	}
+	if step.Description != "site said *** / ***" {
+		t.Fatalf("secret values must be masked in the step description, got %q", step.Description)
 	}
 }

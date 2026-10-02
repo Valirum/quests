@@ -11,15 +11,22 @@ import (
 )
 
 const templateSecretsTestSchema = emitPoolSchema + `
-CREATE TABLE templatesecret (
+CREATE TABLE questline (id INTEGER PRIMARY KEY);
+CREATE TABLE questtemplate (id INTEGER PRIMARY KEY, questline_id INTEGER);
+CREATE TABLE quest (id INTEGER PRIMARY KEY, questline_id INTEGER, template_id INTEGER, status TEXT);
+CREATE TABLE queststep (id INTEGER PRIMARY KEY, quest_id INTEGER, check_command TEXT);
+CREATE TABLE secret (
 	id INTEGER PRIMARY KEY,
-	template_id INTEGER NOT NULL,
+	questline_id INTEGER, template_id INTEGER, quest_id INTEGER, step_id INTEGER,
 	key TEXT NOT NULL,
 	value TEXT NOT NULL,
 	created_at DATETIME NOT NULL,
 	updated_at DATETIME NOT NULL
 );
-CREATE UNIQUE INDEX ix_templatesecret_template_key ON templatesecret (template_id, key);
+CREATE UNIQUE INDEX ux_secret_questline_id_key ON secret (questline_id, key) WHERE questline_id IS NOT NULL;
+CREATE UNIQUE INDEX ux_secret_template_id_key ON secret (template_id, key) WHERE template_id IS NOT NULL;
+CREATE UNIQUE INDEX ux_secret_quest_id_key ON secret (quest_id, key) WHERE quest_id IS NOT NULL;
+CREATE UNIQUE INDEX ux_secret_step_id_key ON secret (step_id, key) WHERE step_id IS NOT NULL;
 `
 
 func openTemplateSecretsDB(t *testing.T) *store.Store {

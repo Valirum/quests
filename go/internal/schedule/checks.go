@@ -200,8 +200,18 @@ func (r *CheckRunner) exec(parent context.Context, questID, stepID int64, comman
 	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
 
+	// Secrets of the step, its quest, the template that emitted it and the
+	// questline (most specific wins) go into the command's environment and are
+	// masked in whatever it prints.
+	secrets, serr := r.Store.ResolveSecrets(ctx, store.SecretOwner{Kind: store.SecretOwnerStep, ID: stepID})
+	if serr != nil {
+		log.Printf("checks: secrets for step %d: %v", stepID, serr)
+	}
 	cmd := exec.CommandContext(ctx, "sh", "-c", command)
 	cmd.Env = append(os.Environ(), r.Env...)
+	for name, value := range secrets {
+		cmd.Env = append(cmd.Env, name+"="+value)
+	}
 	if home, err := os.UserHomeDir(); err == nil {
 		cmd.Dir = home
 	}
@@ -209,8 +219,8 @@ func (r *CheckRunner) exec(parent context.Context, questID, stepID int64, comman
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	err := cmd.Run()
-	out := stdout.String()
-	errOut := stderr.String()
+	out := store.MaskSecrets(stdout.String(), secrets)
+	errOut := store.MaskSecrets(stderr.String(), secrets)
 	exit := 0
 	if err != nil {
 		if ee, ok := err.(*exec.ExitError); ok {

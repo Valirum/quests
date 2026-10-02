@@ -1,0 +1,198 @@
+package store
+
+import (
+	"context"
+	"database/sql"
+	"reflect"
+	"testing"
+
+	_ "modernc.org/sqlite"
+)
+
+const secretsTestSchema = `
+PRAGMA foreign_keys = ON;
+CREATE TABLE questline (id INTEGER PRIMARY KEY);
+CREATE TABLE questtemplate (id INTEGER PRIMARY KEY, questline_id INTEGER REFERENCES questline(id));
+CREATE TABLE quest (id INTEGER PRIMARY KEY, questline_id INTEGER REFERENCES questline(id), template_id INTEGER, status TEXT NOT NULL DEFAULT 'active');
+CREATE TABLE queststep (id INTEGER PRIMARY KEY, quest_id INTEGER NOT NULL REFERENCES quest(id) ON DELETE CASCADE, check_command TEXT);
+CREATE TABLE secret (
+	id INTEGER PRIMARY KEY,
+	questline_id INTEGER REFERENCES questline(id) ON DELETE CASCADE,
+	template_id INTEGER REFERENCES questtemplate(id) ON DELETE CASCADE,
+	quest_id INTEGER REFERENCES quest(id) ON DELETE CASCADE,
+	step_id INTEGER REFERENCES queststep(id) ON DELETE CASCADE,
+	key TEXT NOT NULL,
+	value TEXT NOT NULL,
+	created_at DATETIME NOT NULL,
+	updated_at DATETIME NOT NULL,
+	CHECK ((questline_id IS NOT NULL) + (template_id IS NOT NULL) + (quest_id IS NOT NULL) + (step_id IS NOT NULL) = 1)
+);
+CREATE UNIQUE INDEX ux_secret_questline_id_key ON secret (questline_id, key) WHERE questline_id IS NOT NULL;
+CREATE UNIQUE INDEX ux_secret_template_id_key ON secret (template_id, key) WHERE template_id IS NOT NULL;
+CREATE UNIQUE INDEX ux_secret_quest_id_key ON secret (quest_id, key) WHERE quest_id IS NOT NULL;
+CREATE UNIQUE INDEX ux_secret_step_id_key ON secret (step_id, key) WHERE step_id IS NOT NULL;
+
+INSERT INTO questline (id) VALUES (1);
+INSERT INTO questtemplate (id, questline_id) VALUES (10, 1);
+INSERT INTO quest (id, questline_id, template_id) VALUES (100, 1, 10);
+INSERT INTO queststep (id, quest_id, check_command) VALUES (1000, 100, 'true');
+`
+
+func openSecretsDB(t *testing.T) *Store {
+	t.Helper()
+	db, err := sql.Open("sqlite", "file:secrets_"+t.Name()+"?mode=memory&cache=shared&_pragma=foreign_keys(ON)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	db.SetMaxOpenConns(1)
+	if _, err := db.Exec(secretsTestSchema); err != nil {
+		t.Fatal(err)
+	}
+	return &Store{DB: db}
+}
+
+var (
+	oLine  = SecretOwner{SecretOwnerQuestline, 1}
+	oTmpl  = SecretOwner{SecretOwnerTemplate, 10}
+	oQuest = SecretOwner{SecretOwnerQuest, 100}
+	oStep  = SecretOwner{SecretOwnerStep, 1000}
+)
+
+func mustSet(t *testing.T, st *Store, o SecretOwner, k, v string) {
+	t.Helper()
+	if err := st.SetSecret(context.Background(), o, k, v); err != nil {
+		t.Fatalf("SetSecret(%v, %s): %v", o, k, err)
+	}
+}
+
+// step > quest > template > questline, per key.
+func TestResolveSecretsPrecedence(t *testing.T) {
+	st := openSecretsDB(t)
+	ctx := context.Background()
+	mustSet(t, st, oLine, "A", "from-line")
+	mustSet(t, st, oLine, "B", "from-line")
+	mustSet(t, st, oLine, "C", "from-line")
+	mustSet(t, st, oLine, "D", "from-line")
+	mustSet(t, st, oTmpl, "B", "from-template")
+	mustSet(t, st, oTmpl, "C", "from-template")
+	mustSet(t, st, oTmpl, "D", "from-template")
+	mustSet(t, st, oQuest, "C", "from-quest")
+	mustSet(t, st, oQuest, "D", "from-quest")
+	mustSet(t, st, oStep, "D", "from-step")
+
+	got, err := st.ResolveSecrets(ctx, oStep)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{"A": "from-line", "B": "from-template", "C": "from-quest", "D": "from-step"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("step sees %v, want %v", got, want)
+	}
+
+	// An emit_pool_command (template) sees only template + questline.
+	got, _ = st.ResolveSecrets(ctx, oTmpl)
+	if got["B"] != "from-template" || got["A"] != "from-line" || got["C"] != "from-template" {
+		t.Fatalf("template sees %v", got)
+	}
+	// The quest does not see its step's secrets.
+	got, _ = st.ResolveSecrets(ctx, oQuest)
+	if got["D"] != "from-quest" {
+		t.Fatalf("quest sees %v", got)
+	}
+}
+
+func TestListEffectiveSecretKeysNamesSources(t *testing.T) {
+	st := openSecretsDB(t)
+	mustSet(t, st, oLine, "SITE", "x-line")
+	mustSet(t, st, oTmpl, "SITE", "x-template")
+	mustSet(t, st, oQuest, "OWN", "x-quest")
+	refs, err := st.ListEffectiveSecretKeys(context.Background(), oStep)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []SecretRef{{"OWN", oQuest}, {"SITE", oTmpl}}
+	if !reflect.DeepEqual(refs, want) {
+		t.Fatalf("effective keys %v, want %v", refs, want)
+	}
+	own, _ := st.ListSecretKeys(context.Background(), oStep)
+	if len(own) != 0 {
+		t.Fatalf("the step has no own secrets, got %v", own)
+	}
+}
+
+// Deleting an owner removes its secrets (FK cascade), nothing else.
+func TestSecretsCascadeWithOwner(t *testing.T) {
+	st := openSecretsDB(t)
+	mustSet(t, st, oStep, "S", "step-secret")
+	mustSet(t, st, oQuest, "Q", "quest-secret")
+	if _, err := st.DB.Exec(`DELETE FROM queststep WHERE id = 1000`); err != nil {
+		t.Fatal(err)
+	}
+	var n int
+	_ = st.DB.QueryRow(`SELECT COUNT(*) FROM secret WHERE step_id = 1000`).Scan(&n)
+	if n != 0 {
+		t.Fatalf("step secret survived its step")
+	}
+	_ = st.DB.QueryRow(`SELECT COUNT(*) FROM secret WHERE quest_id = 100`).Scan(&n)
+	if n != 1 {
+		t.Fatalf("quest secret must stay")
+	}
+}
+
+func TestSetSecretUpsertsAndDeleteIsIdempotent(t *testing.T) {
+	st := openSecretsDB(t)
+	ctx := context.Background()
+	mustSet(t, st, oQuest, "K", "one")
+	mustSet(t, st, oQuest, "K", "two")
+	got, _ := st.ResolveSecrets(ctx, oQuest)
+	if got["K"] != "two" {
+		t.Fatalf("upsert failed: %v", got)
+	}
+	if err := st.DeleteSecret(ctx, oQuest, "K"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.DeleteSecret(ctx, oQuest, "K"); err != nil {
+		t.Fatalf("deleting a missing key must not fail: %v", err)
+	}
+	if err := st.SetSecret(ctx, SecretOwner{"bogus", 1}, "K", "v"); err == nil {
+		t.Fatal("unknown owner kind must be rejected")
+	}
+}
+
+// When a template goes away its emitted quests lose template_id; the ones that
+// are still open and have an auto-check keep the template's secrets.
+func TestTemplateSecretsCopiedToLiveQuestsWithChecks(t *testing.T) {
+	st := openSecretsDB(t)
+	ctx := context.Background()
+	mustSet(t, st, oTmpl, "SITE_PASS", "template-pass")
+	// quest 101: open, no check; quest 102: completed with a check
+	_, _ = st.DB.Exec(`INSERT INTO quest (id, questline_id, template_id, status) VALUES (101, 1, 10, 'active'), (102, 1, 10, 'completed')`)
+	_, _ = st.DB.Exec(`INSERT INTO queststep (id, quest_id, check_command) VALUES (1010, 101, NULL), (1020, 102, 'true')`)
+
+	tx, err := st.DB.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := copyTemplateSecretsToLiveQuests(ctx, tx, 10); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	for id, want := range map[int64]int{100: 1, 101: 0, 102: 0} {
+		var n int
+		_ = st.DB.QueryRow(`SELECT COUNT(*) FROM secret WHERE quest_id = ?`, id).Scan(&n)
+		if n != want {
+			t.Errorf("quest %d: %d copied secrets, want %d", id, n, want)
+		}
+	}
+}
+
+func TestMaskSecrets(t *testing.T) {
+	secrets := map[string]string{"A": "hunter2", "B": "xy", "C": "tok-12345"}
+	got := MaskSecrets("login hunter2 failed, xy ok, tok-12345!", secrets)
+	if got != "login *** failed, xy ok, ***!" {
+		t.Fatalf("got %q (values under 4 chars must be left alone)", got)
+	}
+}
