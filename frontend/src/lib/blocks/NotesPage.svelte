@@ -644,6 +644,43 @@
     return false
   }
 
+  /** A note is visible in the sidebar when every ancestor up to the root is
+   * expanded (or it has no parent). */
+  function isNoteVisible(id) {
+    const n = noteById(id)
+    if (!n) return false
+    if (n.parent_id == null) return true
+    if (!isNoteVisible(n.parent_id)) return false
+    return showChildren(n.parent_id)
+  }
+
+  /** Walking up from a hidden note, the closest ancestor that is itself
+   * visible — the row where a "there's a README below" hint should land. */
+  function nearestVisibleAncestor(id) {
+    const n = noteById(id)
+    let cur = n?.parent_id != null ? noteById(n.parent_id) : null
+    while (cur) {
+      if (isNoteVisible(cur.id)) return cur.id
+      cur = cur.parent_id != null ? noteById(cur.parent_id) : null
+    }
+    return null
+  }
+
+  /** Notes that aren't README themselves but have a README descendant
+   * currently hidden behind a collapsed ancestor — bubbled up to the
+   * deepest visible ancestor so a collapsed README stays discoverable.
+   * Rendered in yellow (not red) so it isn't mistaken for the note itself
+   * being the README. */
+  let readmeBubbleIds = $derived.by(() => {
+    const out = new Set()
+    for (const n of notes) {
+      if (!n.is_readme || isNoteVisible(n.id)) continue
+      const anc = nearestVisibleAncestor(n.id)
+      if (anc != null) out.add(anc)
+    }
+    return out
+  })
+
   let crumbs = $derived.by(() => {
     /** @type {{ id: number | null, title: string }[]} */
     const out = [{ id: null, title: 'Корень' }]
@@ -816,10 +853,16 @@
       { id: 'copy-id', label: `Копировать note=${ctxNoteId}` },
       { id: 'sep-copy', sep: true },
       { id: 'rename', label: 'Переименовать' },
-      { id: 'pin', label: ctxNote?.pinned ? 'Открепить' : 'Закрепить' },
-      { id: 'readme', label: ctxNote?.is_readme ? 'Снять README' : 'Пометить README' },
-      { id: 'private', label: ctxNote?.is_private ? 'Снять PRIVATE' : 'Пометить PRIVATE' },
-      { id: 'category', label: ctxNote?.is_category ? 'Снять CATEGORY' : 'Пометить CATEGORY' },
+      {
+        id: 'flags',
+        label: 'Флаги',
+        children: [
+          { id: 'pin', label: ctxNote?.pinned ? 'Снять закреп' : 'Закрепить' },
+          { id: 'readme', label: ctxNote?.is_readme ? 'Снять README' : 'Пометить README' },
+          { id: 'private', label: ctxNote?.is_private ? 'Снять PRIVATE' : 'Пометить PRIVATE' },
+          { id: 'category', label: ctxNote?.is_category ? 'Снять CATEGORY' : 'Пометить CATEGORY' },
+        ],
+      },
       { id: 'add-child', label: 'Добавить дочернюю' },
       { id: 'move', label: 'Переместить', children: moveTargets(ctxNote) },
       {
@@ -1199,9 +1242,9 @@
                         title="Несохранено">*</span>{/if}
                   {/if}
                 </span>
-                {#if n.is_readme || n.is_private || n.is_category}
+                {#if n.is_readme || n.is_private || n.is_category || readmeBubbleIds.has(n.id)}
                   <span class="notes__row-status" aria-hidden="true">
-                    {#if n.is_readme}<span class="notes__status-dot notes__status-dot--readme"><Icon name="alert" size={12} /></span>{/if}
+                    {#if n.is_readme}<span class="notes__status-dot notes__status-dot--readme"><Icon name="alert" size={12} /></span>{:else if readmeBubbleIds.has(n.id)}<span class="notes__status-dot notes__status-dot--readme-bubble" title="Ниже есть README"><Icon name="alert" size={12} /></span>{/if}
                     {#if n.is_private}<span class="notes__status-dot notes__status-dot--private"><Icon name="lock" size={12} /></span>{/if}
                     {#if n.is_category}<span class="notes__status-dot notes__status-dot--category"><Icon name="folder" size={12} /></span>{/if}
                   </span>
@@ -1703,6 +1746,14 @@
   .notes__status-btn--readme.notes__status-btn--on,
   .notes__status-dot--readme {
     color: #d14343;
+    animation: notes-readme-blink 1.4s steps(1, end) infinite;
+  }
+
+  /* Same alert icon, but on a note whose README is a hidden (collapsed)
+   * descendant, not the note itself — yellow keeps it from being mistaken
+   * for "this note is the README". */
+  .notes__status-dot--readme-bubble {
+    color: #d1a33a;
     animation: notes-readme-blink 1.4s steps(1, end) infinite;
   }
 
