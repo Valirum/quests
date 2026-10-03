@@ -2336,6 +2336,16 @@
     border-radius: var(--radius-md, 4px);
   }
 
+  .md .md-img--center {
+    display: block;
+    margin-inline: auto;
+  }
+
+  .md .md-img--right {
+    display: block;
+    margin-inline-start: auto;
+  }
+
   .md .md-img-missing {
     display: inline-block;
     padding: 0.15em 0.5em;

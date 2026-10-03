@@ -169,7 +169,15 @@ function ensureLinkHook() {
         node.remove()
         return
       }
-      node.setAttribute('class', 'md-attachment-img')
+      // `![подпись|center](attachment=N)` — alignment is an alt-text suffix, so it
+      // stays plain markdown and per-image (no global image rule).
+      const m = /^(.*?)\s*\|\s*(left|center|right)\s*$/i.exec(node.getAttribute('alt') || '')
+      if (m) node.setAttribute('alt', m[1])
+      // Idempotent: a second sanitize pass sees the already-cleaned alt, so keep
+      // an alignment class that is already there.
+      const prev = /\bmd-img--(left|center|right)\b/.exec(node.getAttribute('class') || '')
+      const align = m ? m[2].toLowerCase() : prev?.[1]
+      node.setAttribute('class', align ? `md-attachment-img md-img--${align}` : 'md-attachment-img')
       return
     }
     if (node.tagName === 'A') {

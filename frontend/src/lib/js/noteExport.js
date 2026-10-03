@@ -160,6 +160,8 @@ function buildNotePdfHtml(note, opts = {}) {
   .md th, .md td { border: 1px solid #ddd; padding: 0.35em 0.5em; text-align: left; }
   .md th { background: #f6f6f6; }
   .md img { max-width: 100%; height: auto; }
+  .md .md-img--center { display: block; margin-left: auto; margin-right: auto; }
+  .md .md-img--right { display: block; margin-left: auto; }
   .md .hljs-comment, .md .hljs-quote { color: #6a737d; }
   .md .hljs-keyword, .md .hljs-selector-tag { color: #d73a49; }
   .md .hljs-string, .md .hljs-attr { color: #032f62; }
