@@ -1,4 +1,5 @@
 import { renderMarkdown } from './markdown.js'
+import { inlineAttachmentImages } from './exportImages.js'
 
 const MARGIN_MM = 15
 
@@ -193,7 +194,7 @@ function escapeHtml(s) {
  */
 export async function downloadNotePdf(note, opts = {}) {
   if (!note) return
-  const html = buildNotePdfHtml(note, opts)
+  const html = await inlineAttachmentImages(buildNotePdfHtml(note, opts))
   const filename = noteExportFilename(note, 'pdf')
 
   const resp = await fetch('/api/export/pdf', {

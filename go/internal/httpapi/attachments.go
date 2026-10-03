@@ -62,6 +62,8 @@ func (s *Server) registerAttachments(mux *http.ServeMux) {
 	// Index of every attachment, grouped by owner. Default is metadata only
 	// (no WebDAV Stat) so the journal can seed its cache in one cheap query.
 	mux.HandleFunc("GET /api/attachments", s.listAllAttachments)
+	// Owner-less inline view for markdown images: `![](attachment=N)`.
+	mux.HandleFunc("GET /api/attachments/{aid}/image", s.getAttachmentImage)
 }
 
 func (s *Server) ownerExists(ctx context.Context, ownerType string, id int64) (bool, error) {
@@ -432,6 +434,88 @@ func (s *Server) getAttachmentContent(w http.ResponseWriter, r *http.Request, ow
 	w.Header().Set("Content-Type", "application/octet-stream")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Content-Disposition", contentDisposition(filename))
+	if size > 0 {
+		w.Header().Set("Content-Length", strconv.FormatInt(size, 10))
+	}
+	w.WriteHeader(200)
+	_, _ = io.Copy(w, body)
+}
+
+// inlineImageTypes is the whole allow-list for the inline view. SVG is
+// deliberately absent: it can carry script, and a raster-only rule is what
+// lets the sanitizer trust `/api/attachments/N/image` as an <img> source.
+var inlineImageTypes = map[string]bool{
+	"image/png":  true,
+	"image/jpeg": true,
+	"image/gif":  true,
+	"image/webp": true,
+}
+
+// getAttachmentImage serves an attachment of any owner as an inline image.
+// Unlike getAttachmentContent (always a download), this renders in <img>, so
+// the type comes from the server-side sniff stored at upload (never from the
+// client-declared one) and anything outside inlineImageTypes is refused.
+func (s *Server) getAttachmentImage(w http.ResponseWriter, r *http.Request) {
+	aid, _ := strconv.ParseInt(r.PathValue("aid"), 10, 64)
+	a, err := s.Store.GetAttachment(r.Context(), aid)
+	if errors.Is(err, store.ErrNotFound) {
+		writeErr(w, 404, "attachment not found")
+		return
+	}
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	if !s.webdavOK() {
+		writeErr(w, 503, "attachment storage is not configured")
+		return
+	}
+	pathToGet := a.WebDAVPath
+	detected := a.ContentTypeDetected
+	size := a.SizeBytes
+	if revStr := strings.TrimSpace(r.URL.Query().Get("revision")); revStr != "" {
+		revN, err := strconv.Atoi(revStr)
+		if err != nil || revN < 1 {
+			writeErr(w, 422, "revision must be a positive integer")
+			return
+		}
+		rev, err := s.Store.GetAttachmentRevision(r.Context(), a.ID, revN)
+		if errors.Is(err, store.ErrNotFound) {
+			writeErr(w, 404, "revision not found")
+			return
+		}
+		if err != nil {
+			writeErr(w, 500, err.Error())
+			return
+		}
+		pathToGet = rev.WebDAVPath
+		detected = rev.ContentTypeDetected
+		size = rev.SizeBytes
+	}
+	// mimetype may append parameters ("image/png; charset=…"); compare the bare type.
+	ctype, _, _ := strings.Cut(detected, ";")
+	ctype = strings.ToLower(strings.TrimSpace(ctype))
+	if !inlineImageTypes[ctype] {
+		writeErr(w, 415, "attachment is not a raster image")
+		return
+	}
+	body, err := s.WebDAV.Get(r.Context(), pathToGet)
+	if errors.Is(err, webdav.ErrNotFound) {
+		writeErr(w, 404, "file missing on the file server")
+		return
+	}
+	if err != nil {
+		writeErr(w, 502, "file server unreachable: "+err.Error())
+		return
+	}
+	defer body.Close()
+
+	w.Header().Set("Content-Type", ctype)
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	// Even opened directly in a tab the response can't run anything.
+	w.Header().Set("Content-Security-Policy", "default-src 'none'; sandbox")
+	w.Header().Set("Content-Disposition", "inline")
+	w.Header().Set("Cache-Control", "private, max-age=300")
 	if size > 0 {
 		w.Header().Set("Content-Length", strconv.FormatInt(size, 10))
 	}

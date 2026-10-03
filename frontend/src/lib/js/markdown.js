@@ -146,12 +146,32 @@ const PURIFY_OPTS = {
   ALLOW_DATA_ATTR: false,
 }
 
+/** The only `<img src>` the sanitizer lets through: an attachment's inline view. */
+export const ATTACHMENT_IMAGE_SRC_RE = /^\/api\/attachments\/(\d+)\/image$/
+
+/** `![alt](attachment=N)` — images come only from attachments (ClamAV-scanned at upload). */
+const ATTACHMENT_IMG_RE = /!\[([^\]\n]*)\]\(\s*attachment=(\d+)\s*\)/g
+
+/** @param {number | string} id */
+export function attachmentImageSrc(id) {
+  return `/api/attachments/${id}/image`
+}
+
 let hooked = false
 
 function ensureLinkHook() {
   if (hooked || typeof window === 'undefined') return
   hooked = true
   DOMPurify.addHook('afterSanitizeAttributes', (node) => {
+    if (node.tagName === 'IMG') {
+      // No external hosts, no data: URIs, no raw <img> — only attachment images.
+      if (!ATTACHMENT_IMAGE_SRC_RE.test(node.getAttribute('src') || '')) {
+        node.remove()
+        return
+      }
+      node.setAttribute('class', 'md-attachment-img')
+      return
+    }
     if (node.tagName === 'A') {
       const href = node.getAttribute('href') || ''
       if (href.startsWith('?') || href.startsWith('/')) {
@@ -178,7 +198,9 @@ function linkifyRefs(source, opts = {}) {
   const withMdLinks = splitCode(source)
     .map((part, i) => {
       if (i % 2 === 1) return part
-      const chunk = part.replace(REF_RE, (full, kind, id) => {
+      const chunk = part
+        .replace(ATTACHMENT_IMG_RE, (_, alt, id) => `![${alt}](${attachmentImageSrc(id)})`)
+        .replace(REF_RE, (full, kind, id) => {
         const label = labels[`${kind}:${id}`] || full
         return `[${label}](${refHref(kind, id)})`
       })

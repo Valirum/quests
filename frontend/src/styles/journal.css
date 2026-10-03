@@ -2330,6 +2330,22 @@
     border: 1px solid color-mix(in srgb, var(--color-border, #333) 80%, transparent);
   }
 
+  .md .md-attachment-img {
+    max-width: 100%;
+    height: auto;
+    border-radius: var(--radius-md, 4px);
+  }
+
+  .md .md-img-missing {
+    display: inline-block;
+    padding: 0.15em 0.5em;
+    border: 1px dashed var(--color-border, #333);
+    border-radius: var(--radius-md, 4px);
+    color: var(--color-fg-subtle, #6e6e6e);
+    font-family: var(--font-ui, sans-serif);
+    font-size: 0.85em;
+  }
+
   .md .md-codeblock[data-lang]::before {
     content: attr(data-lang);
     position: absolute;

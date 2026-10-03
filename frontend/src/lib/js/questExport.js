@@ -1,4 +1,5 @@
 import { renderMarkdown } from './markdown.js'
+import { inlineAttachmentImages } from './exportImages.js'
 import { listAttachments } from './api.js'
 import { statusColor, significanceLabel, periodBadge, quantifiedProgress } from './questFormat.js'
 
@@ -287,7 +288,7 @@ export async function downloadQuestPdf(quest, opts = {}) {
   } catch {
     // attachments are a nice-to-have in the export; don't block on them
   }
-  const html = buildQuestPdfHtml(quest, { ...opts, attachments })
+  const html = await inlineAttachmentImages(buildQuestPdfHtml(quest, { ...opts, attachments }))
   const filename = questExportFilename(quest)
 
   const resp = await fetch('/api/export/pdf', {

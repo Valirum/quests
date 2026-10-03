@@ -72,6 +72,29 @@
     }
   }
 
+  /**
+   * `error` doesn't bubble, so listen in the capture phase: a removed/missing
+   * attachment (or a non-image one) becomes a visible placeholder instead of a
+   * blank hole.
+   * @param {Event} event
+   */
+  function onImgError(event) {
+    const img = event.target
+    if (!(img instanceof HTMLImageElement) || !img.classList.contains('md-attachment-img')) return
+    const ph = document.createElement('span')
+    ph.className = 'md-img-missing'
+    const m = /\/api\/attachments\/(\d+)\/image/.exec(img.getAttribute('src') || '')
+    const alt = img.getAttribute('alt') || ''
+    ph.textContent = `▢ вложение недоступно${m ? ` (attachment=${m[1]})` : ''}${alt ? ` — ${alt}` : ''}`
+    img.replaceWith(ph)
+  }
+
+  /** @param {HTMLElement} node */
+  function captureImgErrors(node) {
+    node.addEventListener('error', onImgError, true)
+    return { destroy: () => node.removeEventListener('error', onImgError, true) }
+  }
+
   function onClick(event) {
     const a = event.target instanceof Element ? event.target.closest('a') : null
     if (!a) return
@@ -84,5 +107,10 @@
 </script>
 
 {#if html}
-  <div class={['md', className]} bind:this={root} onclick={onClick}>{@html html}</div>
+  <div
+    class={['md', className]}
+    bind:this={root}
+    onclick={onClick}
+    use:captureImgErrors
+  >{@html html}</div>
 {/if}

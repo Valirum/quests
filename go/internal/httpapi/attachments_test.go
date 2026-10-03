@@ -692,3 +692,70 @@ func TestAttachmentIndexIsMetadataOnly(t *testing.T) {
 		t.Fatalf("stat=1 available = %v", grouped["quest"][akey][0]["available"])
 	}
 }
+
+// 1x1 PNG; mimetype sniffs it as image/png regardless of filename.
+var tinyPNG = []byte{0x89, 'P', 'N', 'G', 0x0d, 0x0a, 0x1a, 0x0a,
+	0, 0, 0, 0x0d, 'I', 'H', 'D', 'R', 0, 0, 0, 1, 0, 0, 0, 1, 8, 6, 0, 0, 0, 0x1f, 0x15, 0xc4, 0x89,
+	0, 0, 0, 0x0d, 'I', 'D', 'A', 'T', 0x78, 0x9c, 0x63, 0xf8, 0xff, 0xff, 0x3f, 0, 5, 0xfe, 2, 0xfe, 0xdc, 0xcc, 0x59, 0xe7,
+	0, 0, 0, 0, 'I', 'E', 'N', 'D', 0xae, 0x42, 0x60, 0x82}
+
+func TestAttachmentImageInline(t *testing.T) {
+	dav := newFakeDAV()
+	t.Cleanup(dav.Close)
+	s := newAttachmentServer(t, dav.URL, fakeClamd(t, "stream: OK"), 0)
+	qid := seedQuest(t, s)
+	h := s.Handler()
+
+	up := func(name string, body []byte) int64 {
+		w := postFile(t, h, fmt.Sprintf("/api/quests/%d/attachments", qid), name, "", body)
+		if w.Code != http.StatusCreated {
+			t.Fatalf("upload %s = %d %s", name, w.Code, w.Body.String())
+		}
+		var m map[string]any
+		_ = json.Unmarshal(w.Body.Bytes(), &m)
+		return int64(m["id"].(float64))
+	}
+	get := func(aid int64, q string) *httptest.ResponseRecorder {
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, fmt.Sprintf("/api/attachments/%d/image%s", aid, q), nil))
+		return w
+	}
+
+	// Owner-less: the quest id is not in the URL.
+	png := up("pic.png", tinyPNG)
+	w := get(png, "")
+	if w.Code != 200 {
+		t.Fatalf("image = %d %s", w.Code, w.Body.String())
+	}
+	if ct := w.Header().Get("Content-Type"); ct != "image/png" {
+		t.Fatalf("Content-Type = %q", ct)
+	}
+	if w.Header().Get("X-Content-Type-Options") != "nosniff" ||
+		!strings.Contains(w.Header().Get("Content-Security-Policy"), "sandbox") ||
+		w.Header().Get("Content-Disposition") != "inline" {
+		t.Fatalf("hardening headers missing: %v", w.Header())
+	}
+	if !bytes.Equal(w.Body.Bytes(), tinyPNG) {
+		t.Fatalf("body mismatch")
+	}
+
+	// Type comes from the sniff, not the filename: a text file named .png is refused.
+	fake := up("fake.png", []byte("just text pretending"))
+	if w := get(fake, ""); w.Code != http.StatusUnsupportedMediaType {
+		t.Fatalf("text-as-png = %d, want 415", w.Code)
+	}
+	// SVG is never inlined.
+	svg := up("a.svg", []byte(`<svg xmlns="http://www.w3.org/2000/svg"><script>1</script></svg>`))
+	if w := get(svg, ""); w.Code != http.StatusUnsupportedMediaType {
+		t.Fatalf("svg = %d, want 415", w.Code)
+	}
+	if w := get(9999, ""); w.Code != http.StatusNotFound {
+		t.Fatalf("missing = %d, want 404", w.Code)
+	}
+	if w := get(png, "?revision=0"); w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("bad revision = %d, want 422", w.Code)
+	}
+	if w := get(png, "?revision=7"); w.Code != http.StatusNotFound {
+		t.Fatalf("unknown revision = %d, want 404", w.Code)
+	}
+}
