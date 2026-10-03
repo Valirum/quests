@@ -2035,7 +2035,8 @@ def get_attachment(
         "Upload a custom icon image (POST /api/{questlines|notes}/{id}/icon) "
         "for a questline or note, replacing its string icon code with an "
         "uploaded picture. Pass exactly one of questline / note plus a local "
-        "file_path (png/jpg, max 512 KiB). This reads the file from the local "
+        "file_path (png/jpg/webp/gif/svg, max 512 KiB; the type is taken from "
+        "the file extension). This reads the file from the local "
         "filesystem where the MCP server runs, not from the conversation."
     )
 )
