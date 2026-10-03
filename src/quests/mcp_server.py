@@ -112,7 +112,11 @@ server = MCPServer(
         "create_quest to attach (max 5). Prefer label ≤6 chars (front, api, infra) — "
         "sidebar bookmarks; abbreviate freely. Do not invent near-duplicate slugs. "
         "To create a knowledge page use create_note (title, markdown "
-        "description, optional parent_id for the notes tree). "
+        "description, optional parent_id for the notes tree). Notes flagged "
+        "CATEGORY are folders: list_note_categories shows them, "
+        "list_notes(category_id=…, brief=true) browses one, and create_note "
+        "without parent_id is refused until you pick a category or pass "
+        "no_category=true. "
         "Quest/step/note `description` is markdown in the journal (lists, links, "
         "code, emphasis) — use it; title stays plain. HUD/Telegram show quest "
         "text raw and ignore notes. "
@@ -1284,21 +1288,139 @@ def dry_run_emit_pool(
     return {**source, **result}
 
 
+def _note_children(rows: list[dict[str, Any]]) -> dict[Any, list[dict[str, Any]]]:
+    kids: dict[Any, list[dict[str, Any]]] = {}
+    for n in rows:
+        kids.setdefault(n.get("parent_id"), []).append(n)
+    return kids
+
+
+def _note_descendants(rows: list[dict[str, Any]], root_id: int) -> list[dict[str, Any]]:
+    """All notes under root_id (not root itself), parent-before-child order."""
+    kids = _note_children(rows)
+    out: list[dict[str, Any]] = []
+    stack = list(reversed(kids.get(root_id, [])))
+    seen: set[Any] = set()
+    while stack:
+        n = stack.pop()
+        if n["id"] in seen:
+            continue
+        seen.add(n["id"])
+        out.append(n)
+        stack.extend(reversed(kids.get(n["id"], [])))
+    return out
+
+
+def _note_path(by_id: dict[Any, dict[str, Any]], n: dict[str, Any]) -> str:
+    parts = [n.get("title") or f"note={n['id']}"]
+    pid = n.get("parent_id")
+    seen = {n["id"]}
+    while pid is not None and pid in by_id and pid not in seen:
+        seen.add(pid)
+        parts.append(by_id[pid].get("title") or f"note={pid}")
+        pid = by_id[pid].get("parent_id")
+    return " / ".join(reversed(parts))
+
+
+def _note_brief(n: dict[str, Any]) -> dict[str, Any]:
+    out = {k: v for k, v in n.items() if k != "description"}
+    out["description_len"] = len(n.get("description") or "")
+    return out
+
+
+def _category_hint(n: dict[str, Any]) -> str:
+    """First non-empty description line = what belongs in this category."""
+    if n.get("is_private"):
+        return ""
+    for line in (n.get("description") or "").splitlines():
+        line = line.strip().lstrip("#>*- ").strip()
+        if line:
+            return line[:200]
+    return ""
+
+
+def _category_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    by_id = {n["id"]: n for n in rows}
+    kids = _note_children(rows)
+    return [
+        {
+            "id": n["id"],
+            "title": n.get("title"),
+            "parent_id": n.get("parent_id"),
+            "path": _note_path(by_id, n),
+            "children": len(kids.get(n["id"], [])),
+            "hint": _category_hint(n),
+        }
+        for n in rows
+        if n.get("is_category")
+    ]
+
+
 @server.tool(
     description=(
         "List knowledge notes (markdown pages, not quests). Optional parent_id "
         "filters children of one note; omit for the whole vault. "
+        "category_id narrows to everything under one CATEGORY note (all "
+        "descendants, not the category itself) — get ids from "
+        "list_note_categories. brief=true drops each description (keeps "
+        "description_len) so the whole vault fits in context — use it to "
+        "scan titles/structure, then get_note_context for the ones you need. "
+        "Without brief the full vault dump is huge. "
         "Link from quests with note=N in the description. Each row carries "
         "is_readme/is_private/is_category. A PRIVATE note's description is "
         "replaced by a placeholder in this list too — same rule as "
         "get_note_context, don't work around it."
     )
 )
-def list_notes(parent_id: int | None = None) -> list[dict[str, Any]]:
+def list_notes(
+    parent_id: int | None = None,
+    category_id: int | None = None,
+    brief: bool = False,
+) -> list[dict[str, Any]]:
     query: dict[str, Any] = {}
     if parent_id is not None:
         query["parent_id"] = parent_id
-    return _api_get("/api/notes", query or None) or []
+    rows = _api_get("/api/notes", query or None) or []
+    if category_id is not None:
+        everything = _api_get("/api/notes") or []
+        root = next((n for n in everything if n["id"] == int(category_id)), None)
+        if root is None:
+            raise ValueError(f"note={category_id} not found")
+        if not root.get("is_category"):
+            raise ValueError(
+                f"note={category_id} is not a CATEGORY note (see list_note_categories)"
+            )
+        under = {n["id"] for n in _note_descendants(everything, int(category_id))}
+        rows = [n for n in rows if n["id"] in under]
+    return [_note_brief(n) for n in rows] if brief else rows
+
+
+@server.tool(
+    description=(
+        "List only CATEGORY notes (folder-like aggregators of the notes vault): "
+        "id, title, path, direct child count, and hint — the first line of the "
+        "category's description, i.e. what belongs there. Cheap (a handful of "
+        "rows) — call it before create_note to pick a parent_id, and as the "
+        "entry point to list_notes(category_id=…)."
+    )
+)
+def list_note_categories() -> list[dict[str, Any]]:
+    return _category_rows(_api_get("/api/notes") or [])
+
+
+def _category_refusal(cats: list[dict[str, Any]]) -> str:
+    lines = [
+        "create_note refused: no parent_id, but the vault has CATEGORY notes. "
+        "Check whether the new note logically fits one of them:"
+    ]
+    for c in cats:
+        hint = f" — {c['hint']}" if c["hint"] else ""
+        lines.append(f"  note={c['id']} {c['path']} ({c['children']} children){hint}")
+    lines.append(
+        "Retry with parent_id=<category id (or a note under it)>; if none "
+        "fits, retry with no_category=true."
+    )
+    return "\n".join(lines)
 
 
 @server.tool(
@@ -1306,7 +1428,14 @@ def list_notes(parent_id: int | None = None) -> list[dict[str, Any]]:
         "Create a markdown knowledge page (POST /api/notes). Not a quest — no "
         "status, steps, deadline, HUD. parent_id nests it under another note "
         "(vault tree only). Put toolkits (readme/script/config) in description "
-        "as markdown/code fences. Cite from quests with note=N."
+        "as markdown/code fences. Cite from quests with note=N. "
+        "CATEGORY guard: when the vault has CATEGORY notes and you pass no "
+        "parent_id, the call is refused with the category list. Decide whether "
+        "the new note logically belongs in one (read the hints; "
+        "list_note_categories / list_notes(category_id=…, brief=true) to look "
+        "closer) and retry with parent_id=<category or a note under it>; only "
+        "if nothing fits retry with no_category=true. Creating a CATEGORY "
+        "itself (is_category=true) is exempt."
     )
 )
 def create_note(
@@ -1318,7 +1447,12 @@ def create_note(
     is_private: bool | None = None,
     is_category: bool | None = None,
     sort_order: int | None = None,
+    no_category: bool = False,
 ) -> dict[str, Any]:
+    if parent_id is None and not is_category and not no_category:
+        cats = _category_rows(_api_get("/api/notes") or [])
+        if cats:
+            raise ValueError(_category_refusal(cats))
     body: dict[str, Any] = {"title": title}
     if description is not None:
         body["description"] = description
