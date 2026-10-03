@@ -96,12 +96,17 @@ func (s *Store) UpdateQuestline(ctx context.Context, id int64, fields map[string
 	desc, _ := cur["description"].(string)
 	color, _ := cur["color"].(string)
 	icon, _ := cur["icon"].(string)
+	// GetQuestline stores the category as *int64; matching only float64/int64
+	// here silently dropped it on every partial update.
 	var catID *int64
-	if v, ok := cur["category_id"].(float64); ok {
+	switch v := cur["category_id"].(type) {
+	case *int64:
+		catID = v
+	case int64:
+		catID = &v
+	case float64:
 		i := int64(v)
 		catID = &i
-	} else if v, ok := cur["category_id"].(int64); ok {
-		catID = &v
 	}
 	if v, ok := fields["title"].(string); ok {
 		title = v
