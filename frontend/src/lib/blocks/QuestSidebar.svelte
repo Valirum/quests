@@ -192,31 +192,31 @@
     </button>
   {/snippet}
 
-  {#if frozenQuests.length > 0}
-    <div class="sidebar__frozen">
-      <button
-        type="button"
-        data-nav
-        class="sidebar__frozen-toggle"
-        aria-expanded={frozenOpen}
-        onclick={onToggleFrozen}
-      >
-        <span class="sidebar__frozen-label">Заморожено</span>
-        <span class="sidebar__frozen-hint">{frozenQuests.length}</span>
-        <span class="sidebar__frozen-chevron" aria-hidden="true">
-          <Icon name={frozenOpen ? 'chevron-down' : 'chevron-right'} size={12} />
-        </span>
-      </button>
-      {#if frozenOpen}
-        <div class="sidebar__frozen-body">
-          {#each frozenQuests as q (q.id)}
-            {@render questRow(q)}
-          {/each}
-        </div>
-      {/if}
-    </div>
-  {/if}
   <div class="sidebar__list" aria-label="Список квестов">
+    {#if frozenQuests.length > 0}
+      <div class="sidebar__frozen">
+        <button
+          type="button"
+          data-nav
+          class="sidebar__frozen-toggle"
+          aria-expanded={frozenOpen}
+          onclick={onToggleFrozen}
+        >
+          <span class="sidebar__frozen-label">Заморожено</span>
+          <span class="sidebar__frozen-hint">{frozenQuests.length}</span>
+          <span class="sidebar__frozen-chevron" aria-hidden="true">
+            <Icon name={frozenOpen ? 'chevron-down' : 'chevron-right'} size={12} />
+          </span>
+        </button>
+        {#if frozenOpen}
+          <div class="sidebar__frozen-body">
+            {#each frozenQuests as q (q.id)}
+              {@render questRow(q)}
+            {/each}
+          </div>
+        {/if}
+      </div>
+    {/if}
     {#if loading}
       <p class="empty">Загрузка…</p>
     {:else if quests.length === 0}
